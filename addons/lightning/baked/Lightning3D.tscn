@@ -1,0 +1,14 @@
+[gd_scene load_steps=3 format=3 uid="uid://cwybaemylrmun"]
+
+[ext_resource type="Script" uid="uid://0on2pqgdcgxm" path="res://addons/lightning/baked/Lightning3D.gd" id="1"]
+
+[sub_resource type="Curve3D" id="Curve3D_nmbox"]
+
+[node name="Lightning3D" type="Path3D"]
+curve = SubResource("Curve3D_nmbox")
+script = ExtResource("1")
+width = 0.6
+
+[connection signal="tree_entered" from="." to="." method="_on_Lightning3D_tree_entered"]
+[connection signal="tree_exiting" from="." to="." method="_on_Lightning3D_tree_exiting"]
+[connection signal="visibility_changed" from="." to="." method="_on_Lightning3D_visibility_changed"]

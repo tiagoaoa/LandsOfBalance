@@ -1,0 +1,34 @@
+[gd_scene load_steps=8 format=3 uid="uid://nkgitqhlqrsy"]
+
+[ext_resource type="PackedScene" uid="uid://b2lcb4fy8his1" path="res://stage/lands_of_balance.tscn" id="1_lands"]
+[ext_resource type="PackedScene" uid="uid://c0q5hsswj8dqf" path="res://player/player.tscn" id="2_player"]
+[ext_resource type="PackedScene" uid="uid://7bwmwbaeosl3" path="res://touch_screen_ui/touch_screen_ui.tscn" id="3_touch"]
+[ext_resource type="PackedScene" path="res://ui/minimap.tscn" id="4_minimap"]
+[ext_resource type="PackedScene" path="res://enemies/bobba.tscn" id="5_bobba"]
+[ext_resource type="PackedScene" path="res://ui/console.tscn" id="6_console"]
+[ext_resource type="PackedScene" path="res://multiplayer/join_screen.tscn" id="7_join_screen"]
+[ext_resource type="PackedScene" path="res://ui/network_debug.tscn" id="8_network_debug"]
+
+[node name="Game" type="Node3D"]
+
+[node name="LandsOfBalance" parent="." instance=ExtResource("1_lands")]
+transform = Transform3D(0.99989533, 6.324284e-10, 0.014468275, -6.324284e-10, 1, -4.5750855e-12, -0.014468275, -4.5750855e-12, 0.99989533, 3.0857086, 0, -33.224766)
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 10)
+
+[node name="Bobba" parent="." instance=ExtResource("5_bobba")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1, 18)
+
+[node name="TouchScreenUI" parent="." instance=ExtResource("3_touch")]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Minimap" parent="CanvasLayer" instance=ExtResource("4_minimap")]
+layout_mode = 3
+
+[node name="Console" parent="." instance=ExtResource("6_console")]
+
+[node name="JoinScreen" parent="." instance=ExtResource("7_join_screen")]
+
+[node name="NetworkDebug" parent="." instance=ExtResource("8_network_debug")]

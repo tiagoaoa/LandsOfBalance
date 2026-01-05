@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://remote_player_scene"]
+
+[ext_resource type="Script" path="res://multiplayer/remote_player.gd" id="1_script"]
+
+[node name="RemotePlayer" type="CharacterBody3D"]
+collision_layer = 8
+collision_mask = 1
+script = ExtResource("1_script")

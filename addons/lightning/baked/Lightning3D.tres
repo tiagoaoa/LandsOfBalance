@@ -1,0 +1,58 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3 uid="uid://cl5whp03jqh5c"]
+
+[sub_resource type="Shader" id="1"]
+code = "shader_type spatial;
+render_mode shadows_disabled, cull_disabled;
+
+uniform vec4 lightning_color: source_color;
+uniform vec4 emission_color: source_color;
+
+uniform float size: hint_range (0.,1.);
+uniform float width: hint_range (0.,1.);
+uniform float speed;
+uniform float cycle;
+uniform float ratio;
+uniform float time_shift;
+
+float rand(float x){
+	return fract(sin(x)*100000.0);
+}
+
+void fragment(){
+	float bolt = abs(mod(UV.y * cycle + (rand(TIME) + time_shift) * speed * -1., 0.5)-0.25)-0.125;
+	bolt *= 4. * width;
+	// why 4 ? Because we use mod 0.5, the value be devide by half
+	// and we -0.25 (which is half again) for abs function. So it 25%!
+	
+	// scale down at start and end
+	bolt *=  (0.5 - abs(UV.y-0.5)) * 2.; 
+	
+	// turn to a line
+	// center align line
+	float wave = abs(UV.x - 0.5 + bolt);
+	// invert and ajust size
+	wave = 1. - step(size*.5, wave);
+	
+	float blink = step(rand(TIME)*ratio, .5);
+	wave *= blink;
+	
+	vec3 display = vec3(lightning_color.r, lightning_color.g, lightning_color.b) * vec3(wave);
+	vec3 display_emission = vec3(emission_color.r, emission_color.g, emission_color.b) * vec3(wave);
+	
+	ALBEDO = display;
+	EMISSION = display_emission * 0.8;
+	ALPHA = lightning_color.a * wave;
+}
+"
+
+[resource]
+render_priority = 0
+shader = SubResource("1")
+shader_parameter/lightning_color = Color(0.0352941, 0.321569, 0.654902, 1)
+shader_parameter/emission_color = Color(0.76, 1.16, 1.73, 1)
+shader_parameter/size = 0.093
+shader_parameter/width = 1.0
+shader_parameter/speed = 10.0
+shader_parameter/cycle = 1.0
+shader_parameter/ratio = 0.5
+shader_parameter/time_shift = 1.0

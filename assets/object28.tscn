@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://object28_scene"]
+
+[ext_resource type="Script" path="res://assets/object28_loader.gd" id="1_loader"]
+
+[node name="Object28" type="Node3D"]
+script = ExtResource("1_loader")

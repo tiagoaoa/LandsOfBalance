@@ -1,0 +1,27 @@
+# Godot 4+ specific ignores
+.godot/
+
+# Godot-specific ignores
+*.import
+
+# Exported binaries (use GitHub Releases for APKs)
+build/
+
+# External addons/plugins (can be reinstalled)
+addons/humanizer/
+
+# Humanizer generated assets (can be regenerated or fetched separately)
+humanizer/
+
+# Temporary files
+temp_assets*/
+
+# Screenshots (optional, can be large)
+screenshots/
+
+# Export presets (needed for building)
+# export_presets.cfg
+
+# OS generated files
+.DS_Store
+Thumbs.db

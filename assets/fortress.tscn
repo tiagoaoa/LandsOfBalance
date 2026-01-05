@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3 uid="uid://fortress_with_collision"]
+
+[ext_resource type="PackedScene" path="res://assets/medieval_fortress_kit.glb" id="1_fortress"]
+[ext_resource type="Script" path="res://assets/fortress_collision.gd" id="2_collision"]
+
+[node name="Fortress" type="Node3D"]
+script = ExtResource("2_collision")
+
+[node name="Model" parent="." instance=ExtResource("1_fortress")]

@@ -1,0 +1,27 @@
+[gd_scene load_steps=7 format=3 uid="uid://dgameanimtreetest"]
+
+[ext_resource type="PackedScene" uid="uid://danimtreeplayer" path="res://player/player_animtree.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://stage/lands_of_balance.tscn" id="2"]
+[ext_resource type="PackedScene" uid="uid://7bwmwbaeosl3" path="res://touch_screen_ui/touch_screen_ui.tscn" id="3_touch"]
+[ext_resource type="PackedScene" path="res://ui/minimap.tscn" id="4_minimap"]
+[ext_resource type="PackedScene" path="res://enemies/bobba.tscn" id="5_bobba"]
+[ext_resource type="PackedScene" path="res://ui/console.tscn" id="6_console"]
+
+[node name="GameAnimTreeTest" type="Node3D"]
+
+[node name="LandsOfBalance" parent="." instance=ExtResource("2")]
+
+[node name="Player" parent="." instance=ExtResource("1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+
+[node name="Bobba" parent="." instance=ExtResource("5_bobba")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1, 18)
+
+[node name="TouchScreenUI" parent="." instance=ExtResource("3_touch")]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Minimap" parent="CanvasLayer" instance=ExtResource("4_minimap")]
+layout_mode = 3
+
+[node name="Console" parent="." instance=ExtResource("6_console")]

@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://arrow_projectile"]
+
+[ext_resource type="Script" path="res://player/arrow.gd" id="1_arrow"]
+
+[node name="Arrow" type="RigidBody3D"]
+collision_layer = 4
+collision_mask = 3
+script = ExtResource("1_arrow")

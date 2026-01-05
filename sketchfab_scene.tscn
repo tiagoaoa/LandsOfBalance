@@ -1,0 +1,5 @@
+[gd_scene load_steps=2 format=3 uid="uid://cc70g1fnx1uu3"]
+
+[ext_resource type="PackedScene" uid="uid://c5vlh3n6td2rr" path="res://assets/medieval_fortress_kit.glb" id="1_r57si"]
+
+[node name="Sketchfab_Scene" instance=ExtResource("1_r57si")]

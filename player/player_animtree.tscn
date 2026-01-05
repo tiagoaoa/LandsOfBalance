@@ -1,0 +1,53 @@
+[gd_scene load_steps=5 format=3 uid="uid://danimtreeplayer"]
+
+[ext_resource type="Script" path="res://player/player_animtree.gd" id="1"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
+radius = 0.3
+height = 1.8
+
+[sub_resource type="Gradient" id="Gradient_shadow"]
+interpolation_mode = 2
+offsets = PackedFloat32Array(0.2, 1)
+colors = PackedColorArray(0, 0, 0, 1, 0, 0, 0, 0)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_shadow"]
+gradient = SubResource("Gradient_shadow")
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(0.5, 0.01)
+
+[node name="Player" type="CharacterBody3D" groups=["player"]]
+collision_layer = 1
+collision_mask = 3
+script = ExtResource("1")
+
+[node name="CollisionCapsule" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_1")
+
+[node name="CameraPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 3)
+current = true
+fov = 70.0
+near = 0.1
+
+[node name="CharacterName" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
+billboard = 1
+no_depth_test = true
+modulate = Color(0.9, 0.85, 0.7, 1)
+text = "Douglass"
+font_size = 24
+outline_size = 4
+
+[node name="BlobShadow" type="Decal" parent="."]
+size = Vector3(1.2, 8, 1.2)
+texture_albedo = SubResource("GradientTexture2D_shadow")
+albedo_mix = 0.7
+upper_fade = 3.0
+lower_fade = 1.0
+cull_mask = 1048573
