@@ -153,6 +153,15 @@ var _spell_tween: Tween
 # Enhanced spell VFX
 var _spell_time: float = 0.0  # For sin() flicker calculations
 var _lightning_bolts_3d: Array = []  # Lightning3DBranched instances from addon
+# Archer fire circle spell
+var _fire_circle_particles: Array[GPUParticles3D] = []  # Multiple fire emitters in a circle
+var _fire_circle_light: OmniLight3D
+var _fire_circle_node: Node3D  # Container for fire circle effects
+var _fire_circle_time: float = 0.0  # Track elapsed time for intensity reduction
+var _fire_circle_active: bool = false  # Track if fire circle is active
+const FIRE_CIRCLE_RADIUS: float = 2.5
+const FIRE_CIRCLE_EMITTERS: int = 8
+const FIRE_CIRCLE_DURATION: float = 4.0  # 4 seconds with 1/time intensity decay
 var _character_aura_material: ShaderMaterial  # Fresnel aura shader
 var _original_character_materials: Array[Dictionary] = []  # Store {mesh, material} pairs
 const NUM_LIGHTNING_BOLTS: int = 6  # Number of 3D lightning bolts
@@ -180,6 +189,7 @@ func _ready() -> void:
 	_setup_attack_hitbox()  # Must be before _create_characters which attaches hitbox to bones
 	_create_characters()
 	_create_lightning_particles()
+	_create_fire_circle_spell()
 	_setup_hit_label()
 	_setup_bow_progress_bar()
 	_setup_multiplayer()
@@ -213,10 +223,46 @@ func _setup_multiplayer() -> void:
 		network_manager.arrow_spawned.connect(_on_network_arrow_spawned)
 		# Connect to arrow hit signal to create ground fire for remote arrows
 		network_manager.arrow_hit.connect(_on_network_arrow_hit)
+		# Connect to joined_game signal to apply character selection
+		network_manager.joined_game.connect(_on_joined_game)
 		print("Player: Arrow signals connected")
 		# Note: NetworkManager auto-connects as spectator and joins via JoinScreen
 	else:
 		print("Player: NetworkManager NOT found!")
+
+	# Also apply character selection for singleplayer (when JoinScreen hides)
+	call_deferred("_apply_character_selection_if_ready")
+
+
+func _on_joined_game() -> void:
+	print("Player: Joined game - applying character selection")
+	_apply_character_selection()
+
+
+func _apply_character_selection_if_ready() -> void:
+	# Check if JoinScreen exists and has already hidden (singleplayer/direct join)
+	var join_screen = get_node_or_null("/root/Game/JoinScreen")
+	if join_screen == null:
+		join_screen = get_tree().get_first_node_in_group("join_screen")
+
+	if join_screen and not join_screen.visible:
+		_apply_character_selection()
+
+
+func _apply_character_selection() -> void:
+	var join_screen = get_node_or_null("/root/Game/JoinScreen")
+	if join_screen == null:
+		join_screen = get_tree().get_first_node_in_group("join_screen")
+
+	if join_screen and "selected_character_class" in join_screen:
+		var selected_class = join_screen.selected_character_class
+		print("Player: Selected character class: %d" % selected_class)
+		if selected_class == 0:
+			_switch_character_class(CharacterClass.PALADIN)
+		else:
+			_switch_character_class(CharacterClass.ARCHER)
+	else:
+		print("Player: JoinScreen not found or no selection - using default (Archer)")
 
 
 func _setup_fifo() -> void:
@@ -724,6 +770,99 @@ func _create_spell_light() -> void:
 	_spell_effects_container.add_child(_spell_light)
 
 
+func _create_fire_circle_spell() -> void:
+	# Create container for Archer's fire circle spell
+	_fire_circle_node = Node3D.new()
+	_fire_circle_node.name = "FireCircleSpell"
+	add_child(_fire_circle_node)
+
+	# Create warm fire light (orange/red glow)
+	_fire_circle_light = OmniLight3D.new()
+	_fire_circle_light.name = "FireCircleLight"
+	_fire_circle_light.light_color = Color(1.0, 0.6, 0.2)
+	_fire_circle_light.light_energy = 0.0  # Start off
+	_fire_circle_light.omni_range = 6.0
+	_fire_circle_light.omni_attenuation = 1.5
+	_fire_circle_light.shadow_enabled = true
+	_fire_circle_light.position = Vector3(0, 0.5, 0)
+	_fire_circle_node.add_child(_fire_circle_light)
+
+	# Create fire emitters in a circle around the player
+	for i in range(FIRE_CIRCLE_EMITTERS):
+		var angle = (float(i) / FIRE_CIRCLE_EMITTERS) * TAU
+		var x = cos(angle) * FIRE_CIRCLE_RADIUS
+		var z = sin(angle) * FIRE_CIRCLE_RADIUS
+
+		var fire = GPUParticles3D.new()
+		fire.name = "FireEmitter_%d" % i
+		fire.emitting = false
+		fire.amount = 80  # More particles for smoother look
+		fire.lifetime = 1.2  # Longer lifetime
+		fire.explosiveness = 0.05  # More gradual emission
+		fire.randomness = 0.5
+		fire.position = Vector3(x, 0.1, z)
+
+		var fire_mat = ParticleProcessMaterial.new()
+		fire_mat.direction = Vector3(0, 1, 0)
+		fire_mat.spread = 20.0
+		fire_mat.initial_velocity_min = 1.0
+		fire_mat.initial_velocity_max = 2.5
+		fire_mat.gravity = Vector3(0, 0.5, 0)  # Fire rises gently
+		fire_mat.damping_min = 0.5
+		fire_mat.damping_max = 1.5
+
+		# Color gradient: white core -> yellow -> orange -> red -> dark red
+		var color_gradient = Gradient.new()
+		color_gradient.offsets = PackedFloat32Array([0.0, 0.15, 0.35, 0.55, 0.75, 1.0])
+		color_gradient.colors = PackedColorArray([
+			Color(1.0, 1.0, 0.9, 0.9),   # White-yellow core
+			Color(1.0, 0.85, 0.3, 1.0),  # Bright yellow
+			Color(1.0, 0.5, 0.1, 1.0),   # Orange
+			Color(0.95, 0.25, 0.05, 0.9), # Bright red
+			Color(0.7, 0.1, 0.02, 0.6),  # Deep red
+			Color(0.3, 0.05, 0.01, 0.0)  # Dark red fade out
+		])
+		var color_tex = GradientTexture1D.new()
+		color_tex.gradient = color_gradient
+		color_tex.width = 256  # Smoother gradient
+		fire_mat.color_ramp = color_tex
+
+		# Scale curve: grow then shrink for organic flame shape
+		var scale_curve = Curve.new()
+		scale_curve.add_point(Vector2(0.0, 0.3))
+		scale_curve.add_point(Vector2(0.2, 1.0))
+		scale_curve.add_point(Vector2(0.6, 0.7))
+		scale_curve.add_point(Vector2(1.0, 0.1))
+		var scale_tex = CurveTexture.new()
+		scale_tex.curve = scale_curve
+		fire_mat.scale_curve = scale_tex
+		fire_mat.scale_min = 0.4
+		fire_mat.scale_max = 0.8
+
+		fire_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		fire_mat.emission_sphere_radius = 0.25
+		fire.process_material = fire_mat
+
+		# Larger, softer fire mesh
+		var fire_mesh = QuadMesh.new()
+		fire_mesh.size = Vector2(0.6, 0.8)  # Taller flame shape
+		var mesh_mat = StandardMaterial3D.new()
+		mesh_mat.albedo_color = Color(1.0, 0.8, 0.5, 0.9)
+		mesh_mat.emission_enabled = true
+		mesh_mat.emission = Color(1.0, 0.4, 0.1)
+		mesh_mat.emission_energy_multiplier = 3.0
+		mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mesh_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD  # Additive blending for glow
+		mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mesh_mat.vertex_color_use_as_albedo = true  # Use particle color
+		fire_mesh.material = mesh_mat
+		fire.draw_pass_1 = fire_mesh
+
+		_fire_circle_node.add_child(fire)
+		_fire_circle_particles.append(fire)
+
+
 func _create_spark_particles() -> void:
 	# Core sparks around player body (ProceduralThunderChannel SparkShower)
 	_lightning_particles = GPUParticles3D.new()
@@ -1016,7 +1155,19 @@ func _update_spell_effects(delta: float) -> void:
 
 	_spell_time += delta
 
-	# Flickering light using sin() with high frequency
+	# Archer fire circle - update intensity with 1/time decay
+	if character_class == CharacterClass.ARCHER and _fire_circle_active:
+		_fire_circle_time += delta
+		# 1/time intensity decay: starts at full, decays over duration
+		# Using 1/(1 + time * decay_rate) to avoid division by zero and smooth start
+		var decay_rate := 1.0  # Adjust for speed of decay
+		var intensity := 4.0 / (1.0 + _fire_circle_time * decay_rate)
+		# Add subtle flicker
+		var flicker := sin(_fire_circle_time * 15.0) * 0.3
+		_fire_circle_light.light_energy = max(0.2, intensity + flicker)
+		return
+
+	# Paladin lightning - flickering light using sin() with high frequency
 	var base_energy := 6.0
 	var flicker := sin(_spell_time * 20.0) * 2.0 + sin(_spell_time * 33.0) * 1.0 + sin(_spell_time * 47.0) * 0.5
 	_spell_light.light_energy = base_energy + flicker
@@ -1075,6 +1226,15 @@ func _start_spell_effects() -> void:
 	_spell_tween = create_tween()
 	_spell_tween.set_parallel(true)
 
+	# Archer uses fire circle, Paladin uses lightning
+	if character_class == CharacterClass.ARCHER:
+		_start_fire_circle_spell()
+	else:
+		_start_lightning_spell()
+
+
+func _start_lightning_spell() -> void:
+	# Paladin lightning spell effects
 	# Show and animate magic circle
 	_magic_circle.visible = true
 	_magic_circle.scale = Vector3(0.01, 0.01, 0.01)
@@ -1117,10 +1277,48 @@ func _start_spell_effects() -> void:
 		_audio_static.play()
 
 
+func _start_fire_circle_spell() -> void:
+	# Archer fire circle spell - flames stay lit for FIRE_CIRCLE_DURATION with 1/time decay
+	_fire_circle_active = true
+	_fire_circle_time = 0.0
+
+	# Start fire light (intensity will be managed by _update_spell_effects)
+	_fire_circle_light.light_energy = 4.0
+
+	# Start all fire emitters
+	for fire in _fire_circle_particles:
+		fire.emitting = true
+
+	# Schedule auto-stop after FIRE_CIRCLE_DURATION
+	_spell_tween.tween_callback(_stop_fire_circle_spell).set_delay(FIRE_CIRCLE_DURATION)
+
+
+func _stop_fire_circle_spell() -> void:
+	# Stop the Archer fire circle spell effects
+	_fire_circle_active = false
+
+	var fade_tween = create_tween()
+	fade_tween.set_parallel(true)
+
+	# Fade out fire light
+	if _fire_circle_light:
+		fade_tween.tween_property(_fire_circle_light, "light_energy", 0.0, 0.5).set_ease(Tween.EASE_IN)
+
+	# Stop all fire emitters
+	for fire in _fire_circle_particles:
+		fire.emitting = false
+
+
 func _stop_spell_effects() -> void:
 	if _spell_tween:
 		_spell_tween.kill()
 
+	# Branch by character class
+	if character_class == CharacterClass.ARCHER:
+		_stop_fire_circle_spell()
+		return
+
+	# Paladin lightning spell cleanup
 	_spell_tween = create_tween()
 	_spell_tween.set_parallel(true)
 

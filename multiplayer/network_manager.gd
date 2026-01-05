@@ -642,6 +642,8 @@ func _create_remote_player(player_id: int, player_data: ProtocolClass.PlayerData
 	var remote = remote_scene.instantiate()
 	remote.player_id = player_id
 	remote.name = "RemotePlayer_%d" % player_id
+	# Set character class BEFORE adding to scene so correct model loads
+	remote.character_class = player_data.character_class
 
 	get_tree().current_scene.add_child(remote)
 	remote_players[player_id] = remote
@@ -680,6 +682,7 @@ func _update_remote_player(player_id: int, player_data: ProtocolClass.PlayerData
 		"rotation_y": player_data.rotation_y,
 		"state": player_data.state,
 		"combat_mode": player_data.combat_mode,
+		"character_class": player_data.character_class,
 		"health": player_data.health,
 		"anim_name": player_data.anim_name
 	}
