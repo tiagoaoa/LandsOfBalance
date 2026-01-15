@@ -174,8 +174,9 @@ func _auto_connect() -> void:
 		if arg == "--server" or "server.tscn" in arg:
 			return
 
-	print("NetworkManager: Auto-connecting as spectator to 127.0.0.1:%d" % server_port)
-	spectate_server("127.0.0.1", server_port)
+	var server_host := ProtocolClass.DEFAULT_SERVER
+	print("NetworkManager: Auto-connecting as spectator to %s:%d" % [server_host, server_port])
+	spectate_server(server_host, server_port)
 
 
 func _notification(what: int) -> void:

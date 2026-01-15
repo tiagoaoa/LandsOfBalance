@@ -12,7 +12,7 @@ const MAX_PLAYERS: int = 64
 const MAX_ENTITIES: int = 128
 const MAX_ARROWS: int = 256
 const SERVER_PORT: int = 7777
-const DEFAULT_SERVER: String = "127.0.0.1"
+const DEFAULT_SERVER: String = "scherbius.vitorpy.com"
 
 # Timing constants (milliseconds)
 const ACK_TIMEOUT_MS: int = 100
