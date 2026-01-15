@@ -527,16 +527,77 @@ static func _add_vertical_wing_flap(anim: Animation, duration: float, downstroke
 		Quaternion.from_euler(Vector3(0, deg_to_rad(-amp), 0)),   # DOWN
 	])
 
-	# === ALL NECK BONES - up/down in YZ plane ===
-	var neck_amp := 10.0 * intensity
+	# === NECK BONES - Z rotation wave ===
+	# Custom ranges from animation editor
+	_add_rotation_track(anim, "Neck1", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(10.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-10.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(10.0 * intensity))),
+	])
+	_add_rotation_track(anim, "Neck2", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(10.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-10.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(10.0 * intensity))),
+	])
+	_add_rotation_track(anim, "Neck3", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(80.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(68.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(80.0 * intensity))),
+	])
+	_add_rotation_track(anim, "Neck4", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(28.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(17.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(28.0 * intensity))),
+	])
+	_add_rotation_track(anim, "Neck5", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-21.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(60.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-21.0 * intensity))),
+	])
 
-	# All neck bones with same Z rotation
-	for neck_bone in ["Neck1", "Neck2", "Neck3", "Neck4", "Neck5"]:
-		_add_rotation_track(anim, neck_bone, [t0, t1, t2], [
-			Quaternion.from_euler(Vector3(0, 0, deg_to_rad(neck_amp))),
-			Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-neck_amp))),
-			Quaternion.from_euler(Vector3(0, 0, deg_to_rad(neck_amp))),
-		])
+	# === TAIL BONES - Z rotation (custom values from animation editor) ===
+	# Tail1: min=-14, max=-62
+	_add_rotation_track(anim, "Tail1", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-62.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-14.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-62.0 * intensity))),
+	])
+	# Tail2: min=-65, max=-33
+	_add_rotation_track(anim, "Tail2", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-33.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-65.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-33.0 * intensity))),
+	])
+	# Tail3: min=47, max=-40
+	_add_rotation_track(anim, "Tail3", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-40.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(47.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-40.0 * intensity))),
+	])
+	# Tail4: min=56, max=-29
+	_add_rotation_track(anim, "Tail4", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-29.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(56.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-29.0 * intensity))),
+	])
+	# Tail5: min=-76, max=-38
+	_add_rotation_track(anim, "Tail5", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-38.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-76.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(-38.0 * intensity))),
+	])
+	# Tail6: min=14, max=61
+	_add_rotation_track(anim, "Tail6", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(61.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(14.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(61.0 * intensity))),
+	])
+	# Tail7: min=6, max=81
+	_add_rotation_track(anim, "Tail7", [t0, t1, t2], [
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(81.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(6.0 * intensity))),
+		Quaternion.from_euler(Vector3(0, 0, deg_to_rad(81.0 * intensity))),
+	])
 
 
 static func _add_neck_head_bob(anim: Animation, duration: float, downstroke_end: float, intensity: float) -> void:

@@ -20,7 +20,7 @@ shape = SubResource("CapsuleShape3D_bobba")
 transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1.5, 0, 0, 0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Model"]
-root_node = NodePath(".")
+root_node = NodePath("..")
 
 [node name="NameLabel" type="Label3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.75, 0)

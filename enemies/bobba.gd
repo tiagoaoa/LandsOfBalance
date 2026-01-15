@@ -12,22 +12,46 @@ const State = Proto.BobbaState
 
 # Network synchronization
 var entity_id: int = 0  # Unique ID for network sync
-var health: float = 100.0
 var _is_network_controlled: bool = false  # True for non-host clients
 var _target_position: Vector3 = Vector3.ZERO
 var _target_rotation: float = 0.0
 
+# Health system
+const MAX_HEALTH: float = 500.0
+var health: float = MAX_HEALTH
+
+# Movement constants
 const ROAM_SPEED: float = 2.0
 const CHASE_SPEED: float = 5.0
-const ATTACK_RANGE: float = 10.0  # Detection radius in meters
+const RETREAT_SPEED: float = 3.0  # Speed when retreating from arrows
+const DETECTION_RADIUS: float = 10.0  # Start following within this radius
+const LOSE_RADIUS: float = 20.0  # Stop following beyond this radius
 const ATTACK_DISTANCE: float = 2.0  # Distance to start attack animation
 const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
-const ATTACK_DAMAGE: float = 10.0
+
+# Combat constants
+const ATTACK_DAMAGE: float = 70.0  # Damage dealt to players
+const ARROW_DAMAGE: float = 10.0  # Damage taken from arrows
+const SWORD_DAMAGE: float = 50.0  # Damage taken from Paladin sword
 const KNOCKBACK_FORCE: float = 12.0
 
+# Arrow retreat behavior
+var _is_retreating: bool = false
+var _retreat_timer: float = 0.0
+var _retreat_direction: Vector3 = Vector3.ZERO
+const RETREAT_DURATION: float = 2.0  # Seconds to retreat after arrow hit
+
+# Fire avoidance
+var _ground_fires: Array = []  # Track active ground fire positions
+const FIRE_AVOID_RADIUS: float = 3.0  # Distance to avoid from fire
+
+signal health_changed(current: float, maximum: float)
+signal died()
+
 var state: int = State.ROAMING
-var player: Node3D = null
+var target: Node3D = null  # Current target player
+var _all_players: Array[Node3D] = []  # All players in scene
 var roam_direction: Vector3 = Vector3.ZERO
 var roam_timer: float = 0.0
 var attack_cooldown: float = 0.0
@@ -66,6 +90,7 @@ const ANIM_PATHS: Dictionary = {
 
 
 func _ready() -> void:
+	add_to_group("bobba")  # Add to group for easy finding
 	_find_player()
 	_setup_attack_hitbox()  # Must be before _setup_model which attaches hitboxes to bones
 	_setup_model()
@@ -75,45 +100,147 @@ func _ready() -> void:
 
 
 func _setup_network() -> void:
-	# Generate unique entity ID from instance ID
-	entity_id = get_instance_id() % 1000000  # Keep it reasonable size
+	# Use fixed entity ID = 1 for scene Bobba (matches server's first spawned Bobba)
+	# Server spawns Bobba with incrementing IDs starting from 1
+	entity_id = 1
 
 	# Register with NetworkManager if available
-	if has_node("/root/NetworkManager"):
-		var network_manager = get_node("/root/NetworkManager")
+	var network_manager = get_node_or_null("/root/NetworkManager")
+	if network_manager:
 		network_manager.register_entity(self, Proto.EntityType.ENTITY_BOBBA, entity_id)
 
-		# Check if we're the host - if not, we're network-controlled
-		# Wait a frame for the network manager to determine host status
-		await get_tree().process_frame
-		await get_tree().process_frame
-		_is_network_controlled = not network_manager.is_host
+		# Connect to connection signals to update mode when connection state changes
+		if not network_manager.connected_to_server.is_connected(_on_connected_to_server):
+			network_manager.connected_to_server.connect(_on_connected_to_server)
+		if not network_manager.joined_game.is_connected(_on_joined_game):
+			network_manager.joined_game.connect(_on_joined_game)
+		if not network_manager.spectating_started.is_connected(_on_spectating_started):
+			network_manager.spectating_started.connect(_on_spectating_started)
+
+		# Check connection status immediately
+		_update_network_control_mode()
+	else:
+		# No NetworkManager - run locally
+		_is_network_controlled = false
+		print("Bobba [%d]: Locally-controlled (no NetworkManager)" % entity_id)
+
+
+func _on_connected_to_server() -> void:
+	_update_network_control_mode()
+
+
+func _on_joined_game() -> void:
+	_update_network_control_mode()
+
+
+func _on_spectating_started() -> void:
+	_update_network_control_mode()
+
+
+func _update_network_control_mode() -> void:
+	var network_manager = get_node_or_null("/root/NetworkManager")
+	if not network_manager:
+		return
+
+	# Server is ALWAYS authoritative for entities - all clients receive state from server
+	var is_connected = network_manager.client_state and network_manager.client_state.is_network_connected()
+	# Also check if we're spectating (receiving state but not joined yet)
+	var is_spectating = network_manager.is_spectating
+
+	if is_connected or is_spectating:
+		if not _is_network_controlled:
+			_is_network_controlled = true
+			print("Bobba [%d]: Network-controlled (server authoritative)" % entity_id)
+	else:
 		if _is_network_controlled:
-			print("Bobba [%d]: Network-controlled (client mode)" % entity_id)
-		else:
-			print("Bobba [%d]: Locally-controlled (host mode)" % entity_id)
+			_is_network_controlled = false
+			print("Bobba [%d]: Locally-controlled (single player)" % entity_id)
 
 
 func _exit_tree() -> void:
 	# Unregister from NetworkManager
 	if has_node("/root/NetworkManager"):
 		var network_manager = get_node("/root/NetworkManager")
-		network_manager.unregister_entity(entity_id)
+		if network_manager.has_method("unregister_entity"):
+			network_manager.unregister_entity(entity_id)
 
 
 func _find_player() -> void:
-	# Find the player in the scene
+	# Find all players in the scene (local + remote)
 	await get_tree().process_frame
-	player = get_tree().get_first_node_in_group("player")
-	if player == null:
-		# Try to find by class name
-		for node in get_tree().get_nodes_in_group(""):
-			if node is CharacterBody3D and node.name == "Player":
-				player = node
-				break
-	if player == null:
-		# Search entire tree
-		player = _find_node_by_name(get_tree().root, "Player")
+	_update_player_list()
+
+
+func _update_player_list() -> void:
+	# Refresh list of all players (local and remote)
+	_all_players.clear()
+
+	# Find local player by name (most reliable)
+	var local_player = _find_node_by_name(get_tree().root, "Player")
+	if local_player and is_instance_valid(local_player):
+		_all_players.append(local_player)
+
+	# Also check for group membership as fallback
+	var group_player = get_tree().get_first_node_in_group("player")
+	if group_player and is_instance_valid(group_player) and group_player not in _all_players:
+		_all_players.append(group_player)
+
+	# Find remote players - search for RemotePlayer nodes
+	_find_remote_players(get_tree().root)
+
+
+func _find_remote_players(node: Node) -> void:
+	# Recursively find all RemotePlayer instances
+	if node.get_class() == "CharacterBody3D" and "RemotePlayer" in node.name:
+		if is_instance_valid(node) and node not in _all_players:
+			_all_players.append(node)
+	# Also check by script class name
+	if node is CharacterBody3D and node.has_method("update_from_network"):
+		if is_instance_valid(node) and node not in _all_players:
+			_all_players.append(node)
+	for child in node.get_children():
+		_find_remote_players(child)
+
+
+func _select_target() -> void:
+	# Select which player to follow based on rules:
+	# 1. Keep current target if still valid and within LOSE_RADIUS
+	# 2. Otherwise, pick first player within DETECTION_RADIUS
+
+	# Always update player list to catch new players
+	_update_player_list()
+
+	# Check if current target is still valid
+	if target and is_instance_valid(target):
+		var dist = global_position.distance_to(target.global_position)
+		if dist <= LOSE_RADIUS:
+			return  # Keep current target
+		else:
+			# Target escaped, clear it
+			target = null
+			state = State.ROAMING
+			_pick_new_roam_direction()
+			print("Bobba: Target escaped beyond %dm, returning to roaming" % int(LOSE_RADIUS))
+
+	# No valid target, look for a new one within detection radius
+	if target == null:
+		for p in _all_players:
+			if is_instance_valid(p):
+				var dist = global_position.distance_to(p.global_position)
+				if dist <= DETECTION_RADIUS:
+					target = p
+					state = State.CHASING
+					print("Bobba: New target acquired at %.1fm - %s" % [dist, p.name])
+					break
+
+
+func _set_attacker_as_target(attacker: Node3D) -> void:
+	# When attacked, prioritize the attacker as target
+	if attacker and is_instance_valid(attacker):
+		target = attacker
+		if state == State.ROAMING or state == State.IDLE:
+			state = State.CHASING
+		print("Bobba: Switching target to attacker")
 
 
 func _find_node_by_name(node: Node, target_name: String) -> Node:
@@ -181,14 +308,14 @@ func _create_hand_hitbox(hitbox_name: String) -> Area3D:
 	hitbox.name = hitbox_name
 	hitbox.collision_layer = 0  # Doesn't collide with anything
 	hitbox.collision_mask = 1   # Detects player (layer 1)
-	hitbox.monitoring = false   # Start disabled
+	hitbox.monitoring = true    # Always monitoring - damage gated by _hitbox_active_window
 
-	# Create collision shape - sphere for hand/fist
+	# Create collision shape - large sphere for reliable hit detection
 	var collision_shape = CollisionShape3D.new()
 	var sphere = SphereShape3D.new()
-	sphere.radius = 0.4  # Fist-sized hitbox
+	sphere.radius = 1.2  # Large radius for reliable hit detection
 	collision_shape.shape = sphere
-	collision_shape.position = Vector3.ZERO
+	collision_shape.position = Vector3(0, 0, 0.5)  # Offset forward from hand
 
 	hitbox.add_child(collision_shape)
 	return hitbox
@@ -206,11 +333,13 @@ func _setup_hand_bone_attachments() -> void:
 
 	var skeleton: Skeleton3D = _find_skeleton(_model)
 	if skeleton == null:
-		print("Bobba: No skeleton found for hand attachments, using fallback")
-		add_child(_left_hand_hitbox)
-		add_child(_right_hand_hitbox)
-		_left_hand_hitbox.position = Vector3(-0.75, 1.5, 0.75)
-		_right_hand_hitbox.position = Vector3(0.75, 1.5, 0.75)
+		print("Bobba: No skeleton found for hand attachments, using fallback on model")
+		# Add to _model so hitboxes rotate with Bobba's facing direction
+		_model.add_child(_left_hand_hitbox)
+		_model.add_child(_right_hand_hitbox)
+		# Position in model's local space (forward = +Z in model space)
+		_left_hand_hitbox.position = Vector3(-0.5, 1.0, 0.5)
+		_right_hand_hitbox.position = Vector3(0.5, 1.0, 0.5)
 		return
 
 	# Debug: print all bone names
@@ -228,9 +357,9 @@ func _setup_hand_bone_attachments() -> void:
 		_left_hand_attachment.add_child(_left_hand_hitbox)
 		print("Bobba: Attached left hand hitbox to bone: ", skeleton.get_bone_name(left_hand_idx))
 	else:
-		print("Bobba: Left hand bone not found, using fallback position")
-		add_child(_left_hand_hitbox)
-		_left_hand_hitbox.position = Vector3(-0.75, 1.5, 0.75)
+		print("Bobba: Left hand bone not found, using fallback position on model")
+		_model.add_child(_left_hand_hitbox)
+		_left_hand_hitbox.position = Vector3(-0.5, 1.0, 0.5)
 
 	# Find right hand bone
 	var right_hand_idx: int = _find_hand_bone(skeleton, "Right")
@@ -242,9 +371,9 @@ func _setup_hand_bone_attachments() -> void:
 		_right_hand_attachment.add_child(_right_hand_hitbox)
 		print("Bobba: Attached right hand hitbox to bone: ", skeleton.get_bone_name(right_hand_idx))
 	else:
-		print("Bobba: Right hand bone not found, using fallback position")
-		add_child(_right_hand_hitbox)
-		_right_hand_hitbox.position = Vector3(0.75, 1.5, 0.75)
+		print("Bobba: Right hand bone not found, using fallback position on model")
+		_model.add_child(_right_hand_hitbox)
+		_right_hand_hitbox.position = Vector3(0.5, 1.0, 0.5)
 
 
 func _find_hand_bone(skeleton: Skeleton3D, side: String) -> int:
@@ -286,57 +415,87 @@ func _setup_hit_label() -> void:
 	_hit_label.visible = false
 	add_child(_hit_label)
 
+	# Create health bar label above Bobba
+	var health_label = Label3D.new()
+	health_label.name = "HealthLabel"
+	health_label.text = "%.0f / %.0f" % [health, MAX_HEALTH]
+	health_label.font_size = 32
+	health_label.modulate = Color(1.0, 0.3, 0.3)
+	health_label.outline_modulate = Color(0.2, 0.0, 0.0)
+	health_label.outline_size = 6
+	health_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	health_label.no_depth_test = true
+	health_label.position = Vector3(0, 4.0, 0)  # Above name label
+	add_child(health_label)
+
+	# Connect health signal to update label
+	health_changed.connect(_on_health_label_update)
+
 
 func _on_attack_hitbox_body_entered(body: Node3D) -> void:
-	print("Bobba: Hand hitbox detected body: ", body.name, " (class: ", body.get_class(), ")")
-
-	if _has_hit_this_attack:
-		print("Bobba: Already hit this attack, ignoring")
+	# Only process hits during the active damage window
+	if not _hitbox_active_window:
 		return
 
-	if body == player and player and is_instance_valid(player):
+	if _has_hit_this_attack:
+		return
+
+	# Only process CharacterBody3D (ignore ground, walls, etc.)
+	if not body is CharacterBody3D:
+		return
+
+	# Check if this is any player (local or remote)
+	var is_player = body == target or body.is_in_group("player") or body.is_in_group("remote_players")
+	if is_player and is_instance_valid(body):
+		print("Bobba: Hit player: ", body.name)
 		_has_hit_this_attack = true
 
-		# Calculate knockback direction (from Bobba to player)
-		var knockback_dir = (player.global_position - global_position).normalized()
+		# Calculate knockback direction (from Bobba to hit body)
+		var knockback_dir = (body.global_position - global_position).normalized()
 		knockback_dir.y = 0.3  # Add slight upward component
 
 		# Check if player is blocking (is_blocking is a variable, not a method)
 		var player_is_blocking: bool = false
-		if "is_blocking" in player:
-			player_is_blocking = player.is_blocking
+		if "is_blocking" in body:
+			player_is_blocking = body.is_blocking
 
 		if player_is_blocking:
 			# Blocked - reduced knockback, no damage
-			if player.has_method("take_hit"):
-				player.take_hit(0, knockback_dir * KNOCKBACK_FORCE * 0.3, true)
+			if body.has_method("take_hit"):
+				body.take_hit(0, knockback_dir * KNOCKBACK_FORCE * 0.3, true)
 			print("Bobba: HIT BLOCKED by player")
 		else:
 			# Not blocked - full damage and knockback
-			if player.has_method("take_hit"):
-				player.take_hit(ATTACK_DAMAGE, knockback_dir * KNOCKBACK_FORCE, false)
+			if body.has_method("take_hit"):
+				body.take_hit(ATTACK_DAMAGE, knockback_dir * KNOCKBACK_FORCE, false)
 			print("Bobba: HIT LANDED on player")
 
-		attack_landed.emit(player, knockback_dir)
-	else:
-		print("Bobba: Body is not the player")
+		attack_landed.emit(body, knockback_dir)
 
+
+var _hitbox_active_window: bool = false  # Whether we're in the damage-dealing portion of attack
 
 func enable_attack_hitbox() -> void:
-	# Don't immediately enable - will be enabled based on animation progress
+	# Reset attack hit tracking - called when attack starts
+	print("Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false")
 	_has_hit_this_attack = false
 	_attack_anim_progress = 0.0
+	_hitbox_active_window = false
+	# Keep hitboxes monitoring always - we control damage via _hitbox_active_window
+	_left_hand_hitbox.monitoring = true
+	_right_hand_hitbox.monitoring = true
 
 
 func disable_attack_hitbox() -> void:
-	_left_hand_hitbox.monitoring = false
-	_right_hand_hitbox.monitoring = false
+	_hitbox_active_window = false
 	_attack_anim_progress = 0.0
+	# Keep monitoring on - avoids state confusion when toggling
 
 
 func _update_attack_hitbox_timing() -> void:
-	# Track attack animation progress and enable hitboxes only during active portion
+	# Track attack animation progress and set active window for damage dealing
 	if state != State.ATTACKING or _anim_player == null:
+		_hitbox_active_window = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -347,27 +506,44 @@ func _update_attack_hitbox_timing() -> void:
 	else:
 		_attack_anim_progress = 0.0
 
-	# Enable hitboxes during the active swipe portion (when hands are swinging)
+	# Active window is when hands are swinging (30% to 70% of animation)
 	var should_be_active: bool = _attack_anim_progress >= HAND_HITBOX_START and _attack_anim_progress <= HAND_HITBOX_END
 
-	if should_be_active and not _left_hand_hitbox.monitoring:
-		_left_hand_hitbox.monitoring = true
-		_right_hand_hitbox.monitoring = true
-		print("Bobba: Hand hitboxes ENABLED at progress ", _attack_anim_progress)
-	elif not should_be_active and _left_hand_hitbox.monitoring:
-		_left_hand_hitbox.monitoring = false
-		_right_hand_hitbox.monitoring = false
-		print("Bobba: Hand hitboxes DISABLED at progress ", _attack_anim_progress)
+	if should_be_active and not _hitbox_active_window:
+		_hitbox_active_window = true
+		print("Bobba: Attack window ACTIVE at progress ", _attack_anim_progress)
+	elif not should_be_active and _hitbox_active_window:
+		_hitbox_active_window = false
+		print("Bobba: Attack window ENDED at progress ", _attack_anim_progress)
+
+	# Check for hits during active window
+	if _hitbox_active_window and not _has_hit_this_attack:
+		var left_bodies = _left_hand_hitbox.get_overlapping_bodies()
+		var right_bodies = _right_hand_hitbox.get_overlapping_bodies()
+		if left_bodies.size() > 0 or right_bodies.size() > 0:
+			print("Bobba: Overlapping bodies - Left: ", left_bodies.size(), ", Right: ", right_bodies.size())
+		for body in left_bodies:
+			_on_attack_hitbox_body_entered(body)
+			if _has_hit_this_attack:
+				return
+		for body in right_bodies:
+			_on_attack_hitbox_body_entered(body)
+			if _has_hit_this_attack:
+				return
 
 
-func take_hit(damage: float, knockback: Vector3, _blocked: bool = false) -> void:
+func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacker: Node3D = null) -> void:
 	# Flash red when hit
 	_flash_hit(Color(1.0, 0.2, 0.2))
 
 	# Show floating "Hit!" label
 	_show_hit_label()
 
-	# Apply knockback
+	# Switch target to attacker (prioritize who is attacking)
+	if attacker:
+		_set_attacker_as_target(attacker)
+
+	# Apply knockback (visual feedback is ok locally even in multiplayer)
 	if knockback.length() > 0:
 		state = State.STUNNED
 		_stun_timer = 0.5
@@ -375,8 +551,112 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false) -> void
 		# Force current animation to clear so it can transition properly after stun
 		_current_anim = &""
 
-	print("Bobba took hit! Damage: ", damage, " State: ", state)
-	# TODO: Track health when implementing health system
+	# In multiplayer, don't apply damage locally - server is authoritative
+	# The player will send MSG_ENTITY_DAMAGE to server which updates our health
+	if not _is_network_controlled:
+		take_damage(damage)
+	print("Bobba took hit! Damage: %.1f HP: %.1f/%.1f" % [damage, health, MAX_HEALTH])
+
+
+## Take damage from any source (arrows, sword, etc.)
+func take_damage(amount: float) -> void:
+	var old_health = health
+	health = maxf(0.0, health - amount)
+	print("Bobba: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, health])
+	health_changed.emit(health, MAX_HEALTH)
+
+	if health <= 0:
+		_on_death()
+
+
+## Called when Bobba dies
+func _on_death() -> void:
+	print("Bobba died!")
+	died.emit()
+	state = State.DEAD
+	# Play death animation if available
+	if _anim_player and _anim_player.has_animation(&"bobba/Dying"):
+		_play_anim(&"bobba/Dying")
+	# Disable collision and hitboxes
+	if _left_hand_hitbox:
+		_left_hand_hitbox.monitoring = false
+	if _right_hand_hitbox:
+		_right_hand_hitbox.monitoring = false
+
+
+## Update health label when health changes
+func _on_health_label_update(current: float, _maximum: float) -> void:
+	print("Bobba: _on_health_label_update called with HP=%.1f" % current)
+	var health_label = get_node_or_null("HealthLabel")
+	if health_label == null:
+		print("Bobba: WARNING - HealthLabel not found!")
+		return
+	health_label.text = "%.0f / %.0f" % [current, MAX_HEALTH]
+	print("Bobba: Updated health label to: ", health_label.text)
+	# Change color based on health
+	var health_pct = current / MAX_HEALTH
+	if health_pct > 0.5:
+		health_label.modulate = Color(0.3, 1.0, 0.3)  # Green
+	elif health_pct > 0.25:
+		health_label.modulate = Color(1.0, 0.8, 0.2)  # Yellow
+	else:
+		health_label.modulate = Color(1.0, 0.3, 0.3)  # Red
+
+
+## Take damage from arrow (causes retreat behavior)
+func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
+	# Flash orange for arrow hit
+	_flash_hit(Color(1.0, 0.6, 0.2))
+	_show_hit_label()
+
+	# In multiplayer, don't apply damage locally - server is authoritative
+	# The arrow will send MSG_ENTITY_DAMAGE to server which updates our health
+	if not _is_network_controlled:
+		take_damage(ARROW_DAMAGE)
+
+	# Start retreat behavior - walk away from arrow (visual feedback is ok locally)
+	_is_retreating = true
+	_retreat_timer = RETREAT_DURATION
+	_retreat_direction = (global_position - arrow_position).normalized()
+	_retreat_direction.y = 0  # Keep on ground plane
+
+	# Track the ground fire position for avoidance
+	if arrow_node:
+		_register_ground_fire(arrow_position)
+
+	print("Bobba hit by arrow! Retreating. HP: %.1f/%.1f" % [health, MAX_HEALTH])
+
+
+## Register a ground fire position to avoid
+func _register_ground_fire(pos: Vector3) -> void:
+	_ground_fires.append({"position": pos, "time": Time.get_ticks_msec()})
+	# Clean up old fires (older than 30 seconds)
+	var current_time := Time.get_ticks_msec()
+	_ground_fires = _ground_fires.filter(func(fire): return current_time - fire.time < 30000)
+
+
+## Check if a position is too close to any ground fire
+func _is_near_fire(pos: Vector3) -> bool:
+	for fire in _ground_fires:
+		var fire_pos: Vector3 = fire.position
+		fire_pos.y = pos.y  # Compare on same Y level
+		if pos.distance_to(fire_pos) < FIRE_AVOID_RADIUS:
+			return true
+	return false
+
+
+## Get direction to avoid nearby fires
+func _get_fire_avoidance_direction() -> Vector3:
+	var avoidance := Vector3.ZERO
+	for fire in _ground_fires:
+		var fire_pos: Vector3 = fire.position
+		fire_pos.y = global_position.y
+		var dist := global_position.distance_to(fire_pos)
+		if dist < FIRE_AVOID_RADIUS * 2:
+			# Push away from fire, stronger when closer
+			var away := (global_position - fire_pos).normalized()
+			avoidance += away * (1.0 - dist / (FIRE_AVOID_RADIUS * 2))
+	return avoidance.normalized() if avoidance.length() > 0.1 else Vector3.ZERO
 
 
 func _show_hit_label() -> void:
@@ -625,20 +905,25 @@ func _play_anim(anim_name: StringName) -> void:
 	if _anim_player == null:
 		return
 	if _current_anim == anim_name:
-		return
+		return  # Already playing this animation
 	if _anim_player.has_animation(anim_name):
 		_anim_player.play(anim_name)
 		_current_anim = anim_name
 
 
 func _on_animation_finished(anim_name: StringName) -> void:
+	print("Bobba: Animation finished: ", anim_name)
 	if anim_name == &"bobba/Attack" or anim_name == &"bobba/JumpAttack":
+		print("Bobba: Attack animation finished, setting cooldown and state=CHASING")
 		disable_attack_hitbox()
 		attack_cooldown = 0.5
 		state = State.CHASING
+		_current_anim = &""  # Clear so attack can replay
+		_attack_state_time = 0.0  # Reset attack timer
 	elif anim_name == &"bobba/Roar":
 		# After roar finishes, start chasing
 		state = State.CHASING
+		_current_anim = &""  # Clear so next animation can play
 	# Note: Dying animation should not auto-recover - handled separately when health system is added
 
 
@@ -660,28 +945,80 @@ func _physics_process(delta: float) -> void:
 		_handle_network_interpolation(delta)
 		return
 
+	# TEST_MULTIPLAYER mode: disable AI, just idle in place
+	if GameSettings and GameSettings.test_multiplayer:
+		_play_anim(&"bobba/Idle")
+		velocity += gravity * delta
+		move_and_slide()
+		return
+
+	# Dead - don't process further
+	if health <= 0:
+		return
+
 	# Apply gravity
 	velocity += gravity * delta
 
-	# Check distance to player
-	var distance_to_player: float = INF
-	if player and is_instance_valid(player):
-		distance_to_player = global_position.distance_to(player.global_position)
+	# Handle retreat behavior (from arrow hits)
+	if _is_retreating:
+		_handle_retreat(delta)
+		move_and_slide()
+		return
+
+	# Update target selection (handles detection/lose radius logic)
+	_select_target()
+
+	# Check distance to target
+	var distance_to_target: float = INF
+	if target and is_instance_valid(target):
+		distance_to_target = global_position.distance_to(target.global_position)
 
 	# State machine (host only)
 	match state:
 		State.ROAMING:
-			_handle_roaming(delta, distance_to_player)
+			_handle_roaming(delta, distance_to_target)
 		State.CHASING:
-			_handle_chasing(delta, distance_to_player)
+			_handle_chasing(delta, distance_to_target)
 		State.ATTACKING:
 			_handle_attacking(delta)
 		State.IDLE:
-			_handle_idle(delta, distance_to_player)
+			_handle_idle(delta, distance_to_target)
 		State.STUNNED:
 			_handle_stunned(delta)
+		State.DEAD:
+			pass  # Don't move when dead
 
 	move_and_slide()
+
+
+## Handle retreat behavior after being hit by arrow
+func _handle_retreat(delta: float) -> void:
+	_retreat_timer -= delta
+
+	if _retreat_timer <= 0:
+		_is_retreating = false
+		state = State.ROAMING
+		_pick_new_roam_direction()
+		return
+
+	# Move away from the arrow hit location
+	var move_dir := _retreat_direction
+
+	# Also avoid fire while retreating
+	var fire_avoid := _get_fire_avoidance_direction()
+	if fire_avoid.length() > 0.1:
+		move_dir = (move_dir + fire_avoid).normalized()
+
+	velocity.x = move_dir.x * RETREAT_SPEED
+	velocity.z = move_dir.z * RETREAT_SPEED
+
+	# Face retreat direction
+	if move_dir.length() > 0.1:
+		var target_angle := atan2(move_dir.x, move_dir.z)
+		_model.rotation.y = lerp_angle(_model.rotation.y, target_angle, ROTATION_SPEED * delta)
+
+	# Play walk animation while retreating
+	_play_anim(&"bobba/Walk")
 
 
 ## Handle interpolation for network-controlled entities
@@ -707,6 +1044,13 @@ func get_network_state() -> int:
 	return state
 
 
+## Get facing rotation (model rotation for network sync)
+func get_facing_rotation() -> float:
+	if _model:
+		return _model.rotation.y
+	return rotation.y
+
+
 ## Apply network state received from host (called by NetworkManager on clients)
 func apply_network_state(data: Dictionary) -> void:
 	if not _is_network_controlled:
@@ -721,7 +1065,19 @@ func apply_network_state(data: Dictionary) -> void:
 		# Update animation based on new state
 		_update_animation_for_state()
 
-	health = data.get("health", health)
+	var old_health = health
+	var new_health = data.get("health", health)
+	if new_health != old_health:
+		health = new_health
+		health_changed.emit(health, MAX_HEALTH)
+
+		# Handle respawn: if health went from 0 to positive, re-enable hitboxes
+		if old_health <= 0 and new_health > 0:
+			print("Bobba: Respawned via network state")
+			if _left_hand_hitbox:
+				_left_hand_hitbox.monitoring = true
+			if _right_hand_hitbox:
+				_right_hand_hitbox.monitoring = true
 
 
 ## Update animation to match current state
@@ -737,11 +1093,14 @@ func _update_animation_for_state() -> void:
 			_play_anim(&"bobba/Idle")
 		State.STUNNED:
 			_play_anim(&"bobba/Idle")
+		State.DEAD:
+			_play_anim(&"bobba/Dying")
 
 
-func _handle_roaming(delta: float, distance_to_player: float) -> void:
-	# Check if player is within attack range
-	if distance_to_player <= ATTACK_RANGE:
+func _handle_roaming(delta: float, distance_to_target: float) -> void:
+	# Target selection already switched state to CHASING if target found
+	# Just check if we somehow have a target while roaming
+	if target and is_instance_valid(target):
 		state = State.CHASING
 		_play_anim(&"bobba/Roar")
 		return
@@ -751,28 +1110,37 @@ func _handle_roaming(delta: float, distance_to_player: float) -> void:
 	if roam_timer <= 0:
 		_pick_new_roam_direction()
 
-	# Move in roam direction
-	var horizontal_velocity = roam_direction * ROAM_SPEED
+	# Calculate movement direction with fire avoidance
+	var move_dir := roam_direction
+	var fire_avoid := _get_fire_avoidance_direction()
+	if fire_avoid.length() > 0.1:
+		# Blend avoidance with roam direction, prioritizing fire avoidance
+		move_dir = (move_dir + fire_avoid * 2.0).normalized()
+
+	# Move in adjusted direction
+	var horizontal_velocity = move_dir * ROAM_SPEED
 	velocity.x = horizontal_velocity.x
 	velocity.z = horizontal_velocity.z
 
 	# Rotate to face movement direction
-	if _model and roam_direction.length() > 0.1:
-		var target_rotation = atan2(roam_direction.x, roam_direction.z)
-		_model.rotation.y = lerp_angle(_model.rotation.y, target_rotation, ROTATION_SPEED * delta)
+	if _model and move_dir.length() > 0.1:
+		var target_rot = atan2(move_dir.x, move_dir.z)
+		_model.rotation.y = lerp_angle(_model.rotation.y, target_rot, ROTATION_SPEED * delta)
 
 	_play_anim(&"bobba/Walk")
 
 
-func _handle_chasing(delta: float, distance_to_player: float) -> void:
-	# If player escapes attack range, go back to roaming
-	if distance_to_player > ATTACK_RANGE * 1.5:
+func _handle_chasing(delta: float, distance_to_target: float) -> void:
+	# If target escapes beyond LOSE_RADIUS, _select_target will clear it
+	# Here we just check if we lost target
+	if target == null or not is_instance_valid(target):
 		state = State.ROAMING
 		_pick_new_roam_direction()
 		return
 
 	# If close enough, attack
-	if distance_to_player <= ATTACK_DISTANCE and attack_cooldown <= 0:
+	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
+		print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
 		state = State.ATTACKING
 		_play_anim(&"bobba/Attack")
 		enable_attack_hitbox()  # Enable hitbox when attack starts
@@ -780,27 +1148,41 @@ func _handle_chasing(delta: float, distance_to_player: float) -> void:
 		velocity.z = 0
 		return
 
-	# Chase the player
-	if player and is_instance_valid(player):
-		var direction = (player.global_position - global_position).normalized()
-		direction.y = 0
+	# Chase the target with fire avoidance
+	var direction: Vector3 = (target.global_position - global_position).normalized()
+	direction.y = 0
 
-		var horizontal_velocity = direction * CHASE_SPEED
-		velocity.x = horizontal_velocity.x
-		velocity.z = horizontal_velocity.z
+	# Check for fire in the path and avoid it
+	var fire_avoid: Vector3 = _get_fire_avoidance_direction()
+	var move_dir: Vector3 = direction
+	if fire_avoid.length() > 0.1:
+		# Blend chase direction with fire avoidance
+		# Use less avoidance weight when chasing to still pursue target
+		move_dir = (direction + fire_avoid * 1.5).normalized()
 
-		# Rotate to face player
-		if _model and direction.length() > 0.1:
-			var target_rotation = atan2(direction.x, direction.z)
-			_model.rotation.y = lerp_angle(_model.rotation.y, target_rotation, ROTATION_SPEED * delta)
+	var horizontal_velocity = move_dir * CHASE_SPEED
+	velocity.x = horizontal_velocity.x
+	velocity.z = horizontal_velocity.z
 
-		_play_anim(&"bobba/Run")
+	# Rotate to face movement direction (not target, since we might be dodging fire)
+	if _model and move_dir.length() > 0.1:
+		var target_rot = atan2(move_dir.x, move_dir.z)
+		_model.rotation.y = lerp_angle(_model.rotation.y, target_rot, ROTATION_SPEED * delta)
+
+	_play_anim(&"bobba/Run")
 
 
-func _handle_attacking(_delta: float) -> void:
+var _attack_state_time: float = 0.0
+
+func _handle_attacking(delta: float) -> void:
 	# Stay in attacking state until animation finishes
 	velocity.x = 0
 	velocity.z = 0
+	_attack_state_time += delta
+	# Debug: warn if stuck in attacking state too long
+	if _attack_state_time > 3.0:
+		print("Bobba: WARNING - Stuck in ATTACKING state for %.1f seconds! Animation: %s" % [_attack_state_time, _current_anim])
+		_attack_state_time = 0.0  # Reset to avoid spam
 
 
 func _handle_stunned(delta: float) -> void:
@@ -813,12 +1195,18 @@ func _handle_stunned(delta: float) -> void:
 
 	_stun_timer -= delta
 	if _stun_timer <= 0:
-		state = State.CHASING
+		# Return to chasing if we have a target, otherwise roam
+		if target and is_instance_valid(target):
+			state = State.CHASING
+		else:
+			state = State.ROAMING
+			_pick_new_roam_direction()
 		_current_anim = &""  # Clear to allow new animation
 
 
-func _handle_idle(delta: float, distance_to_player: float) -> void:
-	if distance_to_player <= ATTACK_RANGE:
+func _handle_idle(delta: float, distance_to_target: float) -> void:
+	# Target selection handles detection, just check if we have a target
+	if target and is_instance_valid(target):
 		state = State.CHASING
 	else:
 		# Randomly start roaming

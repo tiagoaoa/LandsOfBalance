@@ -17,8 +17,8 @@ const DEFAULT_SERVER: String = "127.0.0.1"
 # Timing constants (milliseconds)
 const ACK_TIMEOUT_MS: int = 100
 const MAX_RETRIES: int = 3
-const UPDATE_INTERVAL_MS: int = 16  # ~60 Hz
-const ENTITY_UPDATE_INTERVAL_MS: int = 16  # ~60 Hz
+const UPDATE_INTERVAL_MS: int = 33  # 30 Hz
+const ENTITY_UPDATE_INTERVAL_MS: int = 33  # 30 Hz
 const STATE_BROADCAST_INTERVAL_MS: int = 50  # 20 Hz for full state
 
 # FIFO-specific timing (slower for testing)
@@ -61,6 +61,8 @@ enum MsgType {
 	MSG_HEARTBEAT = 14,     # Client -> Server: Keep connection alive
 	MSG_SPECTATE = 15,      # Client -> Server: Connect as spectator (receive state, don't join)
 	MSG_SPECTATE_ACK = 16,  # Server -> Client: Acknowledge spectator connection
+	MSG_PLAYER_DAMAGE = 17, # Server -> Client: Entity hit player (Bobba attack, etc.)
+	MSG_GAME_RESTART = 18,  # Bidirectional: Request/broadcast game restart (respawn all)
 }
 
 # =============================================================================
@@ -99,13 +101,13 @@ enum CharacterClass {
 }
 
 # =============================================================================
-# ENTITY TYPE ENUM
+# ENTITY TYPE ENUM (must match server game_server.c)
 # =============================================================================
 
 enum EntityType {
-	ENTITY_NONE = 0,
-	ENTITY_BOBBA = 1,
-	ENTITY_DRAGON = 2,
+	ENTITY_BOBBA = 0,
+	ENTITY_DRAGON = 1,
+	ENTITY_ARROW = 2,
 }
 
 # =============================================================================
@@ -405,6 +407,61 @@ class ArrowHitData:
 		return 20
 
 # =============================================================================
+# PLAYER DAMAGE DATA STRUCTURE (28 bytes)
+# =============================================================================
+
+class PlayerDamageData:
+	var target_player_id: int = 0    # 4 bytes
+	var damage: float = 0.0          # 4 bytes
+	var attacker_entity_id: int = 0  # 4 bytes
+	var knockback_x: float = 0.0     # 4 bytes
+	var knockback_y: float = 0.0     # 4 bytes
+	var knockback_z: float = 0.0     # 4 bytes
+
+	func get_knockback() -> Vector3:
+		return Vector3(knockback_x, knockback_y, knockback_z)
+
+	func set_knockback(kb: Vector3) -> void:
+		knockback_x = kb.x
+		knockback_y = kb.y
+		knockback_z = kb.z
+
+	func encode() -> PackedByteArray:
+		var buf := PackedByteArray()
+		buf.resize(24)
+		buf.encode_u32(0, target_player_id)
+		buf.encode_float(4, damage)
+		buf.encode_u32(8, attacker_entity_id)
+		buf.encode_float(12, knockback_x)
+		buf.encode_float(16, knockback_y)
+		buf.encode_float(20, knockback_z)
+		return buf
+
+	func decode(buf: PackedByteArray, start_offset: int = 0) -> bool:
+		if buf.size() < start_offset + 24:
+			return false
+		target_player_id = buf.decode_u32(start_offset)
+		damage = buf.decode_float(start_offset + 4)
+		attacker_entity_id = buf.decode_u32(start_offset + 8)
+		knockback_x = buf.decode_float(start_offset + 12)
+		knockback_y = buf.decode_float(start_offset + 16)
+		knockback_z = buf.decode_float(start_offset + 20)
+		return true
+
+	static func size() -> int:
+		return 24
+
+# =============================================================================
+# GAME RESTART REASON ENUM
+# =============================================================================
+
+enum RestartReason {
+	PLAYER_DIED = 0,
+	BOBBA_DIED = 1,
+	MANUAL_RESTART = 2,
+}
+
+# =============================================================================
 # MESSAGE BUILDERS
 # =============================================================================
 
@@ -629,6 +686,21 @@ static func build_spectate_ack_msg(seq: int) -> PackedByteArray:
 
 	return header.encode()
 
+## Build MSG_GAME_RESTART packet (client -> server to request restart)
+static func build_game_restart_msg(seq: int, sender_id: int, reason: int) -> PackedByteArray:
+	var header := MsgHeader.new()
+	header.type = MsgType.MSG_GAME_RESTART
+	header.seq = seq
+	header.sender_id = sender_id
+
+	var buf := header.encode()
+	var reason_bytes := PackedByteArray()
+	reason_bytes.resize(4)
+	reason_bytes.encode_u32(0, reason)
+	buf.append_array(reason_bytes)
+
+	return buf
+
 # =============================================================================
 # MESSAGE PARSER
 # =============================================================================
@@ -659,4 +731,6 @@ static func get_msg_type_name(msg_type: int) -> String:
 		MsgType.MSG_HEARTBEAT: return "HEARTBEAT"
 		MsgType.MSG_SPECTATE: return "SPECTATE"
 		MsgType.MSG_SPECTATE_ACK: return "SPECTATE_ACK"
+		MsgType.MSG_PLAYER_DAMAGE: return "PLAYER_DAMAGE"
+		MsgType.MSG_GAME_RESTART: return "GAME_RESTART"
 		_: return "UNKNOWN(%d)" % msg_type

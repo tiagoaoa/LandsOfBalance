@@ -38,14 +38,15 @@ config/name="Douglass The Keeper"
 config/description="Walk through the Village of Eights as Douglass, the Keeper of Balance.
 A 3D exploration game based on the fantasy tale of Douglass The Keeper."
 config/tags=PackedStringArray("3d", "exploration", "fantasy", "village", "story")
-run/main_scene="res://game.tscn"
+run/main_scene="res://ui/character_select.tscn"
 config/features=PackedStringArray("4.5")
-config/icon="res://icon.webp"
+config/icon="res://icon.png"
 
 [autoload]
 
 SimpleGrass="*res://addons/simplegrasstextured/singleton.tscn"
 NetworkManager="*res://multiplayer/network_manager.tscn"
+GameSettings="*res://autoload/game_settings.gd"
 
 [debug]
 
@@ -229,6 +230,22 @@ spell_cast={
 cast_spell_rb={
 "deadzone": 0.2,
 "events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":5,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+class_paladin={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":49,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+class_archer={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":50,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+crouch={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194326,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":16777238,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 ]
 }
 

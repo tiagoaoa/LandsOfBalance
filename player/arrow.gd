@@ -250,8 +250,13 @@ func _on_body_entered(body: Node) -> void:
 
 	# Deal damage if applicable
 	var hit_entity_id: int = 0
-	if body.has_method("take_damage"):
-		body.take_damage(DAMAGE, shooter)
+	# Check if this is a Bobba - use special arrow hit method
+	if body.has_method("take_arrow_hit"):
+		body.take_arrow_hit(global_position, self)
+		if "entity_id" in body:
+			hit_entity_id = body.entity_id
+	elif body.has_method("take_damage"):
+		body.take_damage(DAMAGE)
 		if "entity_id" in body:
 			hit_entity_id = body.entity_id
 
@@ -263,6 +268,9 @@ func _on_body_entered(body: Node) -> void:
 	if is_local and has_node("/root/NetworkManager"):
 		var network_manager = get_node("/root/NetworkManager")
 		network_manager.send_arrow_hit(arrow_id, global_position, hit_entity_id)
+		# Also send entity damage to server if we hit an entity
+		if hit_entity_id > 0:
+			network_manager.send_entity_damage(hit_entity_id, DAMAGE, shooter_id)
 
 	# Create ground fire illumination (5m range fireplace light)
 	_create_ground_fire()

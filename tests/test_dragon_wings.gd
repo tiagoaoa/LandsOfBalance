@@ -22,21 +22,67 @@ const ZOOM_SPEED := 10.0
 
 # UI Controls
 var _ui_panel: Control
-var _bone_sliders: Dictionary = {}  # bone_key -> {x, y, z sliders}
+var _bone_ranges: Dictionary = {}  # bone_key -> {axis -> {min_slider, max_slider, min_label, max_label}}
 var _manual_mode := false  # When true, manually control bones instead of animation
+var _anim_time := 0.0  # Manual animation time
 
-# Bone indices for head/neck
-var _head_bone_idx := -1
-var _neck_bone_indices: Array[int] = []
+# Animation parameters (editable via UI)
+var _anim_params := {
+	# Wing bones - Y rotation amplitude
+	"R_UpArm2": {"Y": {"min": -25.0, "max": 25.0}},
+	"R_Forearm1": {"Y": {"min": -30.0, "max": 30.0}},
+	"R_Finger1": {"Y": {"min": -35.0, "max": 35.0}},
+	"R_Finger2": {"Y": {"min": -35.0, "max": 35.0}},
+	"R_Finger3": {"Y": {"min": -35.0, "max": 35.0}},
+	"R_Finger4": {"Y": {"min": -35.0, "max": 35.0}},
+	"L_UpArm2": {"Y": {"min": -25.0, "max": 25.0}},
+	"L_Forearm1": {"Y": {"min": -30.0, "max": 30.0}},
+	"L_Finger1": {"Y": {"min": -35.0, "max": 35.0}},
+	"L_Finger2": {"Y": {"min": -35.0, "max": 35.0}},
+	"L_Finger3": {"Y": {"min": -35.0, "max": 35.0}},
+	"L_Finger4": {"Y": {"min": -35.0, "max": 35.0}},
+	# Neck bones - Z rotation (custom ranges from editor)
+	"Neck1": {"Z": {"min": -10.0, "max": 10.0}},
+	"Neck2": {"Z": {"min": -10.0, "max": 10.0}},
+	"Neck3": {"Z": {"min": 68.0, "max": 80.0}},
+	"Neck4": {"Z": {"min": 17.0, "max": 28.0}},
+	"Neck5": {"Z": {"min": 60.0, "max": -21.0}},
+	# Tail bones - Z rotation (custom values from editor)
+	"Tail1": {"Z": {"min": -14.0, "max": -62.0}},
+	"Tail2": {"Z": {"min": -65.0, "max": -33.0}},
+	"Tail3": {"Z": {"min": 47.0, "max": -40.0}},
+	"Tail4": {"Z": {"min": 56.0, "max": -29.0}},
+	"Tail5": {"Z": {"min": -76.0, "max": -38.0}},
+	"Tail6": {"Z": {"min": 14.0, "max": 61.0}},
+	"Tail7": {"Z": {"min": 6.0, "max": 81.0}},
+}
 
-# Head/neck bone names from DragonWingFlap
-const NECK_BONE_NAMES := {
-	"Head": "NPC Head_046",
-	"Neck5": "NPC Neck5_044",
-	"Neck4": "NPC Neck4_043",
-	"Neck3": "NPC Neck3_042",
-	"Neck2": "NPC Neck2_041",
+# Bone name mapping
+const BONE_NAMES := {
+	"R_UpArm2": "NPC RUpArm2_060",
+	"R_Forearm1": "NPC RForearm1_062",
+	"R_Finger1": "NPC RFinger11_065",
+	"R_Finger2": "NPC RFinger21_067",
+	"R_Finger3": "NPC RFinger31_069",
+	"R_Finger4": "NPC RFinger41_071",
+	"L_UpArm2": "NPC LUpArm2_026",
+	"L_Forearm1": "NPC LForearm1_028",
+	"L_Finger1": "NPC LFinger11_031",
+	"L_Finger2": "NPC LFinger21_033",
+	"L_Finger3": "NPC LFinger31_035",
+	"L_Finger4": "NPC LFinger41_037",
 	"Neck1": "NPC Neck1_040",
+	"Neck2": "NPC Neck2_041",
+	"Neck3": "NPC Neck3_042",
+	"Neck4": "NPC Neck4_043",
+	"Neck5": "NPC Neck5_044",
+	"Tail1": "NPC Tail1_074",
+	"Tail2": "NPC Tail2_075",
+	"Tail3": "NPC Tail3_076",
+	"Tail4": "NPC Tail4_077",
+	"Tail5": "NPC Tail5_078",
+	"Tail6": "NPC Tail6_079",
+	"Tail7": "NPC Tail7_080",
 }
 
 
@@ -253,164 +299,375 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 
 
 func _setup_ui() -> void:
-	# Find bone indices
-	if _skeleton:
-		for bone_key in NECK_BONE_NAMES:
-			var bone_name: String = NECK_BONE_NAMES[bone_key]
-			var idx := _skeleton.find_bone(bone_name)
-			if idx >= 0:
-				if bone_key == "Head":
-					_head_bone_idx = idx
-				else:
-					_neck_bone_indices.append(idx)
-
 	# Create UI layer
 	var canvas := CanvasLayer.new()
 	canvas.name = "UILayer"
 	add_child(canvas)
 
-	# Main panel
+	# Main panel with dark background
 	_ui_panel = PanelContainer.new()
 	_ui_panel.name = "BoneControlPanel"
 	_ui_panel.position = Vector2(10, 10)
-	_ui_panel.size = Vector2(320, 500)
+	_ui_panel.size = Vector2(340, 850)
 	canvas.add_child(_ui_panel)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 2)
-	_ui_panel.add_child(vbox)
+	var main_vbox := VBoxContainer.new()
+	main_vbox.add_theme_constant_override("separation", 8)
+	_ui_panel.add_child(main_vbox)
 
 	# Title
 	var title := Label.new()
-	title.text = "Head/Neck Bone Controls"
+	title.text = "Bone Range Editor"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
+	title.add_theme_font_size_override("font_size", 16)
+	main_vbox.add_child(title)
 
-	# Mode toggle
-	var mode_btn := CheckButton.new()
-	mode_btn.text = "Manual Mode (M)"
-	mode_btn.button_pressed = _manual_mode
-	mode_btn.toggled.connect(_on_manual_mode_toggled)
-	vbox.add_child(mode_btn)
+	# Buttons row (Save / Reset)
+	var btn_hbox := HBoxContainer.new()
+	btn_hbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_child(btn_hbox)
 
-	# Print button
-	var print_btn := Button.new()
-	print_btn.text = "Print Values (P)"
-	print_btn.pressed.connect(_print_bone_values)
-	vbox.add_child(print_btn)
+	var save_btn := Button.new()
+	save_btn.text = "Save to File"
+	save_btn.pressed.connect(_save_to_file)
+	btn_hbox.add_child(save_btn)
 
-	# Separator
-	vbox.add_child(HSeparator.new())
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset to Default"
+	reset_btn.pressed.connect(_reset_ranges)
+	btn_hbox.add_child(reset_btn)
 
-	# Create sliders for each bone (Head first, then Neck5 down to Neck1)
-	var bone_order := ["Head", "Neck5", "Neck4", "Neck3", "Neck2", "Neck1"]
-	for bone_key in bone_order:
-		_create_bone_control(vbox, bone_key)
+	main_vbox.add_child(HSeparator.new())
+
+	# Scrollable bone list
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(320, 750)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	main_vbox.add_child(scroll)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 2)
+	scroll.add_child(vbox)
+
+	# === RIGHT WING SECTION ===
+	_add_section_header(vbox, "RIGHT WING (Y)")
+	for bone_key in ["R_UpArm2", "R_Forearm1", "R_Finger1", "R_Finger2", "R_Finger3", "R_Finger4"]:
+		_create_range_control(vbox, bone_key, "Y")
+
+	# === LEFT WING SECTION ===
+	_add_section_header(vbox, "LEFT WING (Y)")
+	for bone_key in ["L_UpArm2", "L_Forearm1", "L_Finger1", "L_Finger2", "L_Finger3", "L_Finger4"]:
+		_create_range_control(vbox, bone_key, "Y")
+
+	# === NECK SECTION ===
+	_add_section_header(vbox, "NECK (Z)")
+	for bone_key in ["Neck1", "Neck2", "Neck3", "Neck4", "Neck5"]:
+		_create_range_control(vbox, bone_key, "Z")
+
+	# === TAIL SECTION ===
+	_add_section_header(vbox, "TAIL (Z)")
+	for bone_key in ["Tail1", "Tail2", "Tail3", "Tail4", "Tail5", "Tail6", "Tail7"]:
+		_create_range_control(vbox, bone_key, "Z")
 
 
-func _create_bone_control(parent: Control, bone_key: String) -> void:
+func _add_section_header(parent: Control, text: String) -> void:
+	var label := Label.new()
+	label.text = "── " + text + " ──"
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	parent.add_child(label)
+
+
+func _create_range_control(parent: Control, bone_key: String, axis: String) -> void:
 	var group := VBoxContainer.new()
 	group.add_theme_constant_override("separation", 0)
 	parent.add_child(group)
 
-	# Bone label
+	# Get current min/max values
+	var params = _anim_params.get(bone_key, {}).get(axis, {"min": -45.0, "max": 45.0})
+
+	# Header row: bone name and current values
+	var header := HBoxContainer.new()
+	group.add_child(header)
+
 	var label := Label.new()
 	label.text = bone_key
-	label.add_theme_font_size_override("font_size", 14)
-	group.add_child(label)
+	label.custom_minimum_size.x = 90
+	label.add_theme_font_size_override("font_size", 12)
+	header.add_child(label)
 
-	# Create X, Y, Z sliders
-	var sliders := {}
-	for axis in ["X", "Y", "Z"]:
-		var hbox := HBoxContainer.new()
-		group.add_child(hbox)
+	var range_label := Label.new()
+	range_label.name = "RangeLabel"
+	range_label.text = "[%d° to %d°]" % [int(params["min"]), int(params["max"])]
+	range_label.add_theme_font_size_override("font_size", 11)
+	range_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.5))
+	header.add_child(range_label)
 
-		var axis_label := Label.new()
-		axis_label.text = axis + ":"
-		axis_label.custom_minimum_size.x = 20
-		hbox.add_child(axis_label)
+	# Range slider row
+	var slider_row := HBoxContainer.new()
+	slider_row.add_theme_constant_override("separation", 4)
+	group.add_child(slider_row)
 
-		var slider := HSlider.new()
-		slider.min_value = -180
-		slider.max_value = 180
-		slider.value = 0
-		slider.step = 1
-		slider.custom_minimum_size.x = 180
-		slider.value_changed.connect(_on_bone_slider_changed.bind(bone_key, axis))
-		hbox.add_child(slider)
+	# Min value
+	var min_val := Label.new()
+	min_val.text = "%d" % int(params["min"])
+	min_val.custom_minimum_size.x = 30
+	min_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	min_val.add_theme_font_size_override("font_size", 11)
+	slider_row.add_child(min_val)
 
-		var value_label := Label.new()
-		value_label.text = "0°"
-		value_label.custom_minimum_size.x = 45
-		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		hbox.add_child(value_label)
+	# Combined range slider using HSlider for min
+	var min_slider := HSlider.new()
+	min_slider.min_value = -90
+	min_slider.max_value = 90
+	min_slider.value = params["min"]
+	min_slider.step = 1
+	min_slider.custom_minimum_size.x = 90
+	min_slider.value_changed.connect(_on_range_changed.bind(bone_key, axis, "min"))
+	slider_row.add_child(min_slider)
 
-		sliders[axis] = {"slider": slider, "label": value_label}
+	# Separator
+	var sep := Label.new()
+	sep.text = "─"
+	sep.add_theme_font_size_override("font_size", 10)
+	slider_row.add_child(sep)
 
-	_bone_sliders[bone_key] = sliders
+	# Max slider
+	var max_slider := HSlider.new()
+	max_slider.min_value = -90
+	max_slider.max_value = 90
+	max_slider.value = params["max"]
+	max_slider.step = 1
+	max_slider.custom_minimum_size.x = 90
+	max_slider.value_changed.connect(_on_range_changed.bind(bone_key, axis, "max"))
+	slider_row.add_child(max_slider)
 
-	# Small separator
-	var sep := HSeparator.new()
-	sep.add_theme_constant_override("separation", 4)
-	parent.add_child(sep)
+	# Max value
+	var max_val := Label.new()
+	max_val.text = "%d" % int(params["max"])
+	max_val.custom_minimum_size.x = 30
+	max_val.add_theme_font_size_override("font_size", 11)
+	slider_row.add_child(max_val)
+
+	# Store references
+	if not _bone_ranges.has(bone_key):
+		_bone_ranges[bone_key] = {}
+	_bone_ranges[bone_key][axis] = {
+		"min_slider": min_slider,
+		"max_slider": max_slider,
+		"min_label": min_val,
+		"max_label": max_val,
+		"range_label": range_label,
+	}
 
 
-func _on_manual_mode_toggled(pressed: bool) -> void:
-	_manual_mode = pressed
-	if _manual_mode:
-		if _anim_player and _anim_player.is_playing():
-			_anim_player.pause()
-		print("Manual mode ON - animation paused")
+func _on_range_changed(value: float, bone_key: String, axis: String, minmax: String) -> void:
+	# Update parameter
+	if not _anim_params.has(bone_key):
+		_anim_params[bone_key] = {}
+	if not _anim_params[bone_key].has(axis):
+		_anim_params[bone_key][axis] = {"min": -45.0, "max": 45.0}
+	_anim_params[bone_key][axis][minmax] = value
+
+	# Update labels
+	if _bone_ranges.has(bone_key) and _bone_ranges[bone_key].has(axis):
+		var refs = _bone_ranges[bone_key][axis]
+		refs[minmax + "_label"].text = "%d" % int(value)
+		var min_v: float = _anim_params[bone_key][axis]["min"]
+		var max_v: float = _anim_params[bone_key][axis]["max"]
+		refs["range_label"].text = "[%d° to %d°]" % [int(min_v), int(max_v)]
+
+	# Regenerate animation immediately
+	_regenerate_animation()
+
+
+func _regenerate_animation() -> void:
+	# Regenerate the animation - start from default, then apply modifications
+	if not _anim_player:
+		return
+
+	# Start with the original animation from DragonWingFlap
+	var anim := DragonWingFlapClass.create_wing_flap_animation(1.2, 1.0)
+
+	var t0 := 0.0
+	var t1 := 0.48  # 40% downstroke
+	var t2 := 1.2
+
+	# Now modify only the tracks that differ from defaults
+	for bone_key in _anim_params:
+		var bone_name: String = BONE_NAMES.get(bone_key, "")
+		if bone_name.is_empty():
+			continue
+
+		for axis in _anim_params[bone_key]:
+			var params: Dictionary = _anim_params[bone_key][axis]
+			var min_val: float = params["min"]
+			var max_val: float = params["max"]
+
+			# Left wing bones need inverted Y rotation (mirroring)
+			var is_left_wing: bool = bone_key.begins_with("L_")
+			if is_left_wing and axis == "Y":
+				min_val = -min_val
+				max_val = -max_val
+
+			# Find the track for this bone
+			var track_path := DragonWingFlapClass.SKELETON_PATH + ":" + bone_name
+			var track_idx := anim.find_track(track_path, Animation.TYPE_ROTATION_3D)
+
+			if track_idx < 0:
+				# Track doesn't exist, create it
+				track_idx = anim.add_track(Animation.TYPE_ROTATION_3D)
+				anim.track_set_path(track_idx, track_path)
+				anim.track_set_interpolation_type(track_idx, Animation.INTERPOLATION_CUBIC)
+			else:
+				# Clear existing keys
+				while anim.track_get_key_count(track_idx) > 0:
+					anim.track_remove_key(track_idx, 0)
+
+			# Create rotation keyframes based on axis
+			var rot_min := Vector3.ZERO
+			var rot_max := Vector3.ZERO
+			match axis:
+				"X":
+					rot_min.x = deg_to_rad(min_val)
+					rot_max.x = deg_to_rad(max_val)
+				"Y":
+					rot_min.y = deg_to_rad(min_val)
+					rot_max.y = deg_to_rad(max_val)
+				"Z":
+					rot_min.z = deg_to_rad(min_val)
+					rot_max.z = deg_to_rad(max_val)
+
+			var q_min := Quaternion.from_euler(rot_min)
+			var q_max := Quaternion.from_euler(rot_max)
+
+			# Keyframes: max -> min -> max (for wing flap cycle)
+			anim.rotation_track_insert_key(track_idx, t0, q_max)
+			anim.rotation_track_insert_key(track_idx, t1, q_min)
+			anim.rotation_track_insert_key(track_idx, t2, q_max)
+
+	# Replace animation in player
+	var lib: AnimationLibrary
+	if _anim_player.has_animation_library(&""):
+		lib = _anim_player.get_animation_library(&"")
 	else:
-		print("Manual mode OFF - use R to restart animation")
+		lib = AnimationLibrary.new()
+		_anim_player.add_animation_library(&"", lib)
+
+	if lib.has_animation(&"WingFlap"):
+		lib.remove_animation(&"WingFlap")
+	lib.add_animation(&"WingFlap", anim)
+
+	# Restart if playing
+	if _anim_player.current_animation == "WingFlap":
+		var pos := _anim_player.current_animation_position
+		_anim_player.play(&"WingFlap")
+		_anim_player.seek(pos)
 
 
-func _on_bone_slider_changed(value: float, bone_key: String, axis: String) -> void:
-	# Update label
-	if _bone_sliders.has(bone_key) and _bone_sliders[bone_key].has(axis):
-		_bone_sliders[bone_key][axis]["label"].text = "%d°" % int(value)
-
-	# Apply to bone if in manual mode
-	if _manual_mode and _skeleton:
-		_apply_bone_rotation(bone_key)
-
-
-func _apply_bone_rotation(bone_key: String) -> void:
-	if not _skeleton or not _bone_sliders.has(bone_key):
+func _save_to_file() -> void:
+	var path := "user://dragon_wing_ranges.txt"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		print("ERROR: Could not save to ", path)
 		return
 
-	var bone_name: String = NECK_BONE_NAMES.get(bone_key, "")
-	if bone_name.is_empty():
-		return
+	file.store_line("# Dragon Wing Animation Ranges")
+	file.store_line("# Generated: " + Time.get_datetime_string_from_system())
+	file.store_line("")
 
-	var bone_idx := _skeleton.find_bone(bone_name)
-	if bone_idx < 0:
-		return
+	# Group by section
+	file.store_line("## RIGHT WING (Y rotation)")
+	for bone_key in ["R_UpArm2", "R_Forearm1", "R_Finger1", "R_Finger2", "R_Finger3", "R_Finger4"]:
+		if _anim_params.has(bone_key):
+			var p: Dictionary = _anim_params[bone_key].get("Y", {"min": 0, "max": 0})
+			file.store_line("%s: min=%d, max=%d" % [bone_key, int(p["min"]), int(p["max"])])
 
-	var sliders = _bone_sliders[bone_key]
-	var x_deg: float = sliders["X"]["slider"].value
-	var y_deg: float = sliders["Y"]["slider"].value
-	var z_deg: float = sliders["Z"]["slider"].value
+	file.store_line("")
+	file.store_line("## LEFT WING (Y rotation)")
+	for bone_key in ["L_UpArm2", "L_Forearm1", "L_Finger1", "L_Finger2", "L_Finger3", "L_Finger4"]:
+		if _anim_params.has(bone_key):
+			var p: Dictionary = _anim_params[bone_key].get("Y", {"min": 0, "max": 0})
+			file.store_line("%s: min=%d, max=%d" % [bone_key, int(p["min"]), int(p["max"])])
 
-	var rotation := Quaternion.from_euler(Vector3(
-		deg_to_rad(x_deg),
-		deg_to_rad(y_deg),
-		deg_to_rad(z_deg)
-	))
+	file.store_line("")
+	file.store_line("## NECK (Z rotation)")
+	for bone_key in ["Neck1", "Neck2", "Neck3", "Neck4", "Neck5"]:
+		if _anim_params.has(bone_key):
+			var p: Dictionary = _anim_params[bone_key].get("Z", {"min": 0, "max": 0})
+			file.store_line("%s: min=%d, max=%d" % [bone_key, int(p["min"]), int(p["max"])])
 
-	_skeleton.set_bone_pose_rotation(bone_idx, rotation)
+	file.store_line("")
+	file.store_line("## TAIL (Z rotation)")
+	for bone_key in ["Tail1", "Tail2", "Tail3", "Tail4", "Tail5", "Tail6", "Tail7"]:
+		if _anim_params.has(bone_key):
+			var p: Dictionary = _anim_params[bone_key].get("Z", {"min": 0, "max": 0})
+			file.store_line("%s: min=%d, max=%d" % [bone_key, int(p["min"]), int(p["max"])])
+
+	file.close()
+
+	var full_path := ProjectSettings.globalize_path(path)
+	print("Saved to: ", full_path)
+	OS.shell_open(full_path.get_base_dir())
+
+
+func _reset_ranges() -> void:
+	# Reset to default values (includes custom neck values from editor)
+	_anim_params = {
+		"R_UpArm2": {"Y": {"min": -25.0, "max": 25.0}},
+		"R_Forearm1": {"Y": {"min": -30.0, "max": 30.0}},
+		"R_Finger1": {"Y": {"min": -35.0, "max": 35.0}},
+		"R_Finger2": {"Y": {"min": -35.0, "max": 35.0}},
+		"R_Finger3": {"Y": {"min": -35.0, "max": 35.0}},
+		"R_Finger4": {"Y": {"min": -35.0, "max": 35.0}},
+		"L_UpArm2": {"Y": {"min": -25.0, "max": 25.0}},
+		"L_Forearm1": {"Y": {"min": -30.0, "max": 30.0}},
+		"L_Finger1": {"Y": {"min": -35.0, "max": 35.0}},
+		"L_Finger2": {"Y": {"min": -35.0, "max": 35.0}},
+		"L_Finger3": {"Y": {"min": -35.0, "max": 35.0}},
+		"L_Finger4": {"Y": {"min": -35.0, "max": 35.0}},
+		# Neck - custom values from editor
+		"Neck1": {"Z": {"min": -10.0, "max": 10.0}},
+		"Neck2": {"Z": {"min": -10.0, "max": 10.0}},
+		"Neck3": {"Z": {"min": 68.0, "max": 80.0}},
+		"Neck4": {"Z": {"min": 17.0, "max": 28.0}},
+		"Neck5": {"Z": {"min": 60.0, "max": -21.0}},
+		# Tail - Z rotation (custom values from editor)
+		"Tail1": {"Z": {"min": -14.0, "max": -62.0}},
+		"Tail2": {"Z": {"min": -65.0, "max": -33.0}},
+		"Tail3": {"Z": {"min": 47.0, "max": -40.0}},
+		"Tail4": {"Z": {"min": 56.0, "max": -29.0}},
+		"Tail5": {"Z": {"min": -76.0, "max": -38.0}},
+		"Tail6": {"Z": {"min": 14.0, "max": 61.0}},
+		"Tail7": {"Z": {"min": 6.0, "max": 81.0}},
+	}
+
+	# Update UI sliders
+	for bone_key in _bone_ranges:
+		for axis in _bone_ranges[bone_key]:
+			var refs = _bone_ranges[bone_key][axis]
+			var params = _anim_params.get(bone_key, {}).get(axis, {"min": -45.0, "max": 45.0})
+			refs["min_slider"].value = params["min"]
+			refs["max_slider"].value = params["max"]
+			refs["min_label"].text = "%d" % int(params["min"])
+			refs["max_label"].text = "%d" % int(params["max"])
+			refs["range_label"].text = "[%d° to %d°]" % [int(params["min"]), int(params["max"])]
+
+	# Regenerate animation with defaults
+	_regenerate_animation()
+	print("Ranges reset to defaults")
 
 
 func _print_bone_values() -> void:
-	print("\n=== Current Bone Values ===")
-	var bone_order := ["Head", "Neck5", "Neck4", "Neck3", "Neck2", "Neck1"]
-	for bone_key in bone_order:
-		if _bone_sliders.has(bone_key):
-			var sliders = _bone_sliders[bone_key]
-			var x_val: float = sliders["X"]["slider"].value
-			var y_val: float = sliders["Y"]["slider"].value
-			var z_val: float = sliders["Z"]["slider"].value
-			print("%s: X=%d°, Y=%d°, Z=%d°" % [bone_key, int(x_val), int(y_val), int(z_val)])
+	print("\n=== Current Bone Ranges ===")
+	for bone_key in _anim_params:
+		var parts := []
+		for axis in _anim_params[bone_key]:
+			var p = _anim_params[bone_key][axis]
+			parts.append("%s:[%d°,%d°]" % [axis, int(p["min"]), int(p["max"])])
+		print("%s: %s" % [bone_key, ", ".join(parts)])
 	print("===========================\n")
 
 
@@ -557,10 +814,6 @@ func _input(event: InputEvent) -> void:
 					else:
 						_anim_player.play()
 						print("Animation resumed")
-			KEY_M:
-				# Toggle manual mode
-				_manual_mode = not _manual_mode
-				_on_manual_mode_toggled(_manual_mode)
 			KEY_P:
 				# Print bone values
 				_print_bone_values()

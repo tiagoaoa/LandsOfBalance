@@ -135,12 +135,29 @@ var _attack_hitbox: Area3D  # Sword hitbox for armed mode
 var _unarmed_hitbox: Area3D  # Fist hitbox for unarmed mode
 var _sword_bone_attachment: BoneAttachment3D
 var _has_hit_this_attack: bool = false
+var _hitbox_active_window: bool = false  # Whether we're in the damage-dealing portion of attack
 var _attack_anim_progress: float = 0.0
 const SWORD_HITBOX_START: float = 0.3  # Enable hitbox at 30% of attack animation
 const SWORD_HITBOX_END: float = 0.8    # Disable hitbox at 80% of attack animation
 const PLAYER_KNOCKBACK_RESISTANCE: float = 0.8  # Reduce knockback slightly
 const PLAYER_ATTACK_DAMAGE: float = 15.0
 const PLAYER_KNOCKBACK_FORCE: float = 10.0
+const PALADIN_SWORD_DAMAGE: float = 50.0  # Damage to Bobba from Paladin sword
+
+# Health system - varies by character class
+const PALADIN_MAX_HP: float = 150.0
+const ARCHER_MAX_HP: float = 100.0
+const HEAL_RATE: float = 0.5  # HP healed per tick while casting spell
+const HEAL_TICK_INTERVAL: float = 0.5  # Seconds between heal ticks
+const HEAL_AREA_RADIUS: float = 3.0  # Radius of healing aura during spell cast
+
+var max_health: float = 100.0
+var current_health: float = 100.0
+var _heal_tick_timer: float = 0.0
+var _health_bar: ProgressBar  # UI health bar
+
+signal health_changed(current: float, maximum: float)
+signal player_died()
 
 # Spell VFX components (ProceduralThunderChannel)
 var _spell_effects_container: Node3D
@@ -192,8 +209,15 @@ func _ready() -> void:
 	_create_fire_circle_spell()
 	_setup_hit_label()
 	_setup_bow_progress_bar()
+	_setup_health_bar()
 	_setup_multiplayer()
 	_setup_fifo()
+	# Spawn player on a random hill
+	_spawn_at_tower()
+	# Apply character selection from GameSettings (character select menu)
+	call_deferred("_apply_character_selection")
+	# Connect to Bobba death signal for game restart
+	call_deferred("_connect_bobba_death_signal")
 
 
 func _parse_fifo_args() -> void:
@@ -225,7 +249,9 @@ func _setup_multiplayer() -> void:
 		network_manager.arrow_hit.connect(_on_network_arrow_hit)
 		# Connect to joined_game signal to apply character selection
 		network_manager.joined_game.connect(_on_joined_game)
-		print("Player: Arrow signals connected")
+		# Connect to game restart signal for synchronized respawn
+		network_manager.game_restart_received.connect(_on_game_restart_received)
+		print("Player: Multiplayer signals connected")
 		# Note: NetworkManager auto-connects as spectator and joins via JoinScreen
 	else:
 		print("Player: NetworkManager NOT found!")
@@ -250,6 +276,17 @@ func _apply_character_selection_if_ready() -> void:
 
 
 func _apply_character_selection() -> void:
+	# First check GameSettings autoload (from character select menu)
+	if GameSettings:
+		var selected_class = GameSettings.selected_character_class
+		print("Player: Selected character class from GameSettings: %d" % selected_class)
+		if selected_class == 0:
+			_switch_character_class(CharacterClass.PALADIN)
+		else:
+			_switch_character_class(CharacterClass.ARCHER)
+		return
+
+	# Fallback: check join_screen (legacy multiplayer)
 	var join_screen = get_node_or_null("/root/Game/JoinScreen")
 	if join_screen == null:
 		join_screen = get_tree().get_first_node_in_group("join_screen")
@@ -262,7 +299,7 @@ func _apply_character_selection() -> void:
 		else:
 			_switch_character_class(CharacterClass.ARCHER)
 	else:
-		print("Player: JoinScreen not found or no selection - using default (Archer)")
+		print("Player: No character selection found - using default (Archer)")
 
 
 func _setup_fifo() -> void:
@@ -1155,6 +1192,13 @@ func _update_spell_effects(delta: float) -> void:
 
 	_spell_time += delta
 
+	# === HEALING DURING SPELL CAST ===
+	# Paladin heals self and nearby allies while casting
+	_heal_tick_timer += delta
+	if _heal_tick_timer >= HEAL_TICK_INTERVAL:
+		_heal_tick_timer -= HEAL_TICK_INTERVAL
+		_apply_spell_healing()
+
 	# Archer fire circle - update intensity with 1/time decay
 	if character_class == CharacterClass.ARCHER and _fire_circle_active:
 		_fire_circle_time += delta
@@ -1173,6 +1217,41 @@ func _update_spell_effects(delta: float) -> void:
 	_spell_light.light_energy = base_energy + flicker
 
 	# Lightning3DBranched auto-updates via ON_PROCESS mode - no manual regeneration needed
+
+
+## Apply healing to self and nearby players during spell cast
+func _apply_spell_healing() -> void:
+	# Heal self (but not above max)
+	if current_health < max_health:
+		heal(HEAL_RATE)
+		print("Spell healing: +%.1f HP (now %.1f/%.1f)" % [HEAL_RATE, current_health, max_health])
+
+	# Heal nearby players within HEAL_AREA_RADIUS
+	var nearby_players := _get_players_in_range(HEAL_AREA_RADIUS)
+	for player in nearby_players:
+		if player != self and player.has_method("heal"):
+			# Don't heal above their max health
+			if player.current_health < player.max_health:
+				player.heal(HEAL_RATE)
+
+
+## Get all players within range of this player
+func _get_players_in_range(radius: float) -> Array:
+	var players := []
+
+	# Check local player (self is already local)
+	# Check remote players from NetworkManager
+	if has_node("/root/NetworkManager"):
+		var network_manager = get_node("/root/NetworkManager")
+		if "remote_players" in network_manager:
+			for player_id in network_manager.remote_players:
+				var remote_player = network_manager.remote_players[player_id]
+				if is_instance_valid(remote_player):
+					var dist := global_position.distance_to(remote_player.global_position)
+					if dist <= radius:
+						players.append(remote_player)
+
+	return players
 
 
 func _apply_character_aura() -> void:
@@ -1760,6 +1839,9 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 
 	match new_class:
 		CharacterClass.PALADIN:
+			# Set Paladin health
+			max_health = PALADIN_MAX_HP
+			current_health = PALADIN_MAX_HP
 			# Show Paladin based on current combat mode
 			if combat_mode == CombatMode.ARMED:
 				if _armed_character:
@@ -1775,9 +1857,12 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 				if _unarmed_anim_player and _unarmed_anim_player.has_animation(&"unarmed/Idle"):
 					_unarmed_anim_player.play(&"unarmed/Idle")
 					_current_anim = &"unarmed/Idle"
-			print("Switched to PALADIN class")
+			print("Switched to PALADIN class (HP: %.0f)" % max_health)
 
 		CharacterClass.ARCHER:
+			# Set Archer health
+			max_health = ARCHER_MAX_HP
+			current_health = ARCHER_MAX_HP
 			# Show Archer character
 			if _archer_character:
 				_archer_character.visible = true
@@ -1785,7 +1870,9 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 			if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Idle"):
 				_archer_anim_player.play(&"archer/Idle")
 				_current_anim = &"archer/Idle"
-			print("Switched to ARCHER class")
+			print("Switched to ARCHER class (HP: %.0f)" % max_health)
+
+	health_changed.emit(current_health, max_health)
 
 
 func _shoot_arrow() -> void:
@@ -1986,23 +2073,244 @@ func _do_spell_cast() -> void:
 
 ## Combat - Take damage and knockback from enemy attacks
 func take_hit(damage: float, knockback: Vector3, blocked: bool) -> void:
+	# Check spawn immunity
+	if is_spawn_immune():
+		print("Player: Hit ignored - spawn immunity active (%.1fs remaining)" % _spawn_immunity_timer)
+		return
+
 	# Show floating "Hit!" label
 	_show_hit_label()
 
+	var actual_damage := damage
 	if blocked:
-		# Blocked hit - blue flash, reduced knockback
+		# Blocked hit - blue flash, reduced knockback, reduced damage
 		_flash_hit(Color(0.2, 0.4, 1.0))
 		_knockback_velocity = knockback * PLAYER_KNOCKBACK_RESISTANCE * 0.3
+		actual_damage = damage * 0.3  # Block reduces damage by 70%
 	else:
-		# Unblocked hit - blue flash, full knockback, stun
-		_flash_hit(Color(0.2, 0.4, 1.0))
+		# Unblocked hit - red flash, full knockback, stun
+		_flash_hit(Color(1.0, 0.2, 0.2))
 		_knockback_velocity = knockback * PLAYER_KNOCKBACK_RESISTANCE
 		_is_stunned = true
 		_stun_timer = 0.25
 		is_attacking = false  # Cancel attack if hit
 
-	# TODO: Apply damage when health system is implemented
-	print("Player hit! Damage: ", damage, " Blocked: ", blocked)
+		# Interrupt spell casting if hit (Bobba hit stops spells)
+		if is_casting:
+			_interrupt_spell()
+
+	# Apply damage
+	take_damage(actual_damage)
+	print("Player hit! Damage: %.1f (blocked: %s) HP: %.1f/%.1f" % [actual_damage, blocked, current_health, max_health])
+
+
+## Take damage from any source
+func take_damage(amount: float) -> void:
+	# Check spawn immunity
+	if is_spawn_immune():
+		print("Player: Damage ignored - spawn immunity active (%.1fs remaining)" % _spawn_immunity_timer)
+		return
+
+	var old_health = current_health
+	current_health = maxf(0.0, current_health - amount)
+	print("Player: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, current_health])
+	health_changed.emit(current_health, max_health)
+
+	if current_health <= 0:
+		_on_player_death()
+
+
+## Heal the player (from spells, potions, etc.)
+func heal(amount: float) -> void:
+	# Can't heal above max health
+	current_health = minf(max_health, current_health + amount)
+	health_changed.emit(current_health, max_health)
+
+
+## Called when player health reaches 0
+func _on_player_death() -> void:
+	print("Player died!")
+	player_died.emit()
+	# Restart the game after a short delay
+	_trigger_game_restart("Player died!")
+
+
+## Trigger game restart (called when player or Bobba dies)
+func _trigger_game_restart(reason: String) -> void:
+	print("Game restarting: ", reason)
+
+	# In multiplayer, send restart to server which broadcasts to all clients
+	if enable_multiplayer and has_node("/root/NetworkManager"):
+		var network_manager = get_node("/root/NetworkManager")
+		# Defensive check for method existence (handles script caching issues)
+		if network_manager.has_method("is_network_connected") and network_manager.is_network_connected():
+			# Determine restart reason code
+			var reason_code := 2  # Manual restart
+			if "Player" in reason or "died" in reason:
+				reason_code = 0  # Player died
+			elif "Bobba" in reason:
+				reason_code = 1  # Bobba died
+			network_manager.send_game_restart(reason_code)
+			# Show message while waiting for server response
+			_show_restart_message(reason + "\n\nWaiting for respawn...")
+			return
+
+	# Singleplayer: show message and reload scene
+	_show_restart_message(reason)
+	var timer = get_tree().create_timer(2.0)
+	timer.timeout.connect(_reload_game)
+
+
+func _show_restart_message(reason: String) -> void:
+	# Create a centered message overlay
+	var canvas = CanvasLayer.new()
+	canvas.name = "RestartOverlay"
+	canvas.layer = 100  # Above everything
+	get_tree().current_scene.add_child(canvas)
+
+	var panel = ColorRect.new()
+	panel.color = Color(0, 0, 0, 0.7)
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	canvas.add_child(panel)
+
+	var label = Label.new()
+	label.text = reason + "\n\nRestarting..."
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.add_theme_font_size_override("font_size", 48)
+	label.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
+	canvas.add_child(label)
+
+
+func _reload_game() -> void:
+	get_tree().reload_current_scene()
+
+
+## Handle game restart broadcast from server (synchronized respawn)
+func _on_game_restart_received(reason: int) -> void:
+	print("Player: Game restart received from server (reason: %d)" % reason)
+
+	# Remove any restart overlay
+	var overlay = get_tree().current_scene.get_node_or_null("RestartOverlay")
+	if overlay:
+		overlay.queue_free()
+
+	# Respawn this player
+	_respawn()
+
+
+## Spawn positions at foot of hills near Tower of Hakutnas (matching server)
+const SPAWN_POINTS = [
+	Vector3(-60.0, 2.0, -80.0),   # Near tower, foot of hills area
+	Vector3(-40.0, 2.0, -100.0),  # Between tower and TheHills
+	Vector3(-80.0, 2.0, -40.0),   # Other side of tower
+]
+
+## Spawn immunity duration in seconds
+const SPAWN_IMMUNITY_DURATION: float = 2.0
+
+## Current spawn immunity timer
+var _spawn_immunity_timer: float = 0.0
+
+
+## Check if player is currently immune to damage (just spawned)
+func is_spawn_immune() -> bool:
+	return _spawn_immunity_timer > 0.0
+
+
+## Spawn player at foot of hills near tower (called at game start and respawn)
+func _spawn_at_tower() -> void:
+	var spawn_idx = randi() % SPAWN_POINTS.size()
+	var angle = randf() * TAU
+	var offset = randf_range(0.0, 8.0)
+	var spawn_pos = SPAWN_POINTS[spawn_idx] + Vector3(
+		cos(angle) * offset,
+		0.0,
+		sin(angle) * offset
+	)
+	global_position = spawn_pos
+
+	# Grant spawn immunity
+	_spawn_immunity_timer = SPAWN_IMMUNITY_DURATION
+	print("Player: Spawned at point %d (%.1f, %.1f, %.1f) - immune for %.1fs" % [spawn_idx + 1, spawn_pos.x, spawn_pos.y, spawn_pos.z, SPAWN_IMMUNITY_DURATION])
+
+
+## Respawn player without reloading scene (keeps character class, resets health/position)
+func _respawn() -> void:
+	print("Player: Respawning...")
+
+	# Reset health
+	current_health = max_health
+	health_changed.emit(current_health, max_health)
+
+	# Reset state
+	is_attacking = false
+	is_blocking = false
+	is_casting = false
+	is_drawing_bow = false
+	is_holding_bow = false
+	_is_stunned = false
+	_stun_timer = 0.0
+	_knockback_velocity = Vector3.ZERO
+	velocity = Vector3.ZERO
+
+	# Stop any spell effects
+	_stop_spell_effects()
+
+	# Spawn on a random hill
+	_spawn_at_tower()
+
+	# Re-connect to Bobba's death signal (Bobba was also respawned)
+	call_deferred("_connect_bobba_death_signal")
+
+
+## Connect to Bobba's death signal for game restart
+func _connect_bobba_death_signal() -> void:
+	# Find Bobba in the scene
+	var bobba = get_tree().get_first_node_in_group("bobba")
+	if bobba == null:
+		# Try to find by class name
+		for node in get_tree().get_nodes_in_group(""):
+			if node is Bobba:
+				bobba = node
+				break
+	if bobba == null:
+		# Search the scene tree
+		bobba = _find_node_by_class(get_tree().current_scene, "Bobba")
+
+	if bobba and bobba.has_signal("died"):
+		if not bobba.died.is_connected(_on_bobba_died):
+			bobba.died.connect(_on_bobba_died)
+			print("Player: Connected to Bobba death signal")
+	else:
+		print("Player: Could not find Bobba to connect death signal")
+
+
+func _find_node_by_class(node: Node, class_name_str: String) -> Node:
+	if node.get_class() == class_name_str or (node.get_script() and node.get_script().get_global_name() == class_name_str):
+		return node
+	for child in node.get_children():
+		var result = _find_node_by_class(child, class_name_str)
+		if result:
+			return result
+	return null
+
+
+func _on_bobba_died() -> void:
+	print("Bobba defeated!")
+	_trigger_game_restart("Bobba defeated!")
+
+
+## Interrupt spell casting (called when hit by Bobba)
+func _interrupt_spell() -> void:
+	if not is_casting:
+		return
+
+	print("Spell interrupted!")
+	is_casting = false
+	_stop_spell_effects()
+	_heal_tick_timer = 0.0
 
 
 func _flash_hit(color: Color) -> void:
@@ -2132,6 +2440,109 @@ func _setup_bow_progress_bar() -> void:
 	vbox.add_child(ready_label)
 
 
+func _setup_health_bar() -> void:
+	# Create a CanvasLayer for the health bar UI
+	var canvas = CanvasLayer.new()
+	canvas.name = "HealthBarUI"
+	canvas.layer = 10  # Above other UI
+	add_child(canvas)
+
+	# Create container for health bar (top-right corner)
+	var anchor_container = Control.new()
+	anchor_container.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	anchor_container.set_offsets_preset(Control.PRESET_TOP_RIGHT)
+	canvas.add_child(anchor_container)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 20)
+	margin.position = Vector2(-220, 0)  # Offset left from anchor
+	anchor_container.add_child(margin)
+
+	var vbox = VBoxContainer.new()
+	margin.add_child(vbox)
+
+	# Health label
+	var health_label = Label.new()
+	health_label.name = "HealthLabel"
+	health_label.text = "HP"
+	health_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.8))
+	health_label.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(health_label)
+
+	# Create health bar
+	_health_bar = ProgressBar.new()
+	_health_bar.name = "HealthBar"
+	_health_bar.custom_minimum_size = Vector2(200, 24)
+	_health_bar.min_value = 0.0
+	_health_bar.max_value = max_health
+	_health_bar.value = current_health
+	_health_bar.show_percentage = false
+
+	# Style the health bar background
+	var style_bg = StyleBoxFlat.new()
+	style_bg.bg_color = Color(0.2, 0.0, 0.0, 0.8)
+	style_bg.corner_radius_top_left = 4
+	style_bg.corner_radius_top_right = 4
+	style_bg.corner_radius_bottom_left = 4
+	style_bg.corner_radius_bottom_right = 4
+	style_bg.border_width_bottom = 2
+	style_bg.border_width_top = 2
+	style_bg.border_width_left = 2
+	style_bg.border_width_right = 2
+	style_bg.border_color = Color(0.4, 0.1, 0.1)
+	_health_bar.add_theme_stylebox_override("background", style_bg)
+
+	# Style the health bar fill (red/green gradient based on health)
+	var style_fill = StyleBoxFlat.new()
+	style_fill.bg_color = Color(0.8, 0.2, 0.2)  # Red health bar
+	style_fill.corner_radius_top_left = 4
+	style_fill.corner_radius_top_right = 4
+	style_fill.corner_radius_bottom_left = 4
+	style_fill.corner_radius_bottom_right = 4
+	_health_bar.add_theme_stylebox_override("fill", style_fill)
+
+	vbox.add_child(_health_bar)
+
+	# HP text showing current/max
+	var hp_text = Label.new()
+	hp_text.name = "HPText"
+	hp_text.text = "%.0f / %.0f" % [current_health, max_health]
+	hp_text.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	hp_text.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(hp_text)
+
+	# Connect health_changed signal to update UI
+	health_changed.connect(_on_health_changed)
+
+
+func _on_health_changed(current: float, maximum: float) -> void:
+	if _health_bar:
+		_health_bar.max_value = maximum
+		_health_bar.value = current
+
+		# Update fill color based on health percentage
+		var health_pct = current / maximum
+		var fill_color: Color
+		if health_pct > 0.5:
+			fill_color = Color(0.2, 0.8, 0.2)  # Green when healthy
+		elif health_pct > 0.25:
+			fill_color = Color(0.9, 0.7, 0.1)  # Yellow when damaged
+		else:
+			fill_color = Color(0.9, 0.2, 0.2)  # Red when critical
+
+		var style_fill = _health_bar.get_theme_stylebox("fill") as StyleBoxFlat
+		if style_fill:
+			style_fill.bg_color = fill_color
+
+		# Update HP text
+		var canvas = get_node_or_null("HealthBarUI")
+		if canvas:
+			var hp_text = canvas.get_node_or_null("Control/MarginContainer/VBoxContainer/HPText")
+			if hp_text:
+				hp_text.text = "%.0f / %.0f" % [current, maximum]
+
+
 func _setup_attack_hitbox() -> void:
 	# Create sword hitbox Area3D for armed attacks
 	# This will be attached to the right hand bone when the armed character is loaded
@@ -2139,17 +2550,14 @@ func _setup_attack_hitbox() -> void:
 	_attack_hitbox.name = "SwordHitbox"
 	_attack_hitbox.collision_layer = 0  # Doesn't collide with anything
 	_attack_hitbox.collision_mask = 2   # Detects enemies (layer 2 - Bobba)
-	_attack_hitbox.monitoring = false   # Start disabled
+	_attack_hitbox.monitoring = true    # Always monitoring - damage gated by _hitbox_active_window
 
-	# Create collision shape - capsule for sword blade
+	# Create collision shape - large sphere for easier hit detection
 	var sword_shape = CollisionShape3D.new()
-	var capsule = CapsuleShape3D.new()
-	capsule.radius = 0.15
-	capsule.height = 1.2  # Length of sword blade
-	sword_shape.shape = capsule
-	# Rotate to align with sword (pointing outward from hand)
-	sword_shape.rotation_degrees.x = 90
-	sword_shape.position = Vector3(0, 0, 0.6)  # Offset to center of blade
+	var sphere = SphereShape3D.new()
+	sphere.radius = 1.5  # Large radius for reliable hit detection
+	sword_shape.shape = sphere
+	sword_shape.position = Vector3(0, 0, 1.0)  # Offset forward from hand
 
 	_attack_hitbox.add_child(sword_shape)
 
@@ -2161,7 +2569,7 @@ func _setup_attack_hitbox() -> void:
 	_unarmed_hitbox.name = "FistHitbox"
 	_unarmed_hitbox.collision_layer = 0
 	_unarmed_hitbox.collision_mask = 2
-	_unarmed_hitbox.monitoring = false
+	_unarmed_hitbox.monitoring = true  # Always monitoring - damage gated by _hitbox_active_window
 
 	# Create collision shape - box in front of player for punch
 	var fist_shape = CollisionShape3D.new()
@@ -2235,11 +2643,14 @@ func _setup_sword_bone_attachment() -> void:
 
 
 func _on_attack_hitbox_body_entered(body: Node3D) -> void:
-	print("Player: Sword hitbox detected body: ", body.name, " (class: ", body.get_class(), ")")
+	# Only process hits during the active damage window
+	if not _hitbox_active_window:
+		return
 
 	if _has_hit_this_attack:
-		print("Player: Already hit this attack, ignoring")
 		return
+
+	print("Player: Sword hitbox detected body: ", body.name, " (class: ", body.get_class(), ")")
 
 	# Check if we hit an enemy with take_hit method
 	if body.has_method("take_hit"):
@@ -2249,34 +2660,52 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		var knockback_dir = (body.global_position - global_position).normalized()
 		knockback_dir.y = 0.2  # Slight upward component
 
-		# Apply damage and knockback
-		body.take_hit(PLAYER_ATTACK_DAMAGE, knockback_dir * PLAYER_KNOCKBACK_FORCE, false)
+		# Determine damage - Paladin sword does 50 damage to Bobba
+		var damage: float = PLAYER_ATTACK_DAMAGE
+		if character_class == CharacterClass.PALADIN and body is Bobba:
+			damage = PALADIN_SWORD_DAMAGE
+			print("Player: Paladin sword attack - dealing %d damage to Bobba" % int(damage))
+
+		# Apply damage and knockback (pass self as attacker)
+		body.take_hit(damage, knockback_dir * PLAYER_KNOCKBACK_FORCE, false, self)
 		print("Player: HIT LANDED on enemy: ", body.name)
+
+		# In multiplayer, send entity damage to server
+		if enable_multiplayer and has_node("/root/NetworkManager") and "entity_id" in body:
+			var network_manager = get_node("/root/NetworkManager")
+			if network_manager.has_method("is_network_connected") and network_manager.is_network_connected():
+				network_manager.send_entity_damage(body.entity_id, damage, network_manager.my_player_id)
+				print("Player: Sent entity damage to server - entity_id=%d damage=%.1f" % [body.entity_id, damage])
 	else:
 		print("Player: Body has no take_hit method")
 
 
 func enable_attack_hitbox() -> void:
-	# Don't immediately enable - will be enabled based on animation progress
+	# Reset attack hit tracking - called when attack starts
+	print("Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false")
 	_has_hit_this_attack = false
 	_attack_anim_progress = 0.0
-	print("Player: Attack started, hitbox will enable at ", SWORD_HITBOX_START * 100, "% progress")
+	_hitbox_active_window = false
+	# Keep hitboxes monitoring always - we control damage via _hitbox_active_window
+	_attack_hitbox.monitoring = true
+	if _unarmed_hitbox:
+		_unarmed_hitbox.monitoring = true
 
 
 func disable_attack_hitbox() -> void:
-	_attack_hitbox.monitoring = false
-	if _unarmed_hitbox:
-		_unarmed_hitbox.monitoring = false
+	_hitbox_active_window = false
 	_attack_anim_progress = 0.0
-	print("Player: Attack ended, hitbox disabled")
+	# Keep monitoring on - avoids state confusion when toggling
+	print("Player: Attack ended")
 
 
 func _update_attack_hitbox_timing() -> void:
-	# Track attack animation progress and enable hitbox only during middle-to-end
+	# Track attack animation progress and set active window for damage dealing
 	# Skip for Archer class - they use projectiles, not melee hitboxes
 	if character_class == CharacterClass.ARCHER:
 		return
 	if not is_attacking or _current_anim_player == null:
+		_hitbox_active_window = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -2290,15 +2719,22 @@ func _update_attack_hitbox_timing() -> void:
 	# Select the correct hitbox based on combat mode
 	var active_hitbox: Area3D = _attack_hitbox if combat_mode == CombatMode.ARMED else _unarmed_hitbox
 
-	# Enable hitbox during the active attack portion (middle to end)
+	# Active window is during the attack portion (30% to 80% of animation)
 	var should_be_active: bool = _attack_anim_progress >= SWORD_HITBOX_START and _attack_anim_progress <= SWORD_HITBOX_END
 
-	if should_be_active and not active_hitbox.monitoring:
-		active_hitbox.monitoring = true
-		print("Player: Attack hitbox ENABLED at progress ", _attack_anim_progress, " (mode: ", "armed" if combat_mode == CombatMode.ARMED else "unarmed", ")")
-	elif not should_be_active and active_hitbox.monitoring:
-		active_hitbox.monitoring = false
-		print("Player: Attack hitbox DISABLED at progress ", _attack_anim_progress)
+	if should_be_active and not _hitbox_active_window:
+		_hitbox_active_window = true
+		print("Player: Attack window ACTIVE at progress ", _attack_anim_progress, " (mode: ", "armed" if combat_mode == CombatMode.ARMED else "unarmed", ")")
+	elif not should_be_active and _hitbox_active_window:
+		_hitbox_active_window = false
+		print("Player: Attack window ENDED at progress ", _attack_anim_progress)
+
+	# Check for hits during active window
+	if _hitbox_active_window and not _has_hit_this_attack:
+		for body in active_hitbox.get_overlapping_bodies():
+			_on_attack_hitbox_body_entered(body)
+			if _has_hit_this_attack:
+				return
 
 
 func _show_hit_label() -> void:
@@ -2400,8 +2836,9 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_3:
 			_switch_character_class(CharacterClass.ARCHER)
 
-	# Mouse look
-	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+	# Mouse look (also works on mobile via touch look emitting mouse motion)
+	var is_mobile: bool = OS.get_name() in ["Android", "iOS"]
+	if event is InputEventMouseMotion and (is_mobile or Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
 		camera_rotation.x -= event.relative.x * MOUSE_SENSITIVITY
 		camera_rotation.y -= event.relative.y * MOUSE_SENSITIVITY
 		camera_rotation.y = clamp(camera_rotation.y, deg_to_rad(-CAMERA_VERTICAL_LIMIT), deg_to_rad(CAMERA_VERTICAL_LIMIT))
@@ -2419,6 +2856,10 @@ func _physics_process(delta: float) -> void:
 
 	if _attack_cooldown > 0:
 		_attack_cooldown -= delta
+
+	# Update spawn immunity timer
+	if _spawn_immunity_timer > 0:
+		_spawn_immunity_timer -= delta
 
 	# Update sword hitbox timing based on attack animation progress
 	_update_attack_hitbox_timing()
@@ -2455,7 +2896,7 @@ func _physics_process(delta: float) -> void:
 		_camera_pivot.rotation.x = camera_rotation.y
 
 	if Input.is_action_pressed(&"reset_position") or global_position.y < -12:
-		position = initial_position
+		_spawn_at_tower()
 		velocity = Vector3.ZERO
 		reset_physics_interpolation()
 

@@ -29,6 +29,11 @@ func _ready() -> void:
 	if player_count_label:
 		player_count_label.text = ""
 
+	# Check if character was already selected from menu (mobile flow)
+	if GameSettings and GameSettings.character_selected_from_menu:
+		print("JoinScreen: Character already selected from menu, using class %d" % GameSettings.selected_character_class)
+		selected_character_class = GameSettings.selected_character_class
+
 	# Find the network manager
 	network_manager = get_node_or_null("/root/NetworkManager")
 	if network_manager == null:
@@ -43,7 +48,11 @@ func _ready() -> void:
 		network_manager.connected_to_server.connect(_on_connected)
 	else:
 		print("JoinScreen: NetworkManager not found - singleplayer mode")
-		_show_singleplayer_prompt()
+		# If character already selected, go directly to game
+		if GameSettings and GameSettings.character_selected_from_menu:
+			_start_singleplayer()
+		else:
+			_show_singleplayer_prompt()
 
 
 func _process(delta: float) -> void:
@@ -51,13 +60,21 @@ func _process(delta: float) -> void:
 		return
 
 	# Connection timeout - if no state received, offer singleplayer
-	if not _received_state:
+	if not _received_state and not _awaiting_selection:
 		_connection_timer += delta
 		if _connection_timer >= CONNECTION_TIMEOUT:
-			_show_singleplayer_prompt()
-	elif not _awaiting_selection:
-		# Show character selection after receiving state
-		_show_character_selection()
+			# If character already selected, go directly to singleplayer
+			if GameSettings and GameSettings.character_selected_from_menu:
+				_start_singleplayer()
+			else:
+				_show_singleplayer_prompt()
+	elif _received_state and not _awaiting_selection:
+		# If character already selected from menu, auto-join
+		if GameSettings and GameSettings.character_selected_from_menu:
+			_join_with_class()
+		else:
+			# Show character selection after receiving state
+			_show_character_selection()
 
 
 func _input(event: InputEvent) -> void:
@@ -69,6 +86,9 @@ func _input(event: InputEvent) -> void:
 			# Character selection - 1 for Paladin, 2 for Archer
 			if event.keycode == KEY_1:
 				selected_character_class = 0  # Paladin
+				# Update GameSettings autoload so player reads correct class
+				if GameSettings:
+					GameSettings.selected_character_class = 0
 				print("JoinScreen: Selected Paladin")
 				if _received_state:
 					_join_with_class()
@@ -76,6 +96,9 @@ func _input(event: InputEvent) -> void:
 					_start_singleplayer()
 			elif event.keycode == KEY_2:
 				selected_character_class = 1  # Archer
+				# Update GameSettings autoload so player reads correct class
+				if GameSettings:
+					GameSettings.selected_character_class = 1
 				print("JoinScreen: Selected Archer")
 				if _received_state:
 					_join_with_class()
@@ -153,10 +176,12 @@ func _start_singleplayer() -> void:
 
 	# Disconnect from server attempts if any
 	if network_manager:
-		if network_manager.socket:
+		# Use has_method/get for defensive access (handles script caching issues)
+		if "socket" in network_manager and network_manager.socket:
 			network_manager.socket.close()
 			network_manager.socket = null
-		network_manager.is_spectating = false
+		if "is_spectating" in network_manager:
+			network_manager.is_spectating = false
 
 	_hide_join_screen()
 

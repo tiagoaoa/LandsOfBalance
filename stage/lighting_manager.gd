@@ -243,9 +243,11 @@ func _transition_lighting() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	# Press 'L' to toggle day/night (for testing) - only when console is closed
-	# Use dynamic lookup to avoid circular dependency with GameConsole
-	var console_script = load("res://ui/console.gd")
-	if console_script and console_script.is_console_open:
+	# Find console instance in scene tree
+	var console = get_tree().get_first_node_in_group("game_console")
+	if console == null:
+		console = get_node_or_null("/root/Game/GameConsole")
+	if console and "is_console_open" in console and console.is_console_open:
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_L:
 		toggle_time()

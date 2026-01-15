@@ -24,6 +24,8 @@ signal arrow_spawned(arrow_data: Dictionary)
 signal arrow_hit(arrow_id: int, hit_pos: Vector3, hit_entity_id: int)
 signal host_status_changed(is_host: bool)
 signal latency_updated(latency_ms: int)
+signal player_damage_received(damage: float, knockback: Vector3, attacker_entity_id: int)
+signal game_restart_received(reason: int)  # Server broadcast: all players should respawn
 
 # =============================================================================
 # STATE MANAGERS
@@ -104,11 +106,24 @@ var _ping_timer: float = 0.0
 var _heartbeat_timer: float = 0.0
 var _log_timer: float = 0.0
 
-const UPDATE_INTERVAL: float = 0.0167       # 60 Hz player updates
-const ENTITY_UPDATE_INTERVAL: float = 0.0167 # 60 Hz entity updates (host)
+const UPDATE_INTERVAL: float = 0.0333       # 30 Hz player updates
+const ENTITY_UPDATE_INTERVAL: float = 0.0333 # 30 Hz entity updates (host)
 const PING_INTERVAL: float = 2.0            # Ping every 2 seconds
 const HEARTBEAT_INTERVAL: float = 5.0       # Heartbeat every 5 seconds
 const LOG_INTERVAL: float = 0.5             # Log every 0.5 seconds
+
+# =============================================================================
+# DESYNC DETECTION & RECOVERY
+# =============================================================================
+
+const DESYNC_WARNING_THRESHOLD_MS: int = 500  # Show warning after 500ms without state update
+const DESYNC_SNAP_THRESHOLD: float = 3.0      # Snap to server if > 3m divergence
+
+var _last_state_update_time: int = 0  # Time.get_ticks_msec() of last world state
+var _desync_warning_visible: bool = false
+var _needs_sync_recovery: bool = false  # True when we need to force-apply server state
+var _desync_warning_label: Label = null
+var _desync_warning_panel: ColorRect = null
 
 # =============================================================================
 # LOGGING
@@ -145,6 +160,9 @@ func _ready() -> void:
 	if _log_file:
 		_log("=== Multiplayer Log Started for %s ===" % client_state.player_name)
 		print("NetworkManager: Logging to %s" % ProjectSettings.globalize_path(log_path))
+
+	# Create desync warning UI
+	_create_desync_warning_ui()
 
 	# Auto-connect to server on startup
 	call_deferred("_auto_connect")
@@ -194,12 +212,7 @@ func _process(delta: float) -> void:
 		_update_timer = 0.0
 		_send_update()
 
-	# Send entity updates (host only)
-	if client_state.is_host:
-		_entity_update_timer += delta
-		if _entity_update_timer >= ENTITY_UPDATE_INTERVAL:
-			_entity_update_timer = 0.0
-			_send_entity_updates()
+	# Note: Server is authoritative for entities - clients don't send entity updates
 
 	# Send ping
 	_ping_timer += delta
@@ -218,6 +231,9 @@ func _process(delta: float) -> void:
 	if _log_timer >= LOG_INTERVAL:
 		_log_timer = 0.0
 		_log_positions()
+
+	# Check for desync (no state update for too long)
+	_check_desync_warning()
 
 # =============================================================================
 # LOGGING
@@ -266,6 +282,152 @@ func _log_positions() -> void:
 		client_state.get_divergence_count(),
 		"yes" if client_state.is_host else "no"
 	])
+
+# =============================================================================
+# DESYNC WARNING UI
+# =============================================================================
+
+func _create_desync_warning_ui() -> void:
+	# Create a CanvasLayer for the warning overlay
+	var canvas = CanvasLayer.new()
+	canvas.name = "DesyncWarningCanvas"
+	canvas.layer = 90  # High layer but below restart overlay
+	add_child(canvas)
+
+	# Create warning panel (top-right corner)
+	_desync_warning_panel = ColorRect.new()
+	_desync_warning_panel.color = Color(0.8, 0.2, 0.2, 0.85)
+	_desync_warning_panel.custom_minimum_size = Vector2(280, 60)
+	_desync_warning_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_desync_warning_panel.position = Vector2(-290, 10)
+	_desync_warning_panel.visible = false
+	canvas.add_child(_desync_warning_panel)
+
+	# Create warning label
+	_desync_warning_label = Label.new()
+	_desync_warning_label.text = "DESYNC WARNING\nNo server update"
+	_desync_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_desync_warning_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_desync_warning_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_desync_warning_label.add_theme_font_size_override("font_size", 16)
+	_desync_warning_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_desync_warning_panel.add_child(_desync_warning_label)
+
+
+func _check_desync_warning() -> void:
+	if _last_state_update_time == 0:
+		return  # Haven't received any state yet
+
+	var now := Time.get_ticks_msec()
+	var elapsed := now - _last_state_update_time
+
+	if elapsed > DESYNC_WARNING_THRESHOLD_MS:
+		if not _desync_warning_visible:
+			_show_desync_warning(elapsed)
+		else:
+			# Update the elapsed time display
+			_update_desync_warning_text(elapsed)
+	else:
+		if _desync_warning_visible:
+			_hide_desync_warning()
+
+
+func _show_desync_warning(elapsed_ms: int) -> void:
+	_desync_warning_visible = true
+	_needs_sync_recovery = true  # Mark that we need to force-apply server state when it arrives
+	if _desync_warning_panel:
+		_desync_warning_panel.visible = true
+	if _desync_warning_label:
+		_desync_warning_label.text = "DESYNC WARNING\nNo update for %dms" % elapsed_ms
+	_log("DESYNC WARNING: No state update for %dms - recovery needed" % elapsed_ms)
+	print("NetworkManager: DESYNC detected - will force sync on next server update")
+
+
+func _hide_desync_warning() -> void:
+	_desync_warning_visible = false
+	if _desync_warning_panel:
+		_desync_warning_panel.visible = false
+
+
+func _update_desync_warning_text(elapsed_ms: int) -> void:
+	if _desync_warning_label and _desync_warning_visible:
+		_desync_warning_label.text = "DESYNC WARNING\nNo update for %dms" % elapsed_ms
+
+
+## Force-apply server state to all local objects after desync recovery
+func _perform_sync_recovery(players: Array[ProtocolClass.PlayerData]) -> void:
+	print("NetworkManager: === SYNC RECOVERY - Forcing server state ===")
+	_log("SYNC RECOVERY: Forcing server state to all local objects")
+
+	# Find our player data in the server state
+	var my_id: int = client_state.my_player_id
+	var my_server_data: ProtocolClass.PlayerData = null
+
+	for player_data in players:
+		if player_data.player_id == my_id:
+			my_server_data = player_data
+			break
+
+	# Force-apply server state to local player
+	if my_server_data and local_player and is_instance_valid(local_player):
+		var server_pos := my_server_data.get_position()
+		var old_pos := local_player.global_position
+
+		# Force position
+		local_player.global_position = server_pos
+		client_state.update_local_position(server_pos)
+
+		# Force health
+		if "current_health" in local_player:
+			local_player.current_health = my_server_data.health
+			if local_player.has_signal("health_changed") and "max_health" in local_player:
+				local_player.health_changed.emit(my_server_data.health, local_player.max_health)
+		client_state.update_local_health(my_server_data.health)
+
+		# Force rotation
+		if "rotation" in local_player:
+			local_player.rotation.y = my_server_data.rotation_y
+		client_state.update_local_rotation(my_server_data.rotation_y)
+
+		print("NetworkManager: SYNC RECOVERY - Player forced from (%.1f,%.1f,%.1f) to (%.1f,%.1f,%.1f)" % [
+			old_pos.x, old_pos.y, old_pos.z,
+			server_pos.x, server_pos.y, server_pos.z
+		])
+		_log("SYNC RECOVERY: Player pos corrected, health=%.1f" % my_server_data.health)
+
+	# Force-apply server state to all tracked entities
+	for entity_id in tracked_entities.keys():
+		var entity_info = tracked_entities[entity_id]
+		var node = entity_info["node"]
+		var server_entity: ProtocolClass.EntityData = client_state.get_remote_entity(entity_id)
+
+		if server_entity and is_instance_valid(node):
+			var data = {
+				"entity_id": server_entity.entity_id,
+				"entity_type": server_entity.entity_type,
+				"position": server_entity.get_position(),
+				"rotation_y": server_entity.rotation_y,
+				"state": server_entity.state,
+				"health": server_entity.health,
+				"extra_data": server_entity.extra_data
+			}
+
+			# Force position directly (bypass interpolation)
+			node.global_position = server_entity.get_position()
+
+			# Apply full network state
+			if node.has_method("apply_network_state"):
+				node.apply_network_state(data)
+
+			print("NetworkManager: SYNC RECOVERY - Entity %d forced to (%.1f,%.1f,%.1f) health=%.1f" % [
+				entity_id,
+				server_entity.x, server_entity.y, server_entity.z,
+				server_entity.health
+			])
+
+	# Clear the recovery flag
+	_needs_sync_recovery = false
+	print("NetworkManager: === SYNC RECOVERY COMPLETE ===")
 
 # =============================================================================
 # CONNECTION
@@ -487,6 +649,10 @@ func _receive_packets() -> void:
 				_handle_arrow_hit(packet)
 			ProtocolClass.MsgType.MSG_HOST_CHANGE:
 				_handle_host_change(packet)
+			ProtocolClass.MsgType.MSG_PLAYER_DAMAGE:
+				_handle_player_damage(packet)
+			ProtocolClass.MsgType.MSG_GAME_RESTART:
+				_handle_game_restart(packet)
 
 
 func _handle_spectate_ack(_packet: PackedByteArray) -> void:
@@ -532,6 +698,9 @@ func _handle_pong(packet: PackedByteArray) -> void:
 
 
 func _handle_world_state(packet: PackedByteArray) -> void:
+	# Record the time of this state update for desync detection
+	_last_state_update_time = Time.get_ticks_msec()
+
 	var offset := ProtocolClass.MsgHeader.size()
 	if packet.size() < offset + 5:  # state_seq(4) + player_count(1)
 		return
@@ -593,6 +762,10 @@ func _handle_world_state(packet: PackedByteArray) -> void:
 	# Update client state
 	client_state.handle_state_broadcast(state_seq, players)
 
+	# SYNC RECOVERY: If we were desynced, force-apply server state to local player
+	if _needs_sync_recovery:
+		_perform_sync_recovery(players)
+
 	# Update visual representations
 	_update_remote_player_visuals()
 
@@ -628,6 +801,70 @@ func _handle_host_change(packet: PackedByteArray) -> void:
 	var new_host_id := packet.decode_u32(ProtocolClass.MsgHeader.size())
 	client_state.handle_host_change(new_host_id)
 	_log("HOST CHANGE: new_host=%d is_us=%s" % [new_host_id, "yes" if new_host_id == client_state.my_player_id else "no"])
+
+
+func _handle_player_damage(packet: PackedByteArray) -> void:
+	# Parse player damage packet from server (entity hit us)
+	var offset := ProtocolClass.MsgHeader.size()
+	var damage_data := ProtocolClass.PlayerDamageData.new()
+	if not damage_data.decode(packet, offset):
+		print("NetworkManager: Failed to decode player damage packet")
+		return
+
+	# Verify this damage is for us
+	if damage_data.target_player_id != client_state.my_player_id:
+		print("NetworkManager: Player damage for different player %d (we are %d)" % [damage_data.target_player_id, client_state.my_player_id])
+		return
+
+	print("NetworkManager: Received player damage: %.1f from entity %d" % [damage_data.damage, damage_data.attacker_entity_id])
+	_log("PLAYER DAMAGE: damage=%.1f from_entity=%d knockback=(%.2f,%.2f,%.2f)" % [
+		damage_data.damage, damage_data.attacker_entity_id,
+		damage_data.knockback_x, damage_data.knockback_y, damage_data.knockback_z
+	])
+
+	# Apply damage to local player
+	if local_player and is_instance_valid(local_player):
+		var knockback = damage_data.get_knockback()
+		if local_player.has_method("take_hit"):
+			# Use take_hit which handles damage, knockback, stun, and visuals
+			local_player.take_hit(damage_data.damage, knockback, false)
+		elif local_player.has_method("take_damage"):
+			# Fallback: just apply damage
+			local_player.take_damage(damage_data.damage)
+
+	# Emit signal for any listeners
+	player_damage_received.emit(damage_data.damage, damage_data.get_knockback(), damage_data.attacker_entity_id)
+
+
+func _handle_game_restart(packet: PackedByteArray) -> void:
+	# Parse restart reason from packet
+	var offset := ProtocolClass.MsgHeader.size()
+	if packet.size() < offset + 4:
+		print("NetworkManager: Game restart packet too small")
+		return
+
+	var reason := packet.decode_u32(offset)
+	print("NetworkManager: Received game restart (reason: %d)" % reason)
+	_log("GAME RESTART: reason=%d" % reason)
+
+	# Emit signal for listeners (player will handle respawn)
+	game_restart_received.emit(reason)
+
+
+## Send game restart request to server
+func send_game_restart(reason: int) -> void:
+	if socket == null or not client_state.is_network_connected():
+		print("NetworkManager: Cannot send restart - not connected")
+		return
+
+	var msg := ProtocolClass.build_game_restart_msg(
+		client_state.get_next_seq(),
+		client_state.my_player_id,
+		reason
+	)
+	socket.put_packet(msg)
+	print("NetworkManager: Sent game restart request (reason: %d)" % reason)
+	_log("RESTART REQUEST: reason=%d" % reason)
 
 # =============================================================================
 # REMOTE PLAYER MANAGEMENT
@@ -743,7 +980,12 @@ func _send_entity_updates() -> void:
 		entity_data.entity_type = entity_info["type"]
 		entity_data.entity_id = entity_id
 		entity_data.set_position(node.global_position)
-		entity_data.rotation_y = node.rotation.y
+
+		# Get facing rotation (model rotation for entities with separate model)
+		if node.has_method("get_facing_rotation"):
+			entity_data.rotation_y = node.get_facing_rotation()
+		else:
+			entity_data.rotation_y = node.rotation.y
 
 		# Get state and health from entity
 		if node.has_method("get_network_state"):
@@ -769,10 +1011,7 @@ func _send_entity_updates() -> void:
 
 
 func _handle_entity_state(packet: PackedByteArray) -> void:
-	# Host doesn't need to receive entity state - it's authoritative
-	if client_state.is_host:
-		return
-
+	# Server is authoritative for entities - all clients receive state
 	var offset := ProtocolClass.MsgHeader.size()
 	if packet.size() < offset + 1:
 		return
@@ -952,10 +1191,39 @@ func _on_latency_updated(latency_ms: int) -> void:
 
 
 func _on_divergence_detected(local_data: ProtocolClass.PlayerData, server_data: ProtocolClass.PlayerData) -> void:
-	_log("DIVERGENCE: local=(%.2f,%.2f,%.2f) server=(%.2f,%.2f,%.2f)" % [
+	var local_pos := local_data.get_position()
+	var server_pos := server_data.get_position()
+	var distance := local_pos.distance_to(server_pos)
+
+	_log("DIVERGENCE: local=(%.2f,%.2f,%.2f) server=(%.2f,%.2f,%.2f) dist=%.2f" % [
 		local_data.x, local_data.y, local_data.z,
-		server_data.x, server_data.y, server_data.z
+		server_data.x, server_data.y, server_data.z,
+		distance
 	])
+
+	# If divergence exceeds threshold, snap local player to server position
+	# Server state is authoritative
+	if distance > DESYNC_SNAP_THRESHOLD:
+		print("NetworkManager: DESYNC - Snapping to server position (%.1fm divergence)" % distance)
+		_log("DESYNC SNAP: Correcting position to server state")
+
+		# Update local player position
+		if local_player and is_instance_valid(local_player):
+			local_player.global_position = server_pos
+			# Also update client_state local data to match
+			client_state.update_local_position(server_pos)
+
+			# Update health if significantly different
+			if abs(local_data.health - server_data.health) > 1.0:
+				if local_player.has_method("set_health"):
+					local_player.set_health(server_data.health)
+				elif "current_health" in local_player:
+					local_player.current_health = server_data.health
+					if local_player.has_signal("health_changed"):
+						local_player.health_changed.emit(server_data.health, local_player.max_health)
+				client_state.update_local_health(server_data.health)
+
+			print("NetworkManager: Corrected to server pos (%.1f, %.1f, %.1f)" % [server_pos.x, server_pos.y, server_pos.z])
 
 # =============================================================================
 # DEBUG

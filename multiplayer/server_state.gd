@@ -215,10 +215,10 @@ func get_player_count() -> int:
 # ENTITY MANAGEMENT (Bobba, Dragon)
 # =============================================================================
 
-## Find a free entity slot
+## Find a free entity slot (empty slots have entity_id == 0)
 func find_free_entity_slot() -> int:
 	for i in range(Protocol.MAX_ENTITIES):
-		if entities[i].entity_type == Protocol.EntityType.ENTITY_NONE:
+		if entities[i].entity_id == 0:
 			return i
 	return -1
 
@@ -288,11 +288,11 @@ func remove_entity(entity_id: int) -> void:
 	entities[slot] = Protocol.EntityData.new()
 	entity_slots.erase(entity_id)
 
-## Get all active entities
+## Get all active entities (active entities have entity_id > 0)
 func get_active_entities() -> Array[Protocol.EntityData]:
 	var result: Array[Protocol.EntityData] = []
 	for i in range(Protocol.MAX_ENTITIES):
-		if entities[i].entity_type != Protocol.EntityType.ENTITY_NONE:
+		if entities[i].entity_id > 0:
 			result.append(entities[i])
 	return result
 
