@@ -15,6 +15,7 @@ var combat_mode: int = 1
 var character_class: int = 1  # 0 = Paladin, 1 = Archer
 var health: float = 100.0
 var current_anim_name: String = "Idle"
+var _first_position_received: bool = false  # Track if we've set initial position
 
 var _character_model: Node3D
 var _anim_player: AnimationPlayer
@@ -99,21 +100,13 @@ func _physics_process(delta: float) -> void:
 	if not _setup_complete:
 		return
 
-	# Interpolate position (only if we have a target)
+	# Interpolate position directly (no physics for remote players)
 	if target_position != Vector3.ZERO:
 		global_position = global_position.lerp(target_position, interpolation_speed * delta)
 
 	# Interpolate rotation - apply to model, not body
 	if _character_model and is_instance_valid(_character_model):
 		_character_model.rotation.y = lerp_angle(_character_model.rotation.y, target_rotation_y, interpolation_speed * delta)
-
-	# Apply gravity and move
-	if not is_on_floor():
-		velocity.y -= 22.0 * delta
-	else:
-		velocity.y = 0
-
-	move_and_slide()
 
 	# Update animation based on state
 	if _anim_player and is_instance_valid(_anim_player):
@@ -124,8 +117,19 @@ func _physics_process(delta: float) -> void:
 
 
 func update_from_network(data: Dictionary) -> void:
-	target_position = data.get("position", target_position)
-	target_rotation_y = data.get("rotation_y", target_rotation_y)
+	var new_position = data.get("position", target_position)
+	var new_rotation_y = data.get("rotation_y", target_rotation_y)
+
+	# On first position update, set position/rotation directly instead of interpolating from origin
+	if not _first_position_received and new_position != Vector3.ZERO:
+		global_position = new_position
+		if _character_model and is_instance_valid(_character_model):
+			_character_model.rotation.y = new_rotation_y
+		_first_position_received = true
+		print("RemotePlayer [%d]: Initial position set to %s" % [player_id, new_position])
+
+	target_position = new_position
+	target_rotation_y = new_rotation_y
 	current_state = data.get("state", current_state)
 	combat_mode = data.get("combat_mode", combat_mode)
 	health = data.get("health", health)
@@ -221,6 +225,24 @@ func _finalize_setup() -> void:
 			print("RemotePlayer [%d]: Playing %s" % [player_id, idle_anim])
 	_setup_complete = true
 	print("RemotePlayer: Setup complete for player %d (class=%d) at position %s" % [player_id, character_class, global_position])
+
+	# Debug: Check model visibility and mesh count
+	if _character_model:
+		var mesh_count = _count_meshes(_character_model)
+		print("RemotePlayer [%d]: Model visible=%s, mesh_count=%d, model_pos=%s" % [
+			player_id, _character_model.visible, mesh_count, _character_model.global_position
+		])
+		# Apply bright tint to make remote player highly visible (for debugging)
+		_apply_remote_player_tint()
+
+
+func _count_meshes(node: Node) -> int:
+	var count = 0
+	if node is MeshInstance3D:
+		count += 1
+	for child in node.get_children():
+		count += _count_meshes(child)
+	return count
 
 
 func _switch_character_class() -> void:
@@ -436,14 +458,13 @@ func _apply_remote_player_tint() -> void:
 func _apply_tint_recursive(node: Node) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance = node as MeshInstance3D
-		# Create a bright tinted material to make remote player visible
+		# Create a VERY bright unshaded material to make remote player impossible to miss
 		var mat = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.5, 0.8, 1.0)  # Cyan/blue tint
-		mat.emission_enabled = true
-		mat.emission = Color(0.2, 0.5, 1.0)  # Bright blue glow
-		mat.emission_energy_multiplier = 1.0
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED  # No lighting needed
+		mat.albedo_color = Color(1.0, 0.0, 1.0)  # Bright magenta - impossible to miss
 		mesh_instance.material_override = mat
-		print("RemotePlayer: Applied bright tint to mesh: %s" % mesh_instance.name)
+		mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		print("RemotePlayer: Applied MAGENTA tint to mesh: %s" % mesh_instance.name)
 
 	for child in node.get_children():
 		_apply_tint_recursive(child)
