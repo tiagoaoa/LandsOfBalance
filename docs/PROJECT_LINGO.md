@@ -59,6 +59,7 @@ showcase" is one word instead of three sentences describing what to run.
 | **DAY / NIGHT**     | `LightingManager` presets. Default is NIGHT. Only the GRASS showcase scenario force-switches to DAY. |
 | **Gothic HUD**      | The dark-fantasy / Elder-Scrolls-style UI language: wooden-textured frames, bronze rims, corner gold gems, parchment-tinted text. `ui/gothic_hud.gd`. |
 | **Wood frame**      | A panel backing drawn by `ui/woodgrain_frame.gdshader` — grain + bevel + carved inner border. Replaces flat StyleBoxFlat. |
+| **26 style**        | The visual-fidelity bar for this project. It is 2026 — we have the GPU and CPU headroom of a mid-range modern machine, and anything we ship should read as **better than a PS4-era early souls-like** (Dark Souls 3, Bloodborne, Dragon's Dogma). Plan for shaders, textures, volumetric light, dense instancing, per-instance variation — not flat StyleBox/ColorRect work. If a draft looks 8- or 16-bit or reads as "Godot defaults," it's not 26 style. |
 
 ---
 
@@ -101,6 +102,7 @@ worth re-using to keep specs short.
 | **"Research for …"**                  | License-check first (CC0 / CC-BY). If external download is flaky, fall back to procedural. Declare the choice. |
 | **"Go for it"**                       | Autonomous execution permitted on this scope. No further prompting unless something ambiguous blocks progress. |
 | **"Make this a rule"**                | Same as "golden rule" — persist the rule in code + this doc. |
+| **"26 style"** / **"this is 2026"**   | The fidelity bar — better than PS4-era early souls-likes. See the scene & rendering table. Flat ColorRect / StyleBoxFlat work is a failure mode; reach for shaders, textures, lighting, and per-instance variation. |
 
 ---
 
@@ -141,3 +143,4 @@ worth re-using to keep specs short.
 4. **Blocked hits still push.** Shield eats damage, not momentum.
 5. **Cornfield grass spec.** Blades roughly Paladin shoulder-height (1.5 m), roots 30-50 cm apart, individual stalks visible, dark desaturated green, lit bevel when moonlight hits the top.
 6. **Tall-grass exclusion.** Grass only on open natural terrain; never on village, castle, roads, training grounds, tower, realm fields, burning peaks.
+7. **26-style fidelity bar.** Every visual pass should aim above PS4-era early souls-likes. If the first draft looks retro or uses Godot default styling, it needs another pass before it ships.
