@@ -1,4 +1,4 @@
-[gd_scene load_steps=44 format=4 uid="uid://b2lcb4fy8his1"]
+[gd_scene load_steps=45 format=4 uid="uid://b2lcb4fy8his1"]
 
 [ext_resource type="Script" uid="uid://vw47tquoshc7" path="res://stage/stage.gd" id="1_stage"]
 [ext_resource type="Script" uid="uid://cuveftns1euyj" path="res://stage/village_decorator.gd" id="2_decorator"]
@@ -17,6 +17,8 @@
 [ext_resource type="Script" uid="uid://2juaclm8gc1n" path="res://addons/simplegrasstextured/grass.gd" id="16_csoi1"]
 [ext_resource type="Script" uid="uid://bs4bnr00cor2t" path="res://stage/moon.gd" id="16_moon"]
 [ext_resource type="PackedScene" path="res://assets/object28.tscn" id="17_object28"]
+[ext_resource type="Script" uid="uid://c26yvq1wnu2go" path="res://assets/object28_loader.gd" id="18_csoi1"]
+[ext_resource type="Script" path="res://stage/realistic_grass_placer.gd" id="19_grass"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_15kie"]
 sky_top_color = Color(0.15, 0.18, 0.25, 1)
@@ -30,39 +32,16 @@ sky_material = SubResource("ProceduralSkyMaterial_15kie")
 
 [sub_resource type="Environment" id="Environment_wdnaj"]
 background_mode = 2
-background_energy_multiplier = 2.0
+background_energy_multiplier = 0.015
 sky = SubResource("Sky_js6ng")
 ambient_light_source = 2
-ambient_light_color = Color(1, 1, 1, 1)
-ambient_light_energy = 4.0
+ambient_light_color = Color(0.1, 0.1, 0.18, 1)
+ambient_light_energy = 0.2
 tonemap_mode = 2
-tonemap_exposure = 2.0
-ssao_enabled = true
-ssao_radius = 2.0
-ssao_intensity = 1.5
-ssao_power = 2.0
-ssao_light_affect = 0.3
-glow_enabled = true
-glow_intensity = 0.2
-glow_strength = 0.4
-glow_bloom = 0.05
-fog_light_color = Color(0.4, 0.45, 0.5, 1)
-fog_light_energy = 0.5
-fog_density = 0.0075
-fog_sky_affect = 0.24
-fog_height_density = 0.03
-volumetric_fog_density = 0.009
-volumetric_fog_albedo = Color(0.5, 0.55, 0.6, 1)
-volumetric_fog_emission = Color(0.02, 0.025, 0.03, 1)
-volumetric_fog_emission_energy = 0.15
-volumetric_fog_anisotropy = 0.3
-volumetric_fog_length = 80.0
-volumetric_fog_detail_spread = 0.8
-volumetric_fog_ambient_inject = 0.03
-adjustment_enabled = true
-adjustment_brightness = 0.425
-adjustment_contrast = 1.15
-adjustment_saturation = 0.6
+tonemap_exposure = 1.0
+fog_light_color = Color(0.12, 0.14, 0.2, 1)
+fog_light_energy = 0.15
+fog_density = 0.001
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0t235"]
 albedo_texture = ExtResource("4_js6ng")
@@ -328,11 +307,9 @@ environment = SubResource("Environment_wdnaj")
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.5262583, 0.22008014, -0.8213507, -9.642971e-10, 0.9659258, 0.25881895, 0.8503247, -0.13620561, 0.50832653, 176.20892, 4804.189, 4579.207)
 layers = 0
-light_color = Color(0.6, 0.65, 0.75, 1)
-light_energy = 4.0
-shadow_enabled = true
-shadow_bias = 0.03
-shadow_opacity = 0.8
+light_color = Color(0.5, 0.55, 0.7, 1)
+light_energy = 0.0
+shadow_enabled = false
 
 [node name="Moon" type="Node3D" parent="."]
 script = ExtResource("16_moon")
@@ -502,10 +479,6 @@ outline_size = 5
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, 0)
 motion_mode = 1
 script = ExtResource("15_dragon")
-patrol_radius = 10.0
-patrol_height = 8.0
-attack_range = 15.0
-detection_range = 30.0
 
 [node name="BurningPeaks" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -120, 0, 0)
@@ -542,13 +515,15 @@ multimesh = SubResource("MultiMesh_grb1b")
 [node name="RealisticGrass" type="MultiMeshInstance3D" parent="Grass"]
 cast_shadow = 0
 multimesh = SubResource("MultiMesh_5v762")
+script = ExtResource("19_grass")
 
 [node name="SimpleGrassTextured" type="MultiMeshInstance3D" parent="."]
 multimesh = SubResource("MultiMesh_503b1")
 script = ExtResource("16_csoi1")
 texture_albedo = ExtResource("15_rx4pk")
+interactive = false
 sgt_radius = 2.0
-sgt_density = 25
+sgt_density = 15
 sgt_scale = 1.0
 sgt_rotation = 0.0
 sgt_rotation_rand = 1.0
@@ -563,5 +538,6 @@ sgt_tool_shape = {
 metadata/_custom_type_script = "uid://2juaclm8gc1n"
 metadata/SimpleGrassTextured = "2.0.5"
 
-[node name="Object28" parent="." instance=ExtResource("17_object28")]
+[node name="Object28" type="Node3D" parent="." instance=ExtResource("17_object28")]
 transform = Transform3D(0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01, -56.06433, 18.870544, -50.01416)
+script = ExtResource("18_csoi1")

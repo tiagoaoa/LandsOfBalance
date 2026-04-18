@@ -47,6 +47,9 @@ config/icon="res://icon.png"
 SimpleGrass="*res://addons/simplegrasstextured/singleton.tscn"
 NetworkManager="*res://multiplayer/network_manager.tscn"
 GameSettings="*res://autoload/game_settings.gd"
+MCPRuntime="*res://addons/godot_mcp_runtime/mcp_runtime_autoload.gd"
+CombatFX="*res://combat/combat_fx.gd"
+CombatTest="*res://enemies/combat_test.gd"
 
 [debug]
 
@@ -59,7 +62,7 @@ window/stretch/aspect="expand"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/simplegrasstextured/plugin.cfg")
+enabled=PackedStringArray("res://addons/auto_reload/plugin.cfg", "res://addons/godot_mcp_editor/plugin.cfg", "res://addons/godot_mcp_runtime/plugin.cfg", "res://addons/simplegrasstextured/plugin.cfg")
 
 [input]
 
@@ -260,10 +263,10 @@ common/physics_interpolation=true
 
 textures/vram_compression/import_s3tc_bptc=true
 textures/vram_compression/import_etc2_astc=true
-lights_and_shadows/directional_shadow/size=8192
+lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 textures/default_filters/anisotropic_filtering_level=4
-anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/msaa_3d=0
 textures/decals/filter=1
 anti_aliasing/quality/use_debanding=true
 lights_and_shadows/positional_shadow/atlas_size=512

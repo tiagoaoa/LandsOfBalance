@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://character_select"]
+[gd_scene load_steps=2 format=3 uid="uid://rfg00b1ikha6"]
 
-[ext_resource type="Script" path="res://ui/character_select.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://cjfn7g7uf286p" path="res://ui/character_select.gd" id="1_script"]
 
 [node name="CharacterSelect" type="Control"]
 layout_mode = 3
@@ -74,7 +74,7 @@ text = "Play"
 
 [node name="HintLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 14
 text = "Press 1 for Paladin, 2 for Archer, Enter to Play"
 horizontal_alignment = 1

@@ -12,14 +12,18 @@ const MAX_PLAYERS: int = 64
 const MAX_ENTITIES: int = 128
 const MAX_ARROWS: int = 256
 const SERVER_PORT: int = 7777
-const DEFAULT_SERVER: String = "10.242.123.84"
+## Default server host. Loopback (127.0.0.1) so local tests can run the
+## game server on the same machine and every player connects as a pure
+## client — no host/non-host asymmetry in the codebase. Override with
+## `--server-host=<ip>` on the command line to connect to a remote server.
+const DEFAULT_SERVER: String = "127.0.0.1"
 
 # Timing constants (milliseconds)
 const ACK_TIMEOUT_MS: int = 100
 const MAX_RETRIES: int = 3
-const UPDATE_INTERVAL_MS: int = 33  # 30 Hz
-const ENTITY_UPDATE_INTERVAL_MS: int = 33  # 30 Hz
-const STATE_BROADCAST_INTERVAL_MS: int = 50  # 20 Hz for full state
+const UPDATE_INTERVAL_MS: int = 22  # 45 Hz
+const ENTITY_UPDATE_INTERVAL_MS: int = 22  # 45 Hz
+const STATE_BROADCAST_INTERVAL_MS: int = 33  # 30 Hz for full state
 
 # FIFO-specific timing (slower for testing)
 const FIFO_SERVER_BROADCAST_US: int = 200000  # 200ms = 5 Hz server broadcast
@@ -63,6 +67,7 @@ enum MsgType {
 	MSG_SPECTATE_ACK = 16,  # Server -> Client: Acknowledge spectator connection
 	MSG_PLAYER_DAMAGE = 17, # Server -> Client: Entity hit player (Bobba attack, etc.)
 	MSG_GAME_RESTART = 18,  # Bidirectional: Request/broadcast game restart (respawn all)
+	MSG_PVP_DAMAGE = 19,    # Client -> Server: Player hit another player (arrow, melee)
 }
 
 # =============================================================================
@@ -451,6 +456,34 @@ class PlayerDamageData:
 	static func size() -> int:
 		return 24
 
+
+## PVP Damage Data - sent when one player hits another
+## Size: 12 bytes
+class PvpDamageData:
+	var target_player_id: int = 0    # 4 bytes - player being hit
+	var damage: float = 0.0          # 4 bytes
+	var attacker_player_id: int = 0  # 4 bytes - player dealing damage
+
+	func encode() -> PackedByteArray:
+		var buf := PackedByteArray()
+		buf.resize(12)
+		buf.encode_u32(0, target_player_id)
+		buf.encode_float(4, damage)
+		buf.encode_u32(8, attacker_player_id)
+		return buf
+
+	func decode(buf: PackedByteArray, start_offset: int = 0) -> bool:
+		if buf.size() < start_offset + 12:
+			return false
+		target_player_id = buf.decode_u32(start_offset)
+		damage = buf.decode_float(start_offset + 4)
+		attacker_player_id = buf.decode_u32(start_offset + 8)
+		return true
+
+	static func size() -> int:
+		return 12
+
+
 # =============================================================================
 # GAME RESTART REASON ENUM
 # =============================================================================
@@ -733,4 +766,5 @@ static func get_msg_type_name(msg_type: int) -> String:
 		MsgType.MSG_SPECTATE_ACK: return "SPECTATE_ACK"
 		MsgType.MSG_PLAYER_DAMAGE: return "PLAYER_DAMAGE"
 		MsgType.MSG_GAME_RESTART: return "GAME_RESTART"
+		MsgType.MSG_PVP_DAMAGE: return "PVP_DAMAGE"
 		_: return "UNKNOWN(%d)" % msg_type

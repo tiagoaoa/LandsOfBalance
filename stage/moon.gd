@@ -9,8 +9,8 @@ extends Node3D
 @export var moon_elevation: float = 30.0  ## Degrees above horizon
 @export var moon_azimuth: float = -45.0  ## Degrees from north (Y rotation)
 
-@export var light_energy: float = 0.7  ## Moon light intensity (Diablo IV style)
-@export var light_color: Color = Color(0.5, 0.55, 0.75)  ## Cool blue-purple moonlight (Diablo IV)
+@export var light_energy: float = 1.0  ## Moon light intensity (full moon)
+@export var light_color: Color = Color(0.6, 0.65, 0.8)  ## Silvery-blue moonlight
 
 var _moon_mesh: MeshInstance3D
 var _moon_light: DirectionalLight3D
@@ -74,14 +74,13 @@ func _create_moon_light() -> void:
 	_moon_light.light_indirect_energy = 0.4  # Colored bounce light for GI
 	_moon_light.light_volumetric_fog_energy = 1.0  # Moon visible in volumetric fog
 	_moon_light.shadow_enabled = true
-	_moon_light.shadow_blur = 2.0  # Soft shadow edges (Diablo IV style)
+	_moon_light.shadow_blur = 1.2
 	_moon_light.shadow_bias = 0.04
-	_moon_light.shadow_normal_bias = 1.5  # Reduce peter-panning
-	_moon_light.shadow_opacity = 0.85  # Strong but not harsh shadows
-	# Cascaded shadows for quality
-	_moon_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	_moon_light.directional_shadow_max_distance = 150.0
-	_moon_light.directional_shadow_blend_splits = true  # Smooth cascade transitions
+	_moon_light.shadow_normal_bias = 1.5
+	# Stronger shadows — DS3-style deep darkness under the blades.
+	_moon_light.shadow_opacity = 0.95
+	_moon_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	_moon_light.directional_shadow_max_distance = 120.0
 
 	add_child(_moon_light)
 
@@ -101,8 +100,9 @@ func _position_moon() -> void:
 	# Moon mesh always faces origin (billboard-like but fixed)
 	_moon_mesh.look_at(Vector3.ZERO, Vector3.UP)
 
-	# Light direction points from moon toward origin
-	_moon_light.rotation_degrees = Vector3(-moon_elevation, moon_azimuth + 180, 0)
+	# Light direction points from moon toward ground
+	# DirectionalLight3D shines along its -Z axis, so we aim it downward from the moon's position
+	_moon_light.look_at_from_position(Vector3(x, y, z), Vector3.ZERO, Vector3.UP)
 
 
 func set_visible_mode(is_night: bool) -> void:

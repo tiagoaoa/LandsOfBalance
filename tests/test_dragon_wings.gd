@@ -25,6 +25,7 @@ var _ui_panel: Control
 var _bone_ranges: Dictionary = {}  # bone_key -> {axis -> {min_slider, max_slider, min_label, max_label}}
 var _manual_mode := false  # When true, manually control bones instead of animation
 var _anim_time := 0.0  # Manual animation time
+var _capture_output_dir := ""
 
 # Animation parameters (editable via UI)
 var _anim_params := {
@@ -87,6 +88,8 @@ const BONE_NAMES := {
 
 
 func _ready() -> void:
+	_capture_output_dir = _get_capture_output_dir()
+
 	# Setup camera to view the dragon
 	_setup_camera()
 
@@ -117,6 +120,9 @@ func _ready() -> void:
 	print("M - Toggle manual bone control mode")
 	print("P - Print current bone values")
 	print("X - Quit")
+
+	if not _capture_output_dir.is_empty():
+		call_deferred("_run_capture_sequence")
 
 
 func _setup_camera() -> void:
@@ -286,6 +292,59 @@ func _setup_dragon() -> void:
 		print("Playing WingFlap animation")
 	else:
 		push_error("No AnimationPlayer found in dragon model")
+
+
+func _get_capture_output_dir() -> String:
+	var all_args := []
+	all_args.append_array(OS.get_cmdline_args())
+	all_args.append_array(OS.get_cmdline_user_args())
+	for arg in all_args:
+		if arg.begins_with("--capture-dragon-frames="):
+			return arg.trim_prefix("--capture-dragon-frames=")
+	return ""
+
+
+func _run_capture_sequence() -> void:
+	if _capture_output_dir.is_empty():
+		return
+	if not _anim_player or not _camera:
+		push_error("Capture mode requires camera and animation player")
+		get_tree().quit()
+		return
+
+	# Hide editor UI and frame the dragon cleanly for image review.
+	if _ui_panel:
+		_ui_panel.visible = false
+	var ui_layer := get_node_or_null("UILayer")
+	if ui_layer:
+		ui_layer.visible = false
+
+	_camera_rotation = Vector2(-18.0, -28.0)
+	_camera_distance = 205.0
+	_camera_target = Vector3(0, 58, 0)
+	_update_camera_position()
+
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var phases := {
+		"top": 0.0,
+		"mid_power": 0.19,
+		"bottom": 0.38,
+	}
+
+	DirAccess.make_dir_recursive_absolute(_capture_output_dir)
+	for name in phases.keys():
+		_anim_player.play(&"WingFlap")
+		_anim_player.seek(phases[name] * _anim_player.current_animation_length, true)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var image := get_viewport().get_texture().get_image()
+		var path := _capture_output_dir.path_join("dragon_%s.png" % name)
+		var err := image.save_png(path)
+		print("Capture %s -> %s (%s)" % [name, path, err])
+
+	get_tree().quit()
 
 
 func _find_skeleton(node: Node) -> Skeleton3D:

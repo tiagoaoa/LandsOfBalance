@@ -8,6 +8,8 @@ signal attack_landed(target: Node3D, knockback_direction: Vector3)
 
 # Use Protocol.BobbaState for network sync compatibility
 const Proto = preload("res://multiplayer/protocol.gd")
+const HealthComponentClass := preload("res://combat/health_component.gd")
+const PoiseComponentClass := preload("res://combat/poise_component.gd")
 const State = Proto.BobbaState
 
 # Network synchronization
@@ -17,8 +19,18 @@ var _target_position: Vector3 = Vector3.ZERO
 var _target_rotation: float = 0.0
 
 # Health system
-const MAX_HEALTH: float = 500.0
-var health: float = MAX_HEALTH
+const MAX_HEALTH: float = 1000.0
+var _health: HealthComponentClass
+var _poise: PoiseComponentClass
+const SWORD_POISE_DAMAGE: float = 35.0  # ~3 hits = stagger
+
+## Compatibility forwarder — existing code reads/writes `bobba.health`.
+var health: float:
+	get:
+		return _health.current_hp if _health else MAX_HEALTH
+	set(value):
+		if _health:
+			_health.set_current_hp(value)
 
 # Movement constants
 const ROAM_SPEED: float = 2.0
@@ -31,8 +43,8 @@ const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
 
 # Combat constants
-const ATTACK_DAMAGE: float = 70.0  # Damage dealt to players
-const ARROW_DAMAGE: float = 10.0  # Damage taken from arrows
+const ATTACK_DAMAGE: float = 40.0  # Damage dealt to players per punch
+const ARROW_DAMAGE: float = 1.0  # Damage taken from arrows (10x reduced - use fire to trap Bobba!)
 const SWORD_DAMAGE: float = 50.0  # Damage taken from Paladin sword
 const KNOCKBACK_FORCE: float = 12.0
 
@@ -42,9 +54,41 @@ var _retreat_timer: float = 0.0
 var _retreat_direction: Vector3 = Vector3.ZERO
 const RETREAT_DURATION: float = 2.0  # Seconds to retreat after arrow hit
 
-# Fire avoidance
+# Block: procedural "cross right arm over body" pose held for BLOCK_DURATION.
+# Triggered opportunistically while the target is threatening. Any incoming
+# damage is negated as long as is_blocking is true.
+var is_blocking: bool = false
+var _block_timer: float = 0.0
+var _block_check_cooldown: float = 0.0
+const BLOCK_DURATION: float = 0.8
+const BLOCK_CHECK_INTERVAL: float = 1.5
+const BLOCK_CHANCE: float = 0.4
+# Procedural "X-guard": both arms raised and crossed in front of the chest.
+# Right arm comes across the body, left arm mirrors it; forearms bend hard
+# at the elbow to form the X. Values are tuned by eye against the mutant rig.
+const BLOCK_RIGHT_ARM_EULER := Vector3(-75.0, -35.0, 0.0)
+const BLOCK_RIGHT_FOREARM_EULER := Vector3(-105.0, 0.0, 0.0)
+const BLOCK_LEFT_ARM_EULER := Vector3(-75.0, 35.0, 0.0)
+const BLOCK_LEFT_FOREARM_EULER := Vector3(-105.0, 0.0, 0.0)
+# Slight forward hunch — head tucks down into the guard.
+const BLOCK_HEAD_EULER := Vector3(20.0, 0.0, 0.0)
+const BLOCK_SPINE_EULER := Vector3(12.0, 0.0, 0.0)
+
+var _skeleton: Skeleton3D = null
+var _block_arm_bone: int = -1
+var _block_forearm_bone: int = -1
+var _block_left_arm_bone: int = -1
+var _block_left_forearm_bone: int = -1
+var _block_head_bone: int = -1
+var _block_spine_bone: int = -1
+
+# Fire avoidance - Bobba actively flees from fire!
 var _ground_fires: Array = []  # Track active ground fire positions
-const FIRE_AVOID_RADIUS: float = 3.0  # Distance to avoid from fire
+var _fire_scan_timer: float = 0.0  # Timer for periodic fire scanning
+const FIRE_AVOID_RADIUS: float = 5.0  # Distance to avoid from fire (increased for safety)
+const FIRE_PANIC_RADIUS: float = 2.5  # Distance at which Bobba panics and flees immediately
+const FIRE_DURATION_MS: int = 45000  # How long to remember fire positions (45 seconds)
+const FIRE_SCAN_INTERVAL: float = 1.0  # How often to scan for new fires
 
 signal health_changed(current: float, maximum: float)
 signal died()
@@ -91,12 +135,50 @@ const ANIM_PATHS: Dictionary = {
 
 func _ready() -> void:
 	add_to_group("bobba")  # Add to group for easy finding
+	_setup_health_component()
+	_setup_poise_component()
 	_find_player()
 	_setup_attack_hitbox()  # Must be before _setup_model which attaches hitboxes to bones
 	_setup_model()
 	_setup_hit_label()
 	_pick_new_roam_direction()
 	_setup_network()
+
+
+func _setup_health_component() -> void:
+	_health = HealthComponentClass.new()
+	_health.name = "HealthComponent"
+	_health.max_hp = MAX_HEALTH
+	add_child(_health)
+	_health.health_changed.connect(func(cur: float, mx: float) -> void:
+		health_changed.emit(cur, mx))
+	_health.died.connect(_on_death)
+	# Every damage event pops the current HP as a big floating label.
+	_health.damaged.connect(func(_amount: float) -> void:
+		_show_hit_label("%d / %d HP" % [int(round(health)), int(round(MAX_HEALTH))]))
+
+
+func _setup_poise_component() -> void:
+	_poise = PoiseComponentClass.new()
+	_poise.name = "PoiseComponent"
+	_poise.max_poise = 100.0
+	add_child(_poise)
+	_poise.staggered.connect(_on_staggered)
+	_poise.unstoppable_started.connect(func() -> void:
+		_flash_hit(Color(1.0, 0.85, 0.2))
+		print("Bobba: UNSTOPPABLE"))
+
+
+func _on_staggered() -> void:
+	# Extended hit-stun — halve knockback doesn't matter here since stagger
+	# is its own state; reuse the existing STUNNED state + play a roar
+	# animation if available to sell the break-out.
+	state = State.STUNNED
+	_stun_timer = 0.9  # longer than standard hit stun
+	_current_anim = &""
+	if _anim_player and _anim_player.has_animation(&"bobba/Roar"):
+		_play_anim(&"bobba/Roar")
+	print("Bobba: STAGGERED")
 
 
 func _setup_network() -> void:
@@ -310,12 +392,14 @@ func _create_hand_hitbox(hitbox_name: String) -> Area3D:
 	hitbox.collision_mask = 1   # Detects player (layer 1)
 	hitbox.monitoring = true    # Always monitoring - damage gated by _hitbox_active_window
 
-	# Create collision shape - large sphere for reliable hit detection
+	# Rule: only the visible fist/forearm counts as the hit volume. Keep
+	# the sphere centered on the hand bone with a radius roughly matching
+	# the fist's visible size so misses actually miss.
 	var collision_shape = CollisionShape3D.new()
 	var sphere = SphereShape3D.new()
-	sphere.radius = 1.2  # Large radius for reliable hit detection
+	sphere.radius = 0.35  # fist-sized, not arm-length
 	collision_shape.shape = sphere
-	collision_shape.position = Vector3(0, 0, 0.5)  # Offset forward from hand
+	collision_shape.position = Vector3(0, 0, 0.0)  # on the hand itself
 
 	hitbox.add_child(collision_shape)
 	return hitbox
@@ -327,11 +411,13 @@ func _setup_hand_bone_attachments() -> void:
 		print("Bobba: No model, adding hitboxes to self")
 		add_child(_left_hand_hitbox)
 		add_child(_right_hand_hitbox)
-		_left_hand_hitbox.position = Vector3(-0.75, 1.5, 0.75)
-		_right_hand_hitbox.position = Vector3(0.75, 1.5, 0.75)
+		# Fallback positions near chest — still fist-sized now.
+		_left_hand_hitbox.position = Vector3(-0.5, 1.4, 0.4)
+		_right_hand_hitbox.position = Vector3(0.5, 1.4, 0.4)
 		return
 
 	var skeleton: Skeleton3D = _find_skeleton(_model)
+	_skeleton = skeleton  # Cache for block-pose overrides.
 	if skeleton == null:
 		print("Bobba: No skeleton found for hand attachments, using fallback on model")
 		# Add to _model so hitboxes rotate with Bobba's facing direction
@@ -341,6 +427,17 @@ func _setup_hand_bone_attachments() -> void:
 		_left_hand_hitbox.position = Vector3(-0.5, 1.0, 0.5)
 		_right_hand_hitbox.position = Vector3(0.5, 1.0, 0.5)
 		return
+
+	# Resolve the right arm / right forearm bones for the procedural block
+	# pose. Fallbacks cover both mixamorig_ and mixamorig: naming conventions.
+	_block_arm_bone = _find_bone(skeleton, ["mixamorig_RightArm", "mixamorig:RightArm", "RightArm"])
+	_block_forearm_bone = _find_bone(skeleton, ["mixamorig_RightForeArm", "mixamorig:RightForeArm", "RightForeArm"])
+	_block_left_arm_bone = _find_bone(skeleton, ["mixamorig_LeftArm", "mixamorig:LeftArm", "LeftArm"])
+	_block_left_forearm_bone = _find_bone(skeleton, ["mixamorig_LeftForeArm", "mixamorig:LeftForeArm", "LeftForeArm"])
+	_block_head_bone = _find_bone(skeleton, ["mixamorig_Head", "mixamorig:Head", "Head"])
+	_block_spine_bone = _find_bone(skeleton, ["mixamorig_Spine1", "mixamorig:Spine1", "Spine1", "mixamorig_Spine", "Spine"])
+	if _block_arm_bone < 0 or _block_forearm_bone < 0:
+		print("Bobba: WARNING — right arm/forearm bones not found, block pose will no-op")
 
 	# Debug: print all bone names
 	print("Bobba: Skeleton has ", skeleton.get_bone_count(), " bones:")
@@ -376,6 +473,15 @@ func _setup_hand_bone_attachments() -> void:
 		_right_hand_hitbox.position = Vector3(0.5, 1.0, 0.5)
 
 
+## Look up a bone by any of the given candidate names, returning -1 on miss.
+func _find_bone(skeleton: Skeleton3D, candidates: Array) -> int:
+	for n in candidates:
+		var idx: int = skeleton.find_bone(n)
+		if idx != -1:
+			return idx
+	return -1
+
+
 func _find_hand_bone(skeleton: Skeleton3D, side: String) -> int:
 	# Try various naming conventions for hand bones
 	var possible_names: Array = [
@@ -401,17 +507,19 @@ func _find_hand_bone(skeleton: Skeleton3D, side: String) -> int:
 
 
 func _setup_hit_label() -> void:
-	# Create floating "Hit!" label above character
+	# Floating HP label that pops above Bobba on each damage event. Sized
+	# for typical combat-camera distance.
 	_hit_label = Label3D.new()
 	_hit_label.name = "HitLabel"
-	_hit_label.text = "Hit!"
+	_hit_label.text = ""
 	_hit_label.font_size = 64
-	_hit_label.modulate = Color(1.0, 0.2, 0.2)  # Red for enemy
-	_hit_label.outline_modulate = Color(0.3, 0.0, 0.0)
-	_hit_label.outline_size = 8
+	_hit_label.pixel_size = 0.006
+	_hit_label.modulate = Color(1.0, 0.3, 0.3)  # Red — enemy damage feedback
+	_hit_label.outline_modulate = Color(0.2, 0.0, 0.0)
+	_hit_label.outline_size = 12
 	_hit_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_hit_label.no_depth_test = true  # Always visible
-	_hit_label.position = Vector3(0, 3.0, 0)  # Above head
+	_hit_label.no_depth_test = true
+	_hit_label.position = Vector3(0, 3.0, 0)
 	_hit_label.visible = false
 	add_child(_hit_label)
 
@@ -460,14 +568,20 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 			player_is_blocking = body.is_blocking
 
 		if player_is_blocking:
-			# Blocked - reduced knockback, no damage
+			# Blocked — no damage, but a blocked punch still has weight.
+			# The shield absorbs damage; it does NOT absorb momentum. Push
+			# the player back hard enough to see the stagger.
 			if body.has_method("take_hit"):
-				body.take_hit(0, knockback_dir * KNOCKBACK_FORCE * 0.3, true)
-			print("Bobba: HIT BLOCKED by player")
+				body.take_hit(0, knockback_dir * KNOCKBACK_FORCE * 0.65, true, self, false)
+			if has_node("/root/CombatFX"):
+				CombatFX.on_hit(0.45)  # hitstop + shake weight 0.45
+			print("Bobba: HIT BLOCKED by player (push-back applied)")
 		else:
 			# Not blocked - full damage and knockback
 			if body.has_method("take_hit"):
-				body.take_hit(ATTACK_DAMAGE, knockback_dir * KNOCKBACK_FORCE, false)
+				body.take_hit(ATTACK_DAMAGE, knockback_dir * KNOCKBACK_FORCE, false, self, false)
+			if has_node("/root/CombatFX"):
+				CombatFX.on_hit(0.8)
 			print("Bobba: HIT LANDED on player")
 
 		attack_landed.emit(body, knockback_dir)
@@ -532,24 +646,43 @@ func _update_attack_hitbox_timing() -> void:
 				return
 
 
-func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacker: Node3D = null) -> void:
-	# Flash red when hit
-	_flash_hit(Color(1.0, 0.2, 0.2))
+func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacker: Node3D = null, _is_fully_blockable: bool = false) -> void:
+	# HP label is emitted via the HealthComponent.damaged signal when
+	# take_damage runs — take_hit only applies flash, knockback, and stun.
 
-	# Show floating "Hit!" label
-	_show_hit_label()
+	# If Bobba is currently blocking, the hit is parried: blue flash,
+	# reduced knockback, no damage, no stun.
+	if is_blocking:
+		_flash_hit(Color(0.3, 0.5, 1.0))
+		if attacker:
+			_set_attacker_as_target(attacker)  # still agro onto them
+		# Mild pushback so there's visible recoil on the blocker
+		velocity = knockback * 0.25
+		print("Bobba: BLOCKED hit from ", attacker)
+		return
+
+	_flash_hit(Color(1.0, 0.2, 0.2))
 
 	# Switch target to attacker (prioritize who is attacking)
 	if attacker:
 		_set_attacker_as_target(attacker)
 
-	# Apply knockback (visual feedback is ok locally even in multiplayer)
-	if knockback.length() > 0:
+	# Poise damage — a heavy hit can stagger Bobba into a longer stun.
+	# Sword attacks currently pass damage >= 50; scale poise off that.
+	var did_stagger: bool = false
+	if _poise and damage >= 50.0:
+		did_stagger = _poise.take_poise_damage(SWORD_POISE_DAMAGE)
+
+	# Apply knockback (neutralized for 1/3 second, pushed opposite to strike).
+	# If a stagger fired above, _on_staggered already set a longer stun window.
+	if knockback.length() > 0 and not did_stagger:
 		state = State.STUNNED
-		_stun_timer = 0.5
+		_stun_timer = 0.333
 		velocity = knockback
 		# Force current animation to clear so it can transition properly after stun
 		_current_anim = &""
+	elif did_stagger and knockback.length() > 0:
+		velocity = knockback * 1.3  # extra shove on the stagger
 
 	# In multiplayer, don't apply damage locally - server is authoritative
 	# The player will send MSG_ENTITY_DAMAGE to server which updates our health
@@ -560,13 +693,18 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 
 ## Take damage from any source (arrows, sword, etc.)
 func take_damage(amount: float) -> void:
-	var old_health = health
-	health = maxf(0.0, health - amount)
+	var old_health: float = health
+	_health.damage_flat(amount)
 	print("Bobba: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, health])
-	health_changed.emit(health, MAX_HEALTH)
 
-	if health <= 0:
-		_on_death()
+
+## Take a percentage of max HP as damage (used by DoT spell effects).
+## Server-authoritative: skipped on non-host clients (health is synced from the
+## server via apply_network_state).
+func take_damage_pct(pct: float) -> void:
+	if _is_network_controlled:
+		return
+	_health.damage_pct(pct)
 
 
 ## Called when Bobba dies
@@ -604,17 +742,72 @@ func _on_health_label_update(current: float, _maximum: float) -> void:
 
 
 ## Take damage from arrow (causes retreat behavior)
+## Per-frame block logic:
+## * if currently blocking, count down and apply the procedural right-arm pose
+## * otherwise, roll a chance to enter block on a fixed cadence — but only
+##   when there's a target in range, we're not mid-attack, and not stunned.
+func _update_block_state(delta: float) -> void:
+	if is_blocking:
+		_block_timer -= delta
+		if _block_timer <= 0.0:
+			is_blocking = false
+		else:
+			_apply_block_pose()
+		return
+
+	if state == State.DEAD or state == State.STUNNED or state == State.ATTACKING:
+		return
+	if target == null or not is_instance_valid(target):
+		return
+
+	_block_check_cooldown -= delta
+	if _block_check_cooldown > 0.0:
+		return
+	_block_check_cooldown = BLOCK_CHECK_INTERVAL
+
+	# Only bother blocking when the target is close enough to attack us.
+	var dist: float = global_position.distance_to(target.global_position)
+	if dist > DETECTION_RADIUS:
+		return
+	if randf() < BLOCK_CHANCE:
+		is_blocking = true
+		_block_timer = BLOCK_DURATION
+		print("Bobba: entering block")
+
+
+## Override the right shoulder + right forearm rotations each frame while
+## blocking. Runs after AnimationPlayer has advanced (called from
+## _physics_process) so these overrides win over whatever the current idle
+## / walk clip is driving.
+func _apply_block_pose() -> void:
+	if _skeleton == null:
+		return
+	_apply_bone_euler(_block_arm_bone, BLOCK_RIGHT_ARM_EULER)
+	_apply_bone_euler(_block_forearm_bone, BLOCK_RIGHT_FOREARM_EULER)
+	_apply_bone_euler(_block_left_arm_bone, BLOCK_LEFT_ARM_EULER)
+	_apply_bone_euler(_block_left_forearm_bone, BLOCK_LEFT_FOREARM_EULER)
+	_apply_bone_euler(_block_head_bone, BLOCK_HEAD_EULER)
+	_apply_bone_euler(_block_spine_bone, BLOCK_SPINE_EULER)
+
+
+func _apply_bone_euler(bone_idx: int, euler_deg: Vector3) -> void:
+	if bone_idx < 0 or _skeleton == null:
+		return
+	_skeleton.set_bone_pose_rotation(bone_idx, Quaternion.from_euler(Vector3(
+		deg_to_rad(euler_deg.x),
+		deg_to_rad(euler_deg.y),
+		deg_to_rad(euler_deg.z))))
+
+
 func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
+	# NOTE: Damage is now the arrow's responsibility (take_damage_pct 5%).
+	# The HP label is also driven by the HealthComponent.damaged signal.
+	# This method only handles the visual reaction and retreat behavior.
+
 	# Flash orange for arrow hit
 	_flash_hit(Color(1.0, 0.6, 0.2))
-	_show_hit_label()
 
-	# In multiplayer, don't apply damage locally - server is authoritative
-	# The arrow will send MSG_ENTITY_DAMAGE to server which updates our health
-	if not _is_network_controlled:
-		take_damage(ARROW_DAMAGE)
-
-	# Start retreat behavior - walk away from arrow (visual feedback is ok locally)
+	# Start retreat behavior - walk away from arrow
 	_is_retreating = true
 	_retreat_timer = RETREAT_DURATION
 	_retreat_direction = (global_position - arrow_position).normalized()
@@ -624,19 +817,63 @@ func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
 	if arrow_node:
 		_register_ground_fire(arrow_position)
 
+	# Arrows that actually hurt Bobba pull its attention onto the shooter
+	# — mirrors the melee `_set_attacker_as_target` path. The arrow node
+	# tracks its shooter; we pick it up here rather than changing the arrow
+	# call signature so existing `take_arrow_hit(pos, arrow)` callers work.
+	if arrow_node and is_instance_valid(arrow_node) and "shooter" in arrow_node:
+		var archer: Node3D = arrow_node.shooter
+		if archer and is_instance_valid(archer):
+			_set_attacker_as_target(archer)
+			print("Bobba: diverted attention to archer ", archer.name)
+
 	print("Bobba hit by arrow! Retreating. HP: %.1f/%.1f" % [health, MAX_HEALTH])
 
 
 ## Register a ground fire position to avoid
 func _register_ground_fire(pos: Vector3) -> void:
 	_ground_fires.append({"position": pos, "time": Time.get_ticks_msec()})
-	# Clean up old fires (older than 30 seconds)
+	print("Bobba: FIRE registered at position %s! Total fires tracked: %d" % [pos, _ground_fires.size()])
+	_cleanup_old_fires()
+
+
+## Clean up old fire positions
+func _cleanup_old_fires() -> void:
 	var current_time := Time.get_ticks_msec()
-	_ground_fires = _ground_fires.filter(func(fire): return current_time - fire.time < 30000)
+	_ground_fires = _ground_fires.filter(func(fire): return current_time - fire.time < FIRE_DURATION_MS)
+
+
+## Scan scene for existing ArrowGroundFire nodes and track them
+func _scan_for_scene_fires() -> void:
+	var fire_nodes := get_tree().get_nodes_in_group("ground_fire")
+	for fire_node in fire_nodes:
+		if is_instance_valid(fire_node):
+			_register_ground_fire(fire_node.global_position)
+
+	# Also search by name pattern for any fire we might have missed
+	_find_fire_nodes_recursive(get_tree().current_scene)
+
+
+## Find fire nodes in the scene by name
+func _find_fire_nodes_recursive(node: Node) -> void:
+	if node == null:
+		return
+	if "GroundFire" in node.name or "ArrowGroundFire" in node.name:
+		# Check if we already have this fire registered (within 1m)
+		var dominated := false
+		for fire in _ground_fires:
+			if node.global_position.distance_to(fire.position) < 1.0:
+				dominated = true
+				break
+		if not dominated:
+			_register_ground_fire(node.global_position)
+	for child in node.get_children():
+		_find_fire_nodes_recursive(child)
 
 
 ## Check if a position is too close to any ground fire
 func _is_near_fire(pos: Vector3) -> bool:
+	_cleanup_old_fires()
 	for fire in _ground_fires:
 		var fire_pos: Vector3 = fire.position
 		fire_pos.y = pos.y  # Compare on same Y level
@@ -645,36 +882,60 @@ func _is_near_fire(pos: Vector3) -> bool:
 	return false
 
 
-## Get direction to avoid nearby fires
+## Check if Bobba is in immediate danger from fire (panic zone)
+func _is_in_fire_panic_zone() -> bool:
+	_cleanup_old_fires()
+	for fire in _ground_fires:
+		var fire_pos: Vector3 = fire.position
+		fire_pos.y = global_position.y
+		if global_position.distance_to(fire_pos) < FIRE_PANIC_RADIUS:
+			return true
+	return false
+
+
+## Get direction to avoid nearby fires - stronger avoidance when closer
 func _get_fire_avoidance_direction() -> Vector3:
+	_cleanup_old_fires()
 	var avoidance := Vector3.ZERO
+	var closest_fire_dist := INF
+
 	for fire in _ground_fires:
 		var fire_pos: Vector3 = fire.position
 		fire_pos.y = global_position.y
 		var dist := global_position.distance_to(fire_pos)
+
+		if dist < closest_fire_dist:
+			closest_fire_dist = dist
+
 		if dist < FIRE_AVOID_RADIUS * 2:
-			# Push away from fire, stronger when closer
+			# Push away from fire, MUCH stronger when closer
 			var away := (global_position - fire_pos).normalized()
-			avoidance += away * (1.0 - dist / (FIRE_AVOID_RADIUS * 2))
-	return avoidance.normalized() if avoidance.length() > 0.1 else Vector3.ZERO
+			# Exponential falloff - very strong when close
+			var strength := pow(1.0 - dist / (FIRE_AVOID_RADIUS * 2), 2.0) * 3.0
+			avoidance += away * strength
+
+	if avoidance.length() > 0.1:
+		return avoidance.normalized()
+	return Vector3.ZERO
 
 
-func _show_hit_label() -> void:
+func _show_hit_label(text: String = "Hit!") -> void:
 	if _hit_label == null:
 		return
 
 	# Reset and show the label
+	_hit_label.text = text
 	_hit_label.visible = true
 	_hit_label.position = Vector3(0, 3.0, 0)
-	_hit_label.modulate.a = 1.0
+	_hit_label.modulate = Color(1.0, 0.3, 0.3, 1.0)
 	_hit_label.scale = Vector3(0.5, 0.5, 0.5)
 
 	# Animate: scale up, float up, fade out
 	var tween = create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(_hit_label, "scale", Vector3(1.0, 1.0, 1.0), 0.15).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-	tween.tween_property(_hit_label, "position", Vector3(0, 4.0, 0), 0.6).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_hit_label, "modulate:a", 0.0, 0.4).set_delay(0.2)
+	tween.tween_property(_hit_label, "scale", Vector3(1.2, 1.2, 1.2), 0.15).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tween.tween_property(_hit_label, "position", Vector3(0, 4.5, 0), 0.8).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_hit_label, "modulate:a", 0.0, 0.4).set_delay(0.4)
 	tween.chain().tween_callback(func(): _hit_label.visible = false)
 
 
@@ -937,8 +1198,17 @@ func _physics_process(delta: float) -> void:
 	if attack_cooldown > 0:
 		attack_cooldown -= delta
 
+	# Periodically scan for new fire in the scene
+	_fire_scan_timer -= delta
+	if _fire_scan_timer <= 0:
+		_fire_scan_timer = FIRE_SCAN_INTERVAL
+		_scan_for_scene_fires()
+
 	# Update hand hitbox timing based on attack animation progress
 	_update_attack_hitbox_timing()
+
+	# Block state machine: tick timers and maybe enter block.
+	_update_block_state(delta)
 
 	# Network-controlled mode: interpolate to received position
 	if _is_network_controlled:
@@ -1098,6 +1368,19 @@ func _update_animation_for_state() -> void:
 
 
 func _handle_roaming(delta: float, distance_to_target: float) -> void:
+	# FIRE PANIC CHECK - if too close to fire, flee immediately!
+	if _is_in_fire_panic_zone():
+		var fire_avoid := _get_fire_avoidance_direction()
+		if fire_avoid.length() > 0.1:
+			velocity.x = fire_avoid.x * CHASE_SPEED  # Run speed when fleeing fire
+			velocity.z = fire_avoid.z * CHASE_SPEED
+			if _model:
+				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
+				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
+			_play_anim(&"bobba/Run")
+			print("Bobba: PANIC! Fleeing from fire!")
+			return
+
 	# Target selection already switched state to CHASING if target found
 	# Just check if we somehow have a target while roaming
 	if target and is_instance_valid(target):
@@ -1114,8 +1397,8 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 	var move_dir := roam_direction
 	var fire_avoid := _get_fire_avoidance_direction()
 	if fire_avoid.length() > 0.1:
-		# Blend avoidance with roam direction, prioritizing fire avoidance
-		move_dir = (move_dir + fire_avoid * 2.0).normalized()
+		# Blend avoidance with roam direction, STRONGLY prioritizing fire avoidance
+		move_dir = (move_dir + fire_avoid * 4.0).normalized()
 
 	# Move in adjusted direction
 	var horizontal_velocity = move_dir * ROAM_SPEED
@@ -1131,12 +1414,40 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 
 
 func _handle_chasing(delta: float, distance_to_target: float) -> void:
+	# FIRE PANIC CHECK - if too close to fire, flee even while chasing!
+	if _is_in_fire_panic_zone():
+		var fire_avoid := _get_fire_avoidance_direction()
+		if fire_avoid.length() > 0.1:
+			velocity.x = fire_avoid.x * CHASE_SPEED
+			velocity.z = fire_avoid.z * CHASE_SPEED
+			if _model:
+				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
+				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
+			_play_anim(&"bobba/Run")
+			print("Bobba: PANIC while chasing! Fire too close, fleeing!")
+			return
+
 	# If target escapes beyond LOSE_RADIUS, _select_target will clear it
 	# Here we just check if we lost target
 	if target == null or not is_instance_valid(target):
 		state = State.ROAMING
 		_pick_new_roam_direction()
 		return
+
+	# Don't attack if standing near fire - back off first
+	var near_fire := _is_near_fire(global_position)
+	if near_fire and distance_to_target <= ATTACK_DISTANCE:
+		# Back away from fire instead of attacking
+		var fire_avoid := _get_fire_avoidance_direction()
+		if fire_avoid.length() > 0.1:
+			velocity.x = fire_avoid.x * RETREAT_SPEED
+			velocity.z = fire_avoid.z * RETREAT_SPEED
+			if _model:
+				var retreat_rot := atan2(fire_avoid.x, fire_avoid.z)
+				_model.rotation.y = lerp_angle(_model.rotation.y, retreat_rot, ROTATION_SPEED * delta)
+			_play_anim(&"bobba/Walk")
+			print("Bobba: Won't attack - too close to fire, backing off")
+			return
 
 	# If close enough, attack
 	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
@@ -1157,8 +1468,8 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 	var move_dir: Vector3 = direction
 	if fire_avoid.length() > 0.1:
 		# Blend chase direction with fire avoidance
-		# Use less avoidance weight when chasing to still pursue target
-		move_dir = (direction + fire_avoid * 1.5).normalized()
+		# Fire avoidance is now much stronger (3x weight)
+		move_dir = (direction + fire_avoid * 3.0).normalized()
 
 	var horizontal_velocity = move_dir * CHASE_SPEED
 	velocity.x = horizontal_velocity.x
@@ -1175,6 +1486,16 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 var _attack_state_time: float = 0.0
 
 func _handle_attacking(delta: float) -> void:
+	# FIRE PANIC - abort attack if too close to fire!
+	if _is_in_fire_panic_zone():
+		print("Bobba: ABORTING ATTACK - fire too close!")
+		disable_attack_hitbox()
+		attack_cooldown = 0.2  # Short cooldown after abort
+		state = State.CHASING
+		_current_anim = &""
+		_attack_state_time = 0.0
+		return
+
 	# Stay in attacking state until animation finishes
 	velocity.x = 0
 	velocity.z = 0

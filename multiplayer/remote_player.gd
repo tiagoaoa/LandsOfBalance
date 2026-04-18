@@ -6,7 +6,13 @@ class_name RemotePlayer
 ## Supports Archer and Paladin character classes with proper animations
 
 @export var player_id: int = 0
-@export var interpolation_speed: float = 20.0
+@export var interpolation_speed: float = 40.0  # Smoothing factor for exponential interpolation (higher = faster catchup)
+
+# Snap to target when very close to avoid micro-jitter
+const SNAP_THRESHOLD: float = 0.01
+const ROTATION_SNAP_THRESHOLD: float = 0.01
+# Snap immediately if too far (teleport detection)
+const TELEPORT_THRESHOLD: float = 5.0
 
 var target_position: Vector3 = Vector3.ZERO
 var target_rotation_y: float = 0.0
@@ -40,6 +46,11 @@ var _fire_circle_light: OmniLight3D
 var _fire_circle_time: float = 0.0  # Track elapsed time for intensity reduction
 var _fire_circle_active: bool = false  # Track if fire circle is active
 const FIRE_CIRCLE_RADIUS: float = 2.5
+
+# Debug tracking
+var _debug_frame_count: int = 0
+const DEBUG_LOG_INTERVAL: int = 60  # Log every 60 frames (~1 second at 60fps)
+const VERBOSE_REMOTE_PLAYER_LOGS: bool = false
 const FIRE_CIRCLE_EMITTERS: int = 8
 const FIRE_CIRCLE_DURATION: float = 4.0  # 4 seconds with 1/time intensity decay
 
@@ -100,13 +111,40 @@ func _physics_process(delta: float) -> void:
 	if not _setup_complete:
 		return
 
+	# Debug logging - log position and state periodically
+	_debug_frame_count += 1
+	if VERBOSE_REMOTE_PLAYER_LOGS and _debug_frame_count >= DEBUG_LOG_INTERVAL:
+		_debug_frame_count = 0
+		var in_tree := is_inside_tree()
+		var model_valid := _character_model != null and is_instance_valid(_character_model)
+		var model_visible := _character_model.visible if model_valid else false
+		print("RemotePlayer [%d] DEBUG: pos=%s target=%s in_tree=%s model_valid=%s model_visible=%s" % [
+			player_id, global_position, target_position, in_tree, model_valid, model_visible
+		])
+
+	# Frame-rate independent exponential interpolation
+	# Using 1 - exp(-speed * delta) gives consistent smoothing regardless of frame rate
+	var smooth_factor: float = 1.0 - exp(-interpolation_speed * delta)
+
 	# Interpolate position directly (no physics for remote players)
 	if target_position != Vector3.ZERO:
-		global_position = global_position.lerp(target_position, interpolation_speed * delta)
+		var distance_to_target := global_position.distance_to(target_position)
+		if distance_to_target < SNAP_THRESHOLD:
+			# Snap when very close to avoid endless micro-movements
+			global_position = target_position
+		elif distance_to_target > TELEPORT_THRESHOLD:
+			# Snap immediately for large jumps (teleport, respawn, or significant lag)
+			global_position = target_position
+		else:
+			global_position = global_position.lerp(target_position, smooth_factor)
 
 	# Interpolate rotation - apply to model, not body
 	if _character_model and is_instance_valid(_character_model):
-		_character_model.rotation.y = lerp_angle(_character_model.rotation.y, target_rotation_y, interpolation_speed * delta)
+		var rotation_diff := absf(angle_difference(_character_model.rotation.y, target_rotation_y))
+		if rotation_diff < ROTATION_SNAP_THRESHOLD:
+			_character_model.rotation.y = target_rotation_y
+		else:
+			_character_model.rotation.y = lerp_angle(_character_model.rotation.y, target_rotation_y, smooth_factor)
 
 	# Update animation based on state
 	if _anim_player and is_instance_valid(_anim_player):
@@ -126,7 +164,8 @@ func update_from_network(data: Dictionary) -> void:
 		if _character_model and is_instance_valid(_character_model):
 			_character_model.rotation.y = new_rotation_y
 		_first_position_received = true
-		print("RemotePlayer [%d]: Initial position set to %s" % [player_id, new_position])
+		if VERBOSE_REMOTE_PLAYER_LOGS:
+			print("RemotePlayer [%d]: Initial position set to %s" % [player_id, new_position])
 
 	target_position = new_position
 	target_rotation_y = new_rotation_y
@@ -223,8 +262,25 @@ func _finalize_setup() -> void:
 			_anim_player.play(idle_anim)
 			_current_playing_anim = StringName(idle_anim)
 			print("RemotePlayer [%d]: Playing %s" % [player_id, idle_anim])
+
+	# DEBUG: Uncomment below to add a bright beacon light for debugging visibility
+	#var beacon = OmniLight3D.new()
+	#beacon.name = "DebugBeacon"
+	#beacon.light_color = Color.MAGENTA
+	#beacon.light_energy = 50.0  # Very bright
+	#beacon.omni_range = 100.0  # Large range
+	#beacon.position = Vector3(0, 5, 0)  # Above the character
+	#add_child(beacon)
+	#print("RemotePlayer [%d]: DEBUG BEACON added at global pos %s" % [player_id, global_position])
+
 	_setup_complete = true
 	print("RemotePlayer: Setup complete for player %d (class=%d) at position %s" % [player_id, character_class, global_position])
+
+	# FORCE parent visibility
+	visible = true  # Force RemotePlayer node visible
+	if _character_model:
+		_character_model.visible = true  # Force model visible
+		print("RemotePlayer [%d]: Forced visible=true on RemotePlayer and Model" % player_id)
 
 	# Debug: Check model visibility and mesh count
 	if _character_model:
@@ -239,6 +295,10 @@ func _finalize_setup() -> void:
 func _count_meshes(node: Node) -> int:
 	var count = 0
 	if node is MeshInstance3D:
+		var mi = node as MeshInstance3D
+		print("RemotePlayer [%d]: Mesh '%s' layers=%d visible=%s gi_mode=%d" % [
+			player_id, mi.name, mi.layers, mi.visible, mi.gi_mode
+		])
 		count += 1
 	for child in node.get_children():
 		count += _count_meshes(child)
@@ -438,6 +498,19 @@ func _setup_collision() -> void:
 	add_child(collision)
 
 
+## Handle being hit by an arrow (PVP combat)
+func take_arrow_hit(hit_position: Vector3, arrow: Node) -> void:
+	print("RemotePlayer [%d]: HIT by arrow at %s!" % [player_id, hit_position])
+
+	# Send player damage to server for PVP
+	var network_manager = get_node_or_null("/root/NetworkManager")
+	if network_manager and network_manager.has_method("send_player_damage_pvp"):
+		var damage: float = 25.0  # Arrow damage
+		var attacker_id: int = arrow.shooter_id if "shooter_id" in arrow else 0
+		network_manager.send_player_damage_pvp(player_id, damage, attacker_id)
+		print("RemotePlayer [%d]: Sent PVP damage to server (damage=%.1f, attacker=%d)" % [player_id, damage, attacker_id])
+
+
 func _setup_name_label() -> void:
 	_name_label = Label3D.new()
 	_name_label.text = "Player %d" % player_id
@@ -458,13 +531,16 @@ func _apply_remote_player_tint() -> void:
 func _apply_tint_recursive(node: Node) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance = node as MeshInstance3D
-		# Create a VERY bright unshaded material to make remote player impossible to miss
-		var mat = StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED  # No lighting needed
-		mat.albedo_color = Color(1.0, 0.0, 1.0)  # Bright magenta - impossible to miss
-		mesh_instance.material_override = mat
-		mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		print("RemotePlayer: Applied MAGENTA tint to mesh: %s" % mesh_instance.name)
+		# FORCE visibility - ensure mesh is on layer 1 and visible
+		mesh_instance.layers = 1  # Layer 1 - should be visible to all cameras
+		mesh_instance.visible = true  # Force visible
+		# DEBUG: Uncomment below to apply bright magenta tint for debugging visibility
+		#var mat = StandardMaterial3D.new()
+		#mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED  # No lighting needed
+		#mat.albedo_color = Color(1.0, 0.0, 1.0)  # Bright magenta - impossible to miss
+		#mesh_instance.material_override = mat
+		#mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		#print("RemotePlayer: Applied MAGENTA tint to mesh '%s' (forced layers=1, visible=true)" % mesh_instance.name)
 
 	for child in node.get_children():
 		_apply_tint_recursive(child)

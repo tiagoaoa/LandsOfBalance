@@ -239,6 +239,10 @@ func handle_state_broadcast(state_seq: int, players: Array[Protocol.PlayerData])
 			# Update server-confirmed state for divergence checking
 			my_server_data = player_data
 			_check_divergence()
+			# Remove ourselves from remote_players if we were added while spectating
+			if remote_players.has(my_player_id):
+				remote_players.erase(my_player_id)
+				print("ClientState: Removed self (ID %d) from remote_players after joining" % my_player_id)
 		else:
 			# Update remote player
 			var is_new := not remote_players.has(player_data.player_id)

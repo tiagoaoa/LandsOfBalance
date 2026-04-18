@@ -46,7 +46,12 @@ var socket: PacketPeerUDP
 var server_ip: String = ProtocolClass.DEFAULT_SERVER
 var server_port: int = ProtocolClass.SERVER_PORT
 var is_spectating: bool = false  # True when connected as spectator, not yet joined
+var _waiting_for_join_ack: bool = false  # True after sending JOIN, waiting for JOIN_ACK
 var _spectate_seq: int = 0  # Sequence number for spectate message
+
+# Scene readiness tracking - defer remote player creation until game scene is fully loaded
+var _game_scene_ready: bool = false
+var _pending_remote_players: Array = []  # [{player_id, player_data}, ...] queued for creation
 
 # =============================================================================
 # CONVENIENCE ACCESSORS (for backward compatibility)
@@ -106,11 +111,12 @@ var _ping_timer: float = 0.0
 var _heartbeat_timer: float = 0.0
 var _log_timer: float = 0.0
 
-const UPDATE_INTERVAL: float = 0.0333       # 30 Hz player updates
-const ENTITY_UPDATE_INTERVAL: float = 0.0333 # 30 Hz entity updates (host)
+const UPDATE_INTERVAL: float = 0.022        # 45 Hz player updates (faster for smoother remote movement)
+const ENTITY_UPDATE_INTERVAL: float = 0.022  # 45 Hz entity updates (host)
 const PING_INTERVAL: float = 2.0            # Ping every 2 seconds
 const HEARTBEAT_INTERVAL: float = 5.0       # Heartbeat every 5 seconds
 const LOG_INTERVAL: float = 0.5             # Log every 0.5 seconds
+const VERBOSE_WORLD_STATE_LOGS: bool = false
 
 # =============================================================================
 # DESYNC DETECTION & RECOVERY
@@ -170,13 +176,35 @@ func _ready() -> void:
 
 func _auto_connect() -> void:
 	# Check for --server argument to skip auto-connect (for server process)
+	var args: Array[String] = []
 	for arg in OS.get_cmdline_args():
-		if arg == "--server" or "server.tscn" in arg:
-			return
+		args.append(str(arg))
+	for arg in OS.get_cmdline_user_args():
+		var value := str(arg)
+		if not args.has(value):
+			args.append(value)
 
 	var server_host := ProtocolClass.DEFAULT_SERVER
-	print("NetworkManager: Auto-connecting as spectator to %s:%d" % [server_host, server_port])
-	spectate_server(server_host, server_port)
+	var override_port := server_port
+	for arg in args:
+		if arg == "--server" or "server.tscn" in arg:
+			return
+		if arg.begins_with("--server-host="):
+			server_host = arg.substr("--server-host=".length())
+		elif arg.begins_with("--server-port="):
+			var port_value := arg.substr("--server-port=".length())
+			if port_value.is_valid_int():
+				override_port = int(port_value)
+			else:
+				print("NetworkManager: Ignoring invalid --server-port value '%s'" % port_value)
+
+	# Skip auto-connect in singleplayer mode
+	if GameSettings and GameSettings.singleplayer:
+		print("NetworkManager: Singleplayer mode - skipping server connection")
+		return
+
+	print("NetworkManager: Auto-connecting as spectator to %s:%d" % [server_host, override_port])
+	spectate_server(server_host, override_port)
 
 
 func _notification(what: int) -> void:
@@ -445,9 +473,19 @@ func spectate_server(ip: String = "", port: int = 0) -> bool:
 	server_ip = ip
 	server_port = port
 
-	print("NetworkManager: Creating UDP socket to %s:%d (spectator)" % [ip, port])
+	# Resolve hostname to IP if needed
+	var resolved_ip = ip
+	if not ip.is_valid_ip_address():
+		print("NetworkManager: Resolving hostname %s..." % ip)
+		resolved_ip = IP.resolve_hostname(ip, IP.TYPE_IPV4)
+		if resolved_ip.is_empty() or not resolved_ip.is_valid_ip_address():
+			print("NetworkManager: Failed to resolve hostname %s" % ip)
+			return false
+		print("NetworkManager: Resolved %s to %s" % [ip, resolved_ip])
+
+	print("NetworkManager: Creating UDP socket to %s:%d (spectator)" % [resolved_ip, port])
 	socket = PacketPeerUDP.new()
-	var err = socket.connect_to_host(ip, port)
+	var err = socket.connect_to_host(resolved_ip, port)
 
 	if err != OK:
 		print("NetworkManager: Failed to connect to %s:%d - Error: %d" % [ip, port, err])
@@ -475,8 +513,9 @@ func join_game() -> bool:
 
 	print("NetworkManager: Joining game from spectator mode")
 
-	# Stop spectating
+	# Stop spectating, wait for JOIN_ACK
 	is_spectating = false
+	_waiting_for_join_ack = true
 
 	# Start connection process
 	client_state.start_connecting(client_state.player_name)
@@ -496,15 +535,25 @@ func connect_to_server(ip: String = "", port: int = 0) -> bool:
 	server_ip = ip
 	server_port = port
 
-	print("NetworkManager: Creating UDP socket to %s:%d" % [ip, port])
+	# Resolve hostname to IP if needed
+	var resolved_ip = ip
+	if not ip.is_valid_ip_address():
+		print("NetworkManager: Resolving hostname %s..." % ip)
+		resolved_ip = IP.resolve_hostname(ip, IP.TYPE_IPV4)
+		if resolved_ip.is_empty() or not resolved_ip.is_valid_ip_address():
+			print("NetworkManager: Failed to resolve hostname %s" % ip)
+			return false
+		print("NetworkManager: Resolved %s to %s" % [ip, resolved_ip])
+
+	print("NetworkManager: Creating UDP socket to %s:%d" % [resolved_ip, port])
 	socket = PacketPeerUDP.new()
-	var err = socket.connect_to_host(ip, port)
+	var err = socket.connect_to_host(resolved_ip, port)
 
 	if err != OK:
-		print("NetworkManager: Failed to connect to %s:%d - Error: %d" % [ip, port, err])
+		print("NetworkManager: Failed to connect to %s:%d - Error: %d" % [resolved_ip, port, err])
 		return false
 
-	print("NetworkManager: Socket connected to %s:%d" % [ip, port])
+	print("NetworkManager: Socket connected to %s:%d" % [resolved_ip, port])
 
 	# Start connection process
 	client_state.start_connecting(client_state.player_name)
@@ -675,8 +724,24 @@ func _handle_join_ack(packet: PackedByteArray) -> void:
 	player_data.decode(packet, offset)
 
 	client_state.handle_join_ack(assigned_id, player_data)
+	_waiting_for_join_ack = false
 	print("NetworkManager: Assigned player ID: %d" % assigned_id)
 	_log("JOINED: id=%d" % assigned_id)
+
+	# When transitioning from spectator to game, the scene will change.
+	# Clear all remote players - they will be re-created when the game scene loads.
+	# This prevents orphaned nodes when the spectator scene is freed.
+	if remote_players.size() > 0:
+		print("NetworkManager: Clearing %d remote players from spectator scene (scene will change)" % remote_players.size())
+		for player_id in remote_players.keys():
+			var remote = remote_players[player_id]
+			if is_instance_valid(remote):
+				remote.queue_free()
+		remote_players.clear()
+
+	# Reset scene readiness - wait for game scene to fully load before creating new RemotePlayers
+	_game_scene_ready = false
+	_pending_remote_players.clear()
 
 	# Emit joined_game signal (after transitioning from spectator)
 	joined_game.emit()
@@ -711,7 +776,9 @@ func _handle_world_state(packet: PackedByteArray) -> void:
 	var player_count := packet.decode_u8(offset)
 	offset += 1
 
-	_log("PACKET: size=%d state_seq=%d player_count=%d" % [packet.size(), state_seq, player_count])
+	if VERBOSE_WORLD_STATE_LOGS:
+		_log("PACKET: size=%d state_seq=%d player_count=%d" % [packet.size(), state_seq, player_count])
+		print("NetworkManager: World state - player_count=%d, my_id=%d" % [player_count, client_state.my_player_id])
 
 	var players: Array[ProtocolClass.PlayerData] = []
 	var players_array: Array = []  # For backward compatibility signal
@@ -740,14 +807,21 @@ func _handle_world_state(packet: PackedByteArray) -> void:
 		}
 		players_array.append(data)
 
-		_log("PARSED [%d]: id=%d pos=(%.2f,%.2f,%.2f) rot=%.2f state=%d" % [
-			i, player_data.player_id, player_data.x, player_data.y, player_data.z,
-			player_data.rotation_y, player_data.state
-		])
+		if VERBOSE_WORLD_STATE_LOGS:
+			_log("PARSED [%d]: id=%d pos=(%.2f,%.2f,%.2f) rot=%.2f state=%d" % [
+				i, player_data.player_id, player_data.x, player_data.y, player_data.z,
+				player_data.rotation_y, player_data.state
+			])
+			print("NetworkManager: Parsed player id=%d (my_id=%d, is_me=%s)" % [
+				player_data.player_id, client_state.my_player_id,
+				"yes" if player_data.player_id == client_state.my_player_id else "no"
+			])
 
-	# Handle first-time ID assignment (legacy support) - skip if spectating
-	if not is_spectating and client_state.my_player_id == 0 and not players.is_empty():
-		# Last player in list is us (server behavior)
+	# Handle first-time ID assignment (legacy support) - skip if spectating or waiting for JOIN_ACK
+	# When joining from spectator mode, we must wait for JOIN_ACK to get our correct ID
+	# The "last player is us" assumption is wrong - server sends players in slot order, not join order
+	if not is_spectating and not _waiting_for_join_ack and client_state.my_player_id == 0 and not players.is_empty():
+		# Last player in list is us (server behavior) - only valid for direct join, not spectator->join
 		var our_data := players[players.size() - 1]
 		var initial_data := ProtocolClass.PlayerData.new()
 		initial_data.player_id = our_data.player_id
@@ -775,14 +849,19 @@ func _handle_world_state(packet: PackedByteArray) -> void:
 
 func _update_remote_player_visuals() -> void:
 	var current_ids: Dictionary = {}
+	var remote_player_ids = client_state.get_all_remote_players().keys()
+	if VERBOSE_WORLD_STATE_LOGS and remote_player_ids.size() > 0:
+		print("NetworkManager: Updating remote player visuals - remote_players=%s" % [remote_player_ids])
 
-	for player_id in client_state.get_all_remote_players().keys():
+	for player_id in remote_player_ids:
 		current_ids[player_id] = true
 		var player_data: ProtocolClass.PlayerData = client_state.get_remote_player(player_id)
 
 		if player_id in remote_players:
 			_update_remote_player(player_id, player_data)
 		else:
+			if VERBOSE_WORLD_STATE_LOGS:
+				print("NetworkManager: Creating new remote player %d" % player_id)
 			_create_remote_player(player_id, player_data)
 
 	# Remove players that left
@@ -871,7 +950,60 @@ func send_game_restart(reason: int) -> void:
 # REMOTE PLAYER MANAGEMENT
 # =============================================================================
 
+## Mark the game scene as ready for remote player creation
+## Call this from the Player node's _ready() or after the game scene is confirmed loaded
+func mark_game_scene_ready() -> void:
+	if _game_scene_ready:
+		return
+	_game_scene_ready = true
+	print("NetworkManager: Game scene marked as ready - processing %d pending remote players" % _pending_remote_players.size())
+	_process_pending_remote_players()
+
+## Check if game scene is ready for remote player creation
+## During pure spectating, allow creation (scene is stable)
+## During transition (joining), wait for Player node
+func _is_game_scene_ready() -> bool:
+	if _game_scene_ready:
+		return true
+
+	# During pure spectating (not transitioning to game), scene is stable - allow creation
+	if is_spectating and not _waiting_for_join_ack:
+		var current_scene = get_tree().current_scene
+		if current_scene != null and current_scene.is_inside_tree():
+			print("NetworkManager: Scene ready for spectator (current_scene exists)")
+			return true
+
+	# Check if Player node exists as a signal that game scene is loaded
+	var player = get_tree().get_first_node_in_group("player")
+	if player != null and player.is_inside_tree():
+		_game_scene_ready = true
+		print("NetworkManager: Game scene ready (Player node found)")
+		return true
+	return false
+
+## Process any pending remote player creations
+func _process_pending_remote_players() -> void:
+	while not _pending_remote_players.is_empty():
+		var pending = _pending_remote_players.pop_front()
+		print("NetworkManager: Processing pending remote player %d" % pending.player_id)
+		_create_remote_player_internal(pending.player_id, pending.player_data)
+
 func _create_remote_player(player_id: int, player_data: ProtocolClass.PlayerData) -> void:
+	# Check if scene is ready - if not, queue for later
+	if not _is_game_scene_ready():
+		# Check if already queued
+		for pending in _pending_remote_players:
+			if pending.player_id == player_id:
+				# Update existing entry
+				pending.player_data = player_data
+				return
+		print("NetworkManager: Queueing remote player %d (scene not ready)" % player_id)
+		_pending_remote_players.append({"player_id": player_id, "player_data": player_data})
+		return
+
+	_create_remote_player_internal(player_id, player_data)
+
+func _create_remote_player_internal(player_id: int, player_data: ProtocolClass.PlayerData) -> void:
 	var remote_scene = load("res://multiplayer/remote_player.tscn")
 	if remote_scene == null:
 		print("NetworkManager: Failed to load remote_player.tscn")
@@ -906,12 +1038,15 @@ func _create_remote_player(player_id: int, player_data: ProtocolClass.PlayerData
 	player_joined.emit(player_id, data)
 
 
+var _update_log_counter: int = 0
+
 func _update_remote_player(player_id: int, player_data: ProtocolClass.PlayerData) -> void:
 	if player_id not in remote_players:
 		return
 
 	var remote = remote_players[player_id]
 	if not is_instance_valid(remote):
+		print("NetworkManager: WARNING - RemotePlayer %d is invalid!" % player_id)
 		return
 
 	# Convert to legacy dictionary format
@@ -924,6 +1059,16 @@ func _update_remote_player(player_id: int, player_data: ProtocolClass.PlayerData
 		"health": player_data.health,
 		"anim_name": player_data.anim_name
 	}
+
+	# Log periodically to verify data is being sent
+	_update_log_counter += 1
+	if _update_log_counter >= 60:  # Log every 60 updates (~1 second)
+		_update_log_counter = 0
+		if VERBOSE_WORLD_STATE_LOGS:
+			print("NetworkManager: Updating RemotePlayer %d with pos=%s in_tree=%s" % [
+				player_id, player_data.get_position(), remote.is_inside_tree()
+			])
+
 	remote.update_from_network(data)
 
 
@@ -1131,6 +1276,30 @@ func send_entity_damage(entity_id: int, damage: float, attacker_id: int) -> void
 	var msg: PackedByteArray = client_state.build_entity_damage_msg(entity_id, damage)
 	socket.put_packet(msg)
 	_log("ENTITY DAMAGE: entity=%d damage=%.1f attacker=%d" % [entity_id, damage, attacker_id])
+
+
+## Send PVP damage to server (player hit another player)
+func send_player_damage_pvp(target_player_id: int, damage: float, attacker_player_id: int) -> void:
+	if not is_network_connected():
+		return
+
+	var header := ProtocolClass.MsgHeader.new()
+	header.type = ProtocolClass.MsgType.MSG_PVP_DAMAGE
+	header.seq = client_state._next_seq()
+	header.sender_id = client_state.my_player_id
+
+	var data := ProtocolClass.PvpDamageData.new()
+	data.target_player_id = target_player_id
+	data.damage = damage
+	data.attacker_player_id = attacker_player_id
+
+	var packet := header.encode()
+	packet.append_array(data.encode())
+	socket.put_packet(packet)
+
+	_log("PVP DAMAGE: target=%d damage=%.1f attacker=%d" % [target_player_id, damage, attacker_player_id])
+	print("NetworkManager: Sent PVP damage - target=%d damage=%.1f attacker=%d" % [target_player_id, damage, attacker_player_id])
+
 
 # =============================================================================
 # CLIENT STATE SIGNAL HANDLERS

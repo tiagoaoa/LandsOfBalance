@@ -28,8 +28,8 @@
 #define MAX_BOBBAS 4
 #define BUFFER_SIZE 2048
 #define PLAYER_TIMEOUT_SEC 10
-#define BROADCAST_INTERVAL_MS 50   // 20 Hz (slower to avoid buffer overflow)
-#define ENTITY_UPDATE_INTERVAL_MS 50  // 20 Hz for entity updates (same as world state)
+#define BROADCAST_INTERVAL_MS 33   // 30 Hz (increased for smoother remote player movement)
+#define ENTITY_UPDATE_INTERVAL_MS 33  // 30 Hz for entity updates (same as world state)
 
 // Player state flags
 #define STATE_IDLE      0
@@ -58,6 +58,7 @@
 #define PKT_SPECTATE_ACK 16  // MSG_SPECTATE_ACK
 #define PKT_PLAYER_DAMAGE 17 // MSG_PLAYER_DAMAGE - Server -> Client when entity hits player
 #define PKT_GAME_RESTART  18 // MSG_GAME_RESTART - Bidirectional: request/broadcast game restart
+#define PKT_PVP_DAMAGE    19 // MSG_PVP_DAMAGE - Client -> Server: Player hit another player
 
 // Entity types
 #define ENTITY_BOBBA     0
@@ -80,7 +81,8 @@
 #define BOBBA_ROTATION_SPEED   5.0f
 #define BOBBA_ROAM_CHANGE_TIME 3.0f
 #define BOBBA_ATTACK_DURATION  1.5f
-#define BOBBA_ATTACK_DAMAGE    70.0f
+#define BOBBA_ATTACK_DAMAGE    40.0f   // Damage dealt to players per punch
+#define BOBBA_MAX_HEALTH       1000.0f // Must match bobba.gd MAX_HEALTH
 #define BOBBA_KNOCKBACK_FORCE  12.0f
 #define BOBBA_HIT_WINDOW_START 0.3f  // 30% into attack animation
 #define BOBBA_HIT_WINDOW_END   0.7f  // 70% into attack animation
@@ -212,6 +214,14 @@ typedef struct {
     uint32_t reason;  // 0 = player died, 1 = bobba died, 2 = manual restart
 } GameRestartPacket;
 
+// PVP damage packet (client -> server: player hit another player)
+typedef struct {
+    PacketHeader header;
+    uint32_t target_player_id;
+    float damage;
+    uint32_t attacker_player_id;
+} PvpDamagePacket;
+
 #pragma pack(pop)
 
 // Player info stored on server
@@ -296,6 +306,7 @@ static float spawn_z = 0.0f;
 // Forward declarations
 void send_player_damage(uint32_t target_player_id, float damage, uint32_t attacker_entity_id,
                         float knockback_x, float knockback_y, float knockback_z);
+void handle_pvp_damage(uint32_t target_player_id, float damage, uint32_t attacker_player_id);
 void broadcast_entity_state(void);
 void broadcast_world_state(void);
 
@@ -385,7 +396,7 @@ void spawn_bobba(float x, float y, float z) {
             bobbas[i].pos_z = z;
             bobbas[i].rot_y = 0;
             bobbas[i].state = BOBBA_ROAMING;
-            bobbas[i].health = 100.0f;
+            bobbas[i].health = BOBBA_MAX_HEALTH;
             bobbas[i].active = 1;
             bobbas[i].target_player_id = 0;
 
@@ -627,7 +638,7 @@ void respawn_all_bobbas() {
         bobbas[i].pos_z = 5.0f;
         bobbas[i].rot_y = 0;
         bobbas[i].state = BOBBA_ROAMING;
-        bobbas[i].health = 100.0f;
+        bobbas[i].health = BOBBA_MAX_HEALTH;
         bobbas[i].active = 1;
         bobbas[i].target_player_id = 0;
         bobbas[i].has_hit_this_attack = 0;
@@ -809,6 +820,39 @@ void send_player_damage(uint32_t target_player_id, float damage, uint32_t attack
         fflush(stdout);
     }
 
+}
+
+// Handle PVP damage (player hit another player)
+void handle_pvp_damage(uint32_t target_player_id, float damage, uint32_t attacker_player_id) {
+    printf(">>> PVP DAMAGE: player %u hit by player %u for %.1f damage\n",
+           target_player_id, attacker_player_id, damage);
+    fflush(stdout);
+
+    // Find target player
+    Player *target = find_player_by_id(target_player_id);
+    if (!target || !target->active) {
+        printf("PVP: Target player %u not found or inactive\n", target_player_id);
+        fflush(stdout);
+        return;
+    }
+
+    // Calculate knockback direction from attacker to target
+    Player *attacker = find_player_by_id(attacker_player_id);
+    float knockback_x = 0, knockback_y = 1.0f, knockback_z = 0;
+    if (attacker && attacker->active) {
+        float dx = target->data.pos_x - attacker->data.pos_x;
+        float dz = target->data.pos_z - attacker->data.pos_z;
+        float dist = sqrtf(dx*dx + dz*dz);
+        if (dist > 0.1f) {
+            knockback_x = (dx / dist) * 5.0f;
+            knockback_z = (dz / dist) * 5.0f;
+        }
+    }
+
+    // Send damage notification to target player
+    // Use a high entity_id range (1000000+) to indicate PVP damage
+    uint32_t pvp_entity_id = 1000000 + attacker_player_id;
+    send_player_damage(target_player_id, damage, pvp_entity_id, knockback_x, knockback_y, knockback_z);
 }
 
 // Handle entity damage from a player
@@ -1544,6 +1588,13 @@ int main(int argc, char *argv[]) {
                         if (recv_len >= (ssize_t)sizeof(GameRestartPacket)) {
                             GameRestartPacket *restart = (GameRestartPacket*)buffer;
                             handle_game_restart(restart->reason, header->player_id);
+                        }
+                        break;
+
+                    case PKT_PVP_DAMAGE:
+                        if (recv_len >= (ssize_t)sizeof(PvpDamagePacket)) {
+                            PvpDamagePacket *pvp = (PvpDamagePacket*)buffer;
+                            handle_pvp_damage(pvp->target_player_id, pvp->damage, pvp->attacker_player_id);
                         }
                         break;
 

@@ -37,25 +37,26 @@ const DAY_SETTINGS := {
 	"light_rotation": Vector3(-45, -45, 0),
 }
 
-# Night preset (Diablo IV style - oppressive darkness with cool moonlight)
-# Deep blacks, blue-purple moonlight, thick volumetric fog, desaturated look
+# Night preset - Cinematic dark-fantasy moonlit ruin (DS3 reference)
+# Dark but readable — strong contrast between cool moonlit highlights and
+# deep shadows without crushing the entire scene to black.
 const NIGHT_SETTINGS := {
-	"background_energy": 0.015,  # Very dim ominous sky
-	"ambient_color": Color(0.1, 0.1, 0.18),  # Deep blue-black ambient (Diablo oppressive)
-	"ambient_energy": 0.2,  # Low ambient for deep shadows but readable
-	"ambient_sky_contribution": 0.1,  # Minimal sky contribution
+	"background_energy": 0.08,  # Sky dim but visible through clouds
+	"ambient_color": Color(0.12, 0.16, 0.24),  # Cold blue-gray
+	"ambient_energy": 0.45,  # Enough to see into shadows faintly
+	"ambient_sky_contribution": 0.2,
 	"fog_enabled": true,
-	"fog_density": 0.002,  # Subtle distance fog
-	"fog_color": Color(0.1, 0.1, 0.15),  # Dark blue-gray fog
-	"fog_light_energy": 0.1,  # Moon scatters through fog
-	"volumetric_fog_enabled": true,
+	"fog_density": 0.0018,  # Atmospheric haze without swallowing everything
+	"fog_color": Color(0.09, 0.12, 0.18),  # Cool blue-black
+	"fog_light_energy": 0.28,
+	"volumetric_fog_enabled": true,  # Enable for the vertical god-ray feel
 	"ssao_enabled": true,
-	"sdfgi_enabled": true,  # Enable SDFGI for dynamic GI
+	"sdfgi_enabled": false,
 	"adjustment_enabled": true,
 	"glow_enabled": true,
-	"light_color": Color(0.5, 0.55, 0.7),  # Cool blue-purple moonlight
-	"light_energy": 0.0,  # Directional light OFF - moon provides light
-	"light_rotation": Vector3(-35, 25, 0),  # Dramatic shadow angle
+	"light_color": Color(0.55, 0.62, 0.78),  # Cool silvery-blue moonlight
+	"light_energy": 0.0,  # Directional sun OFF at night - Moon provides all light
+	"light_rotation": Vector3(-35, 25, 0),  # Unused at night
 }
 
 
@@ -110,11 +111,12 @@ func _apply_lighting() -> void:
 	env.ambient_light_energy = settings.ambient_energy
 	env.ambient_light_sky_contribution = settings.ambient_sky_contribution
 
-	# Tonemap - ACES Filmic for cinematic look
+	# Tonemap - ACES Filmic for cinematic look. Night pulls exposure down
+	# slightly for gloom but not so far that the scene becomes unreadable.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	if time_of_day == TimeOfDay.NIGHT:
-		env.tonemap_exposure = 1.0  # Balanced exposure
-		env.tonemap_white = 6.0  # Good highlight rolloff
+		env.tonemap_exposure = 1.1
+		env.tonemap_white = 6.0
 	else:
 		env.tonemap_exposure = 2.0
 		env.tonemap_white = 8.0
@@ -127,18 +129,20 @@ func _apply_lighting() -> void:
 	if time_of_day == TimeOfDay.NIGHT:
 		env.fog_sun_scatter = 0.2  # Moonlight scatters through fog
 
-	# Volumetric fog (night only) - Diablo IV thick atmospheric haze
+	# Volumetric fog (night only) — thick enough that moonbeams become
+	# visible god rays through breaks in the cloud cover. The Moon child
+	# has its own light source that will carve through this.
 	env.volumetric_fog_enabled = settings.volumetric_fog_enabled
 	if settings.volumetric_fog_enabled:
-		env.volumetric_fog_density = 0.04  # Thick fog for atmosphere
-		env.volumetric_fog_albedo = Color(0.15, 0.17, 0.22)  # Dark blue-gray mist
-		env.volumetric_fog_emission = Color(0.0, 0.0, 0.0)  # No self-emission
+		env.volumetric_fog_density = 0.012  # Moderate — visible god rays without fogging out gameplay
+		env.volumetric_fog_albedo = Color(0.16, 0.20, 0.28)  # Cool mist
+		env.volumetric_fog_emission = Color(0.0, 0.0, 0.0)
 		env.volumetric_fog_emission_energy = 0.0
-		env.volumetric_fog_gi_inject = 0.8  # Catch GI for colored light scatter
-		env.volumetric_fog_anisotropy = 0.5  # Forward scattering toward camera
-		env.volumetric_fog_length = 120.0  # Long fog distance for depth
-		env.volumetric_fog_detail_spread = 0.8
-		env.volumetric_fog_ambient_inject = 0.0  # No ambient in fog
+		env.volumetric_fog_gi_inject = 0.3
+		env.volumetric_fog_anisotropy = 0.55  # Forward scatter for beams
+		env.volumetric_fog_length = 140.0
+		env.volumetric_fog_detail_spread = 1.2
+		env.volumetric_fog_ambient_inject = 0.0
 
 	# SDFGI - Real-time global illumination for dynamic colored bounce light
 	if settings.get("sdfgi_enabled", false):
@@ -153,21 +157,26 @@ func _apply_lighting() -> void:
 	else:
 		env.sdfgi_enabled = false
 
-	# SSAO - Deep contact shadows for Diablo-style depth
+	# SSAO - Subtle contact shadows
 	env.ssao_enabled = settings.ssao_enabled
 	if settings.ssao_enabled:
-		env.ssao_radius = 1.0  # Tight for less noise
-		env.ssao_intensity = 2.5  # Strong shadows
+		env.ssao_radius = 0.5
+		env.ssao_intensity = 1.0
 		env.ssao_power = 1.5
-		env.ssao_detail = 0.5
-		env.ssao_light_affect = 0.3  # Visible even in lit areas
+		env.ssao_detail = 0.0
+		env.ssao_light_affect = 0.2
 
-	# Color adjustment - Diablo IV desaturated blue-toned grading
+	# Color adjustment - cold cinematic desaturation with punchy contrast.
 	env.adjustment_enabled = settings.adjustment_enabled
 	if settings.adjustment_enabled:
-		env.adjustment_brightness = 0.95  # Slight reduction
-		env.adjustment_contrast = 1.2  # Punch up shadows vs highlights
-		env.adjustment_saturation = 0.75  # Desaturated gritty look
+		if time_of_day == TimeOfDay.NIGHT:
+			env.adjustment_brightness = 0.95
+			env.adjustment_contrast = 1.22  # Punch without crushing mids
+			env.adjustment_saturation = 0.68  # Desaturated, cold mood but readable
+		else:
+			env.adjustment_brightness = 0.95
+			env.adjustment_contrast = 1.2
+			env.adjustment_saturation = 0.75
 
 	# Glow - Subtle bloom on torches and emissives
 	env.glow_enabled = settings.glow_enabled
@@ -199,12 +208,13 @@ func _apply_lighting() -> void:
 			_moon.set_visible_mode(time_of_day == TimeOfDay.NIGHT)
 		else:
 			_moon.visible = (time_of_day == TimeOfDay.NIGHT)
-		# Apply Diablo IV moonlight settings
+		# Bright cool moonlight — carves god rays through the volumetric fog
+		# and rim-lights grass tips without washing out shadows.
 		if time_of_day == TimeOfDay.NIGHT:
 			if _moon.has_method("set_light_color"):
-				_moon.set_light_color(Color(0.5, 0.55, 0.75))  # Cool blue-purple
+				_moon.set_light_color(Color(0.55, 0.62, 0.85))
 			if _moon.has_method("set_light_energy"):
-				_moon.set_light_energy(0.7)  # Strong enough to cast shadows
+				_moon.set_light_energy(1.1)
 
 
 func _transition_lighting() -> void:

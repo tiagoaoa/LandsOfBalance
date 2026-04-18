@@ -4,10 +4,19 @@ class_name Arrow
 ## Fire arrow projectile with parabolic trajectory
 ## Network-synchronized across all players
 
+const DamageAuraAreaClass := preload("res://combat/damage_aura_area.gd")
+
 const ARROW_SPEED: float = 50.0
 const GRAVITY: float = 9.8
 const LIFETIME: float = 10.0
-const DAMAGE: float = 25.0
+## Direct-hit damage, expressed as a percentage of the target's max HP.
+## Fully negated when the target is blocking.
+const DIRECT_HIT_DAMAGE_PCT: float = 0.05
+## Ground fire DoT: 5% max HP per second to any character inside the radius,
+## for as long as the fire burns.
+const GROUND_FIRE_DAMAGE_PCT_PER_SEC: float = 0.05
+const GROUND_FIRE_RADIUS: float = 5.0
+const GROUND_FIRE_LIFETIME: float = 30.0
 
 var shooter: Node3D = null
 var shooter_id: int = 0  # Network player ID of shooter
@@ -39,9 +48,9 @@ func _ready() -> void:
 	linear_damp = 0.0
 	angular_damp = 0.0
 
-	# Set collision layer (projectile) and mask (detect world/enemies)
+	# Set collision layer (projectile) and mask (detect world/enemies/remote players)
 	collision_layer = 4  # Layer 3 (projectiles)
-	collision_mask = 1 | 2  # Detect layer 1 (world) and layer 2 (enemies)
+	collision_mask = 1 | 2 | 8  # Detect layer 1 (world), layer 2 (enemies), layer 4 (remote players)
 
 
 func _physics_process(delta: float) -> void:
@@ -235,6 +244,18 @@ func _setup_collision() -> void:
 	add_child(_collision)
 
 
+## Return the arrow's 5%-of-max-HP damage converted to flat HP, for the
+## network damage message and for routing through the Player's take_hit path
+## (which takes a flat amount). Falls back to 5.0 if the target exposes no
+## recognizable max-HP field.
+func _compute_flat_arrow_damage(body: Node) -> float:
+	if "max_health" in body:
+		return float(body.max_health) * DIRECT_HIT_DAMAGE_PCT
+	if "MAX_HEALTH" in body:
+		return float(body.MAX_HEALTH) * DIRECT_HIT_DAMAGE_PCT
+	return 5.0  # Fallback for unknown bodies
+
+
 func _on_body_entered(body: Node) -> void:
 	if _has_hit:
 		return
@@ -248,17 +269,31 @@ func _on_body_entered(body: Node) -> void:
 	# Stop movement
 	freeze = true
 
-	# Deal damage if applicable
+	# Deal damage. Arrow direct hit = 5% of target max HP.
+	# * Players: route through take_hit so block fully negates the hit.
+	# * NPCs: direct take_damage_pct (they don't block).
+	# Also call take_arrow_hit on Bobba for its "flee from arrows" reaction.
 	var hit_entity_id: int = 0
-	# Check if this is a Bobba - use special arrow hit method
+	if "entity_id" in body:
+		hit_entity_id = body.entity_id
+
+	var flat_damage_for_network: float = _compute_flat_arrow_damage(body)
+
+	var is_player: bool = "is_blocking" in body and body.has_method("take_hit")
+	if is_player:
+		# Player hit — honor block state (blocks fully negate arrows).
+		var impulse: Vector3 = linear_velocity.normalized() * 3.0
+		impulse.y = 0.1
+		var blocked: bool = bool(body.is_blocking)
+		body.take_hit(flat_damage_for_network, impulse, blocked, shooter, true)
+	elif body.has_method("take_damage_pct"):
+		# NPC — percent-based damage, doesn't block.
+		body.take_damage_pct(DIRECT_HIT_DAMAGE_PCT)
+
+	# Keep the legacy arrow-retreat reaction for Bobba (runs in addition
+	# to the damage above).
 	if body.has_method("take_arrow_hit"):
 		body.take_arrow_hit(global_position, self)
-		if "entity_id" in body:
-			hit_entity_id = body.entity_id
-	elif body.has_method("take_damage"):
-		body.take_damage(DAMAGE)
-		if "entity_id" in body:
-			hit_entity_id = body.entity_id
 
 	# Stop fire effect but keep some embers
 	_fire_particles.emitting = false
@@ -268,9 +303,9 @@ func _on_body_entered(body: Node) -> void:
 	if is_local and has_node("/root/NetworkManager"):
 		var network_manager = get_node("/root/NetworkManager")
 		network_manager.send_arrow_hit(arrow_id, global_position, hit_entity_id)
-		# Also send entity damage to server if we hit an entity
+		# Also send entity damage to server if we hit an entity.
 		if hit_entity_id > 0:
-			network_manager.send_entity_damage(hit_entity_id, DAMAGE, shooter_id)
+			network_manager.send_entity_damage(hit_entity_id, flat_damage_for_network, shooter_id)
 
 	# Create ground fire illumination (5m range fireplace light)
 	_create_ground_fire()
@@ -396,8 +431,39 @@ func _create_ground_fire() -> void:
 	# Add light flickering effect
 	_start_light_flicker(ground_light, fire_node)
 
+	# Damage-over-time aura — anything (Bobba, Dragon, enemy players) that
+	# stands inside the 5m fire takes 5% of max HP per second until the fire
+	# expires. The shooter is excluded so the archer can't damage themselves.
+	# In multiplayer, only the host/server ticks damage to keep NPC HP
+	# authoritative; remote-controlled Bobbas/Dragons on other clients still
+	# SEE the fire (visual) but their HP is driven by server state sync.
+	var is_multiplayer_client: bool = false
+	if has_node("/root/NetworkManager"):
+		var nm = get_node("/root/NetworkManager")
+		if nm.has_method("is_network_connected") and nm.is_network_connected():
+			# Any non-local arrow was already filtered above — but we also
+			# avoid ticking damage on non-host peers. For simplicity while
+			# the server-authority story settles, only arrows spawned by
+			# the local shooter run the DoT here; other arrows handle
+			# damage via their own local fire aura on each client.
+			is_multiplayer_client = not is_local
+	if not is_multiplayer_client:
+		var aura: DamageAuraAreaClass = DamageAuraAreaClass.new()
+		aura.name = "GroundFireAura"
+		aura.radius = GROUND_FIRE_RADIUS
+		aura.damage_pct_per_sec = GROUND_FIRE_DAMAGE_PCT_PER_SEC
+		aura.tick_interval = 1.0
+		aura.lifetime = GROUND_FIRE_LIFETIME
+		aura.exclude_node = shooter
+		aura.ticked.connect(func(damaged: Array) -> void:
+			for b in damaged:
+				print("Arrow fire DoT tick: %s took %.1f%% of max HP" % [
+					b.name, GROUND_FIRE_DAMAGE_PCT_PER_SEC * 100.0
+				]))
+		fire_node.add_child(aura)
+
 	# Auto-destroy after 30 seconds
-	var destroy_timer = get_tree().create_timer(30.0)
+	var destroy_timer = get_tree().create_timer(GROUND_FIRE_LIFETIME)
 	destroy_timer.timeout.connect(fire_node.queue_free)
 
 

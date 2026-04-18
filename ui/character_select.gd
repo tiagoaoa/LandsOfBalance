@@ -23,6 +23,11 @@ func _ready() -> void:
 	# Default selection
 	_update_selection(CharacterClass.ARCHER)
 
+	# Auto-advance for automated combat tests (see enemies/combat_test.gd).
+	if "combat_scenario" in GameSettings and String(GameSettings.combat_scenario) != "":
+		_update_selection(CharacterClass.PALADIN)
+		call_deferred("_on_play_pressed")
+
 
 func _on_archer_pressed() -> void:
 	_update_selection(CharacterClass.ARCHER)
