@@ -211,6 +211,17 @@ definition of fun is cumulative.*
   knockback so a landed Bobba punch shoves the Paladin out of Bobba's
   attack range; add a pre-attack telegraph flash on Bobba so wind-ups
   can't be missed.
+- **2026-04-18 — Reinforcement session (10 rounds) — aggregate only.**
+  After the juice-kill / knockback-buff / telegraph patch shipped, tester
+  ran a 10-round batch (rounds 1-10 of session 3, logged 09:11-09:18).
+  Breakdown: 6 fun / 4 not-fun. Wins and losses both generated ratings
+  on both sides, so the not-fun signal isn't tied to outcome — it tracks
+  the *feel of the round* independently. Per-round context not yet
+  captured; tester will annotate the specific "not fun" rounds in a
+  follow-up session so we can isolate what mechanic drove each one.
+  *Action:* hold off on further tuning until the qualitative notes land
+  — blind-tuning on aggregate numbers is exactly the failure mode
+  rule #8 warns against. Raw data: `docs/fun_log.ndjson`.
 
 
 ## Committed rules (from this conversation)

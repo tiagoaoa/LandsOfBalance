@@ -77,6 +77,19 @@ func _process(delta: float) -> void:
 			_finish("TIMEOUT_SPAWN")
 		return
 
+	if scenario == "PROMO":
+		_drive_promo(delta)
+		if _elapsed > 6.0:
+			_finish("PROMO_DONE")
+		_elapsed += delta
+		_screenshot_timer += delta
+		# Tight capture cadence — grab a frame every 120 ms so we're sure
+		# to catch the mid-swing / best-lit moment.
+		if _screenshot_timer >= 0.12:
+			_screenshot_timer = 0.0
+			_capture()
+		return
+
 	_elapsed += delta
 	_screenshot_timer += delta
 	if _screenshot_timer >= SCREENSHOT_INTERVAL:
@@ -104,6 +117,126 @@ func _process(delta: float) -> void:
 		return
 
 	_drive(delta)
+
+
+## Promo-shot director. Teleports Paladin into dense grass, plants Bobba
+## a couple of meters ahead so both fit in frame, keeps NIGHT lighting
+## active (god-ray moonlight), hides every piece of HUD / nameplate so
+## the frame is pure composition, grants the Paladin invincibility so no
+## red damage-label pops mid-capture, and loops a sword swing so each
+## screenshot catches a blade arc in motion.
+func _drive_promo(_delta: float) -> void:
+	const PROMO_POS := Vector3(110.0, 0.0, -135.0)  # deep in the blade field
+	const BOBBA_OFFSET := Vector3(0.0, 0.0, 5.0)    # Bobba 5m ahead of paladin
+
+	# One-time setup on the first frame the actors are available.
+	if _elapsed < 0.05:
+		var paladin_pos := PROMO_POS
+		paladin_pos.y = _player.global_position.y
+		_player.global_position = paladin_pos
+		if is_instance_valid(_bobba):
+			var bobba_pos := paladin_pos + BOBBA_OFFSET
+			bobba_pos.y = _bobba.global_position.y
+			_bobba.global_position = bobba_pos
+		# Camera yaw facing Bobba (+Z here) + small downward pitch so the
+		# shot frames both fighters with the moonlit sky filling the top.
+		var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if cam_pivot:
+			cam_pivot.rotation.y = atan2(-BOBBA_OFFSET.x, -BOBBA_OFFSET.z)
+			cam_pivot.rotation.x = deg_to_rad(-4.0)
+		_hide_promo_ui()
+		_boost_promo_lighting()
+		_add_key_light()
+
+	# Immortality so no red HP label pops during capture.
+	if is_instance_valid(_player) and "_spawn_immunity_timer" in _player:
+		_player._spawn_immunity_timer = 10.0
+
+	# Keep Paladin swinging so screenshots catch a sword arc.
+	if is_instance_valid(_player) and not _player.is_attacking:
+		if "_attack_cooldown" in _player and _player._attack_cooldown <= 0.0:
+			if _player.has_method("_do_attack"):
+				_player._do_attack()
+
+
+## Hide the cluttery banners ("Connecting to server…", network debug
+## overlay) and every Label3D (nameplates, HP pops, damage numbers) —
+## but KEEP the gothic HUD and minimap visible. The ornate HUD is part
+## of the game's visual identity and should be in the promo shot.
+func _hide_promo_ui() -> void:
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	var hide_names := [
+		"HealthBarUI",   # legacy hidden canvas, hide-safe
+		"JoinScreen",    # "Connecting to server…" banner
+		"NetworkDebug",  # latency / debug text
+	]
+	for n in hide_names:
+		var node := root.find_child(n, true, false)
+		if node and node is CanvasItem:
+			(node as CanvasItem).visible = false
+		elif node and node is CanvasLayer:
+			(node as CanvasLayer).visible = false
+	# Kill every Label3D in the scene — nameplates, HP pops, hit labels.
+	_hide_labels_recursive(root)
+
+
+func _hide_labels_recursive(node: Node) -> void:
+	if node is Label3D:
+		(node as Label3D).visible = false
+	for child in node.get_children():
+		_hide_labels_recursive(child)
+
+
+## Push ambient + moon up for the promo so the NIGHT preset reads as
+## "cinematic moonlit" instead of "near-black silhouettes". Leaves fog
+## alone so god rays still cut through the scene.
+func _boost_promo_lighting() -> void:
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	# Environment: pump ambient and exposure.
+	var we := root.find_child("WorldEnvironment", true, false) as WorldEnvironment
+	if we and we.environment:
+		var env := we.environment
+		env.ambient_light_energy = 1.2
+		env.ambient_light_color = Color(0.35, 0.42, 0.58)
+		env.tonemap_exposure = 1.4
+		env.background_energy_multiplier = 0.25
+	# Moon: much brighter so it carves the scene.
+	var moon := root.find_child("Moon", true, false)
+	if moon and moon.has_method("set_light_energy"):
+		moon.set_light_energy(3.5)
+	if moon and moon.has_method("set_light_color"):
+		moon.set_light_color(Color(0.70, 0.78, 0.95))
+
+
+## Single bright key light above the Paladin so he doesn't get eaten by
+## the NIGHT ambient. Cinematic trick — a hidden fill light so the hero
+## reads against the moonlit backdrop without breaking the mood.
+func _add_key_light() -> void:
+	if _player == null:
+		return
+	var key := OmniLight3D.new()
+	key.name = "PromoKeyLight"
+	key.light_color = Color(0.98, 0.88, 0.70)  # warm torch/fire tint
+	key.light_energy = 8.0
+	key.omni_range = 8.0
+	key.position = Vector3(1.2, 2.2, -2.0)  # camera-side, chest-height
+	key.shadow_enabled = false
+	_player.add_child(key)
+
+	# Secondary cool rim from behind — makes the silhouette pop against
+	# the moonlit backdrop. Classic three-point lighting.
+	var rim := OmniLight3D.new()
+	rim.name = "PromoRimLight"
+	rim.light_color = Color(0.60, 0.78, 1.00)
+	rim.light_energy = 5.5
+	rim.omni_range = 6.0
+	rim.position = Vector3(-1.6, 2.6, 2.0)
+	rim.shadow_enabled = false
+	_player.add_child(rim)
 
 
 ## Drop the Paladin into the dense uniform grass field, walk straight

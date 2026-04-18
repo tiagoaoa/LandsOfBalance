@@ -17,8 +17,8 @@ TIMEOUT_SEC="${2:-75}"
 GODOT="${GODOT:-/home/talves/bin/godot}"
 
 case "$SCENARIO" in
-    A|B|GRASS) ;;
-    *) echo "Scenario must be A, B, or GRASS (got: $SCENARIO)"; exit 1 ;;
+    A|B|GRASS|PROMO) ;;
+    *) echo "Scenario must be A, B, GRASS, or PROMO (got: $SCENARIO)"; exit 1 ;;
 esac
 
 LOG="/tmp/lob_combat_${SCENARIO}.log"

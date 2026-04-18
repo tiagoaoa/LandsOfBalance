@@ -5,3 +5,13 @@
 {"duration_s":"55.07","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"fun","round":5,"ts":"2026-04-18T06:30:35"}
 {"duration_s":"35.86","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"fun","round":1,"ts":"2026-04-18T06:41:36"}
 {"duration_s":"39.19","hp_max":150,"hp_remaining":20,"outcome":"WIN","rating":"fun","round":2,"ts":"2026-04-18T06:42:20"}
+{"duration_s":"48.08","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"fun","round":1,"ts":"2026-04-18T09:11:31"}
+{"duration_s":"50.69","hp_max":150,"hp_remaining":20,"outcome":"WIN","rating":"not_fun","round":2,"ts":"2026-04-18T09:12:33"}
+{"duration_s":"38.43","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"fun","round":3,"ts":"2026-04-18T09:13:15"}
+{"duration_s":"41.19","hp_max":150,"hp_remaining":118,"outcome":"WIN","rating":"fun","round":4,"ts":"2026-04-18T09:14:02"}
+{"duration_s":"68.25","hp_max":150,"hp_remaining":20,"outcome":"WIN","rating":"not_fun","round":5,"ts":"2026-04-18T09:15:15"}
+{"duration_s":"17.46","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"not_fun","round":6,"ts":"2026-04-18T09:15:38"}
+{"duration_s":"51.38","hp_max":150,"hp_remaining":118,"outcome":"WIN","rating":"fun","round":7,"ts":"2026-04-18T09:16:33"}
+{"duration_s":"38.70","hp_max":150,"hp_remaining":53,"outcome":"WIN","rating":"not_fun","round":8,"ts":"2026-04-18T09:17:18"}
+{"duration_s":"18.08","hp_max":150,"hp_remaining":0,"outcome":"LOSS","rating":"fun","round":9,"ts":"2026-04-18T09:17:44"}
+{"duration_s":"30.86","hp_max":150,"hp_remaining":20,"outcome":"WIN","rating":"fun","round":10,"ts":"2026-04-18T09:18:17"}
