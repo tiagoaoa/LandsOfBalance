@@ -103,6 +103,9 @@ worth re-using to keep specs short.
 | **"Go for it"**                       | Autonomous execution permitted on this scope. No further prompting unless something ambiguous blocks progress. |
 | **"Make this a rule"**                | Same as "golden rule" — persist the rule in code + this doc. |
 | **"26 style"** / **"this is 2026"**   | The fidelity bar — better than PS4-era early souls-likes. See the scene & rendering table. Flat ColorRect / StyleBoxFlat work is a failure mode; reach for shaders, textures, lighting, and per-instance variation. |
+| **"fun"**                             | **Subjective, human-sourced.** Means "satisfying to play." Only a human tester can grade it — I can't autonomously claim something is fun, only predict or report on it. See *Human-graded metrics* below. |
+| **"more fun"**                        | Goal signal from a human: enhance this aspect. Treated as a direction-of-change, not a measurable target. |
+| **"less fun"**                        | Regression signal from a human: a change made playtest worse. Must be acted on — never dismissed because it passed a test scenario. |
 
 ---
 
@@ -135,6 +138,39 @@ worth re-using to keep specs short.
 
 ---
 
+## Human-graded metrics
+
+Some properties of this project can only be graded by a human playing it.
+"Fun" is the primary one, but the same epistemology applies to anything
+that reduces to "how does this *feel*" — weight, impact, readability,
+pacing, atmosphere.
+
+**Ground rules:**
+
+1. **I cannot autonomously claim something is fun.** Scenario runs,
+   screenshots, frame rates, and round-trip tests prove *function*, not
+   *feel*. A task involving fun is not "done" until a human tester signs
+   off.
+2. **"Less fun" is a hard regression.** If a playtester says a change
+   made the game less fun, the change needs revisiting even if every
+   automated test still passes. Don't argue the data; act on the signal.
+3. **"More fun" is a directional goal, not a metric.** Treat it like
+   "refactor this until it feels right" — expect iteration, don't
+   declare victory after the first draft.
+4. **Capture fun feedback in writing.** When a tester says a specific
+   aspect is fun or unfun, record it below as a dated note so the
+   working definition of fun accumulates over time. Without the log,
+   the same regression keeps happening.
+
+### Fun log (accumulating)
+
+*Format: date — aspect — tester verdict — action taken. Starts empty and
+gets appended to as playtesting happens. Earlier entries stay; the
+definition of fun is cumulative.*
+
+- *(no entries yet — add the first one after the next playtest round)*
+
+
 ## Committed rules (from this conversation)
 
 1. **Visual collision rule.** An attack causes damage only when its weapon volume visually intersects the target. Hitboxes must match the rendered weapon shape.
@@ -144,3 +180,4 @@ worth re-using to keep specs short.
 5. **Cornfield grass spec.** Blades roughly Paladin shoulder-height (1.5 m), roots 30-50 cm apart, individual stalks visible, dark desaturated green, lit bevel when moonlight hits the top.
 6. **Tall-grass exclusion.** Grass only on open natural terrain; never on village, castle, roads, training grounds, tower, realm fields, burning peaks.
 7. **26-style fidelity bar.** Every visual pass should aim above PS4-era early souls-likes. If the first draft looks retro or uses Godot default styling, it needs another pass before it ships.
+8. **Fun is human-graded.** Anything touching gameplay feel is not done until a human tester has played it and signed off. Never auto-declare success on a subjective feature. See *Human-graded metrics*.
