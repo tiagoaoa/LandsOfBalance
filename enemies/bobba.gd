@@ -43,10 +43,14 @@ const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
 
 # Combat constants
-const ATTACK_DAMAGE: float = 40.0  # Damage dealt to players per punch
+const ATTACK_DAMAGE: float = 65.0  # Damage dealt to players per punch
 const ARROW_DAMAGE: float = 1.0  # Damage taken from arrows (10x reduced - use fire to trap Bobba!)
 const SWORD_DAMAGE: float = 50.0  # Damage taken from Paladin sword
-const KNOCKBACK_FORCE: float = 12.0
+## Bumped from 12 → 22 per round-4-not-fun feedback: a Bobba punch must
+## visibly shove the Paladin *out of Bobba's 2 m attack range* instead
+## of just jostling them. That positional shove replaces CombatFX juice
+## as the hit-feedback channel.
+const KNOCKBACK_FORCE: float = 22.0
 
 # Arrow retreat behavior
 var _is_retreating: bool = false
@@ -1452,6 +1456,10 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 	# If close enough, attack
 	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
 		print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
+		# Pre-attack telegraph — flash orange on the frame the wind-up
+		# starts so the player can see the swing coming and jump/block.
+		# Per round-4-not-fun feedback ("killed out of nowhere").
+		_flash_hit(Color(1.0, 0.55, 0.10))
 		state = State.ATTACKING
 		_play_anim(&"bobba/Attack")
 		enable_attack_hitbox()  # Enable hitbox when attack starts

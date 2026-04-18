@@ -34,6 +34,15 @@ const RUN_SPEED: float = 7.0
 const ACCEL: float = 12.0
 const DEACCEL: float = 12.0
 const JUMP_VELOCITY: float = 6.0
+## Horizontal velocity applied at jump-takeoff when the player is holding
+## a movement direction. Turns "press Space" into a directional leap —
+## core evasion tool per the 2026-04-18 playtest feedback (jump should
+## help Paladin cross distance faster than walking).
+const JUMP_FORWARD_BOOST: float = 5.5
+## Damage multiplier while airborne. Incoming hits that connect while
+## `is_on_floor() == false` apply this much of their rated damage.
+## Rewards reading a telegraph and jumping over a swing.
+const AERIAL_DAMAGE_MULT: float = 0.5
 const MOUSE_SENSITIVITY: float = 0.002
 const GAMEPAD_SENSITIVITY: float = 2.5  # radians per second at full stick
 const CAMERA_VERTICAL_LIMIT: float = 85.0  # degrees
@@ -2206,7 +2215,15 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		print("Player: Hit ignored - spawn immunity active (%.1fs remaining)" % _spawn_immunity_timer)
 		return
 
-	var actual_damage := damage
+	# Airborne mitigation: jumping over a swing halves the damage. The
+	# player "sells" the dodge visually by being off the floor when the
+	# hit lands, so the system rewards timing reads, not stand-and-trade.
+	# Stacks with block (so a jumping block is nearly full mitigation).
+	var airborne_mult: float = 1.0
+	if not is_on_floor():
+		airborne_mult = AERIAL_DAMAGE_MULT
+
+	var actual_damage := damage * airborne_mult
 	if blocked:
 		# Blocked hit - blue flash, knockback carried through from the
 		# attacker's side with only the standard resistance applied. The
@@ -2216,11 +2233,13 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		_flash_hit(Color(0.2, 0.4, 1.0))
 		_knockback_velocity = knockback * PLAYER_KNOCKBACK_RESISTANCE
 		# Fully-blockable hits (sword, arrow) are negated entirely on a
-		# successful block. Other hits still get the 70% reduction.
+		# successful block. Other hits still get the 70% reduction,
+		# compounded with the aerial mitigation (so a perfect jump-block
+		# against a Bobba punch lands at 15% of rated damage).
 		if is_fully_blockable:
 			actual_damage = 0.0
 		else:
-			actual_damage = damage * 0.3
+			actual_damage = damage * 0.3 * airborne_mult
 	else:
 		# Unblocked hit - red flash, full knockback, 1/3s stun, attack cancel
 		_flash_hit(Color(1.0, 0.2, 0.2))
@@ -2470,8 +2489,13 @@ func _trigger_game_restart(reason: String) -> void:
 			_show_game_result_caption(caption, caption_color)
 			return
 
-	# Singleplayer: show caption and reload scene
+	# Singleplayer: show caption. The arena scene (when
+	# GameSettings.arena_mode is true) owns the reload so it can collect
+	# a fun/not-fun rating from the player first.
 	_show_game_result_caption(caption, caption_color)
+	var gs := get_node_or_null("/root/GameSettings")
+	if gs and "arena_mode" in gs and gs.arena_mode:
+		return
 	var timer = get_tree().create_timer(2.0)
 	timer.timeout.connect(_reload_game)
 
@@ -3343,7 +3367,11 @@ func _physics_process(delta: float) -> void:
 		velocity.z = _knockback_velocity.z
 		velocity.y += gravity.y * delta
 		# Decelerate knockback
-		_knockback_velocity = _knockback_velocity.move_toward(Vector3.ZERO, 30.0 * delta)
+		# Softer knockback decay so a Bobba punch carries the Paladin
+		# clear of the 2 m attack range before the stun ends, per
+		# round-4-not-fun feedback ("just push the hit character away
+		# from reach"). Previously 30 m/s² killed the shove too fast.
+		_knockback_velocity = _knockback_velocity.move_toward(Vector3.ZERO, 12.0 * delta)
 		if _stun_timer <= 0:
 			_is_stunned = false
 			_knockback_velocity = Vector3.ZERO
@@ -3378,6 +3406,21 @@ func _physics_process(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY
 			is_jumping = true
 			_play_footstep(_footstep_jump, -3.0, 0.06)
+			# Forward jump: if the player is holding a movement direction,
+			# the takeoff launches in that direction. Lets jump serve as
+			# a quick horizontal dodge away from Bobba's strikes instead
+			# of a pure up/down platformer move.
+			var raw: Vector2 = Input.get_vector(&"move_left", &"move_right",
+					&"move_forward", &"move_back", 0.15)
+			if raw.length() > 0.15:
+				var raw_n: Vector2 = raw.normalized()
+				# Convert local input into world direction using the camera yaw.
+				var cam_yaw: float = _camera_pivot.rotation.y
+				var fwd := Vector3.FORWARD.rotated(Vector3.UP, cam_yaw)
+				var rt := Vector3.RIGHT.rotated(Vector3.UP, cam_yaw)
+				var world_dir := (fwd * -raw_n.y + rt * raw_n.x).normalized()
+				velocity.x = world_dir.x * JUMP_FORWARD_BOOST
+				velocity.z = world_dir.z * JUMP_FORWARD_BOOST
 
 	# Get movement input with analog stick support (includes touch joystick)
 	# Don't normalize yet - we need the raw length to determine run vs walk

@@ -85,13 +85,14 @@ func shake_camera(intensity: float = 0.15, duration: float = 0.18) -> void:
 	_shake_intensity = intensity
 
 
-## Convenience: call on a hit connect. Fires both hitstop and shake with
-## scaled parameters based on how heavy the hit is. `weight` is 0–1
-## (0 = glancing blow, 1 = knight sword to the face).
-func on_hit(weight: float = 0.7) -> void:
-	weight = clampf(weight, 0.0, 1.0)
-	var stop_dur: float = lerpf(0.03, 0.1, weight)
-	var shake_mag: float = lerpf(0.05, 0.22, weight)
-	var shake_dur: float = lerpf(0.1, 0.22, weight)
-	hitstop(stop_dur, 0.05)
-	shake_camera(shake_mag, shake_dur)
+## Convenience hook that USED to trigger hitstop + camera shake. Per
+## 2026-04-18 playtest feedback ("shaking animation and long stall" was
+## rated not fun), the juice path is now a no-op. Callers still invoke
+## CombatFX.on_hit(weight) at hit time — we keep the method so enabling
+## it again is a one-line revert, but the *positional* knockback is the
+## only hit-feedback channel the game uses today. `hitstop()` and
+## `shake_camera()` above remain callable directly for cases where a
+## deliberate stall is wanted (e.g. cinematic moments), but they're not
+## driven from the combat loop.
+func on_hit(_weight: float = 0.7) -> void:
+	pass

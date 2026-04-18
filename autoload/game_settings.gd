@@ -33,6 +33,16 @@ var performance_mode: bool = false
 # "B" tunes the Paladin to lose while landing a few strikes.
 var combat_scenario: String = ""
 
+# Combat-arena round counter — incremented each time the arena scene
+# loads (including via reload_current_scene after a player/Bobba death).
+# Persists across scene reloads because the autoload survives them.
+var arena_round: int = 0
+
+# When true, Player._trigger_game_restart() skips its auto-reload timer
+# and hands control to the arena scene instead (which shows the fun-rating
+# overlay before reloading on the user's click).
+var arena_mode: bool = false
+
 
 func _all_cmdline_args() -> Array[String]:
 	var args: Array[String] = []

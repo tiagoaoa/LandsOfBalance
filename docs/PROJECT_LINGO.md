@@ -168,7 +168,49 @@ pacing, atmosphere.
 gets appended to as playtesting happens. Earlier entries stay; the
 definition of fun is cumulative.*
 
-- *(no entries yet — add the first one after the next playtest round)*
+- **2026-04-18 — Paladin-vs-Bobba combat — less fun.** *Tester:*
+  "Bobba is easily killed. I expect Bobba to cause damage easier and
+  Paladin to be forced to jump around. More fun would be having to
+  actually try to avoid Bobba's hits — jump could help move around,
+  jump could possibly move Paladin far from the attack faster than just
+  regular moving and reduce the damage from hits."
+  *Implication for the project definition of fun:* it is not enough
+  for combat to mathematically complete; the player must feel
+  pressure to *move actively* to survive. Standing and trading hits
+  is a failure mode. Jump needs to matter as an evasion tool, not
+  just a platforming move. Aerial state should confer a tangible
+  survival benefit so skilled movement is rewarded.
+  *Action:* raise Bobba damage, add forward jump impulse, add aerial
+  damage reduction. Re-test.
+- **2026-04-18 — Combat arena side-game — broken (no rating yet).**
+  *Tester:* "Player fell outside of the map. Just create a close-distance
+  arena for this side-game testing."
+  *Implication for the project definition of fun:* the test bench itself
+  has to stay out of the way — if the tester falls off the world, the
+  round can't be rated. Arenas need tight dimensions and containment.
+  *Action:* shrink arena to 20×20 m, add 8 m containment walls on all
+  four sides, closer spawns (8 m apart), below-floor safety teleport.
+- **2026-04-18 — Arena round 1 WIN at 118/150 HP (60 s) — not fun.**
+  *Tester:* "[implicit: winning at near-full HP is not satisfying]."
+  *Implication:* an easy win is unfun; wins must feel earned. Use as a
+  permanent data point — don't regress Bobba back into pushover territory.
+- **2026-04-18 — Arena rounds 2/3/5 LOSS — fun.** Three losses at
+  40 s / 19 s / 55 s. Signal: losing *can* be the fun outcome when the
+  engagement feels earned. Don't fear letting the player die.
+- **2026-04-18 — Arena round 4 LOSS at 19 s — not fun.**
+  *Tester:* "Paladin was killed seemingly out of nowhere — I couldn't see
+  the hit from Bobba. I also don't like the shaking animation and the
+  long stall when a hit happens. Just push the hit character away from
+  reach."
+  *Implication for the project definition of fun:* **hits must be seen
+  coming.** Silent/invisible one-shots kill fun instantly. Camera shake
+  and hitstop (the "juice" / stall) are **not fun** in this game — they
+  obscure the action instead of selling it. The *positional* consequence
+  of a hit (knockback out of enemy reach) is the right feedback channel.
+  *Action:* disable CombatFX hitstop + camera shake on all hits; bump
+  knockback so a landed Bobba punch shoves the Paladin out of Bobba's
+  attack range; add a pre-attack telegraph flash on Bobba so wind-ups
+  can't be missed.
 
 
 ## Committed rules (from this conversation)

@@ -81,7 +81,7 @@
 #define BOBBA_ROTATION_SPEED   5.0f
 #define BOBBA_ROAM_CHANGE_TIME 3.0f
 #define BOBBA_ATTACK_DURATION  1.5f
-#define BOBBA_ATTACK_DAMAGE    40.0f   // Damage dealt to players per punch
+#define BOBBA_ATTACK_DAMAGE    65.0f   // Damage dealt to players per punch
 #define BOBBA_MAX_HEALTH       1000.0f // Must match bobba.gd MAX_HEALTH
 #define BOBBA_KNOCKBACK_FORCE  12.0f
 #define BOBBA_HIT_WINDOW_START 0.3f  // 30% into attack animation

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bcmb_arena_root"]
+
+[ext_resource type="Script" path="res://tests/combat_arena/arena.gd" id="1_arena"]
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1_arena")
