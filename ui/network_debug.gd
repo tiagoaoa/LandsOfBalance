@@ -10,6 +10,12 @@ const MAX_LINES := 15
 func _ready() -> void:
 	print("NetworkDebug: _ready()")
 
+	# Hide in singleplayer mode
+	if GameSettings and (GameSettings.singleplayer or GameSettings.performance_mode):
+		visible = false
+		set_process(false)
+		return
+
 	# Create label directly
 	label = Label.new()
 	label.anchor_left = 1.0

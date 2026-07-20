@@ -24,9 +24,13 @@ const SGT_NODE_PATH: String = "../../SimpleGrassTextured"
 ## Half-extents of the dense grass region — centred on origin.
 @export var field_half_x: float = 260.0
 @export var field_half_z: float = 260.0
-## Per-blade size. Height 1.5m = Paladin shoulder (model is ~1.8m tall).
-@export var base_blade_size: Vector3 = Vector3(1.0, 1.5, 1.0)
-@export var height_variance: float = 0.18
+## Per-blade size. Height 0.5m = knee-high on the ~1.8m Paladin — Skyrim
+## tundra grass, not shoulder-high reeds. The wide height variance scatters
+## the odd taller clump through the field so it doesn't read as a flat lawn.
+## Knee height also means the blades never clip through the moving character's
+## torso/arms the way the old 1.5m field did.
+@export var base_blade_size: Vector3 = Vector3(1.0, 0.5, 1.0)
+@export var height_variance: float = 0.4
 ## Where blade roots plant vertically. Paladin's feet settle around Y≈0.55
 ## after gravity on the default MainGround CSGBox; keep roots just below so
 ## blades don't clip up through his boots.
@@ -110,24 +114,12 @@ func _setup_exclusion_zones() -> void:
 					bsize.x + margin * 2.0, bsize.z + margin * 2.0
 				))
 
-	var structured: Array = [
-		["VillageOfEights", 55.0, 55.0],
-		["CommonGround", 35.0, 35.0],
-		["TowerOfHakutnas", 32.0, 32.0],
-		["RealmOfHudson", 45.0, 45.0],
-		["RealisticCastle", 70.0, 70.0],
-		["VillageDecorator", 50.0, 50.0],
-		["BurningPeaks", 60.0, 60.0],
-	]
-	for entry in structured:
-		var node_path: String = entry[0]
-		var hx: float = entry[1]
-		var hz: float = entry[2]
-		var n := stage.get_node_or_null(node_path) as Node3D
-		if n == null:
-			continue
-		var p: Vector3 = n.global_position
-		_exclusion_zones.append(Rect2(p.x - hx, p.z - hz, hx * 2.0, hz * 2.0))
+	# 2026-04-20: structured-zone exclusions removed so combat areas
+	# (village, training grounds, castle, tower, realm fields, burning
+	# peaks) now grow grass too. Only rivers (water) and roads (worn
+	# dirt paths) keep their exclusions. Re-add specific zones here if
+	# a future feature needs a guaranteed clearing — the `structured`
+	# Array pattern was: [ [node_path, half_width, half_depth], … ].
 	print("RealisticGrassPlacer: %d exclusion zones registered" % _exclusion_zones.size())
 
 
@@ -187,9 +179,9 @@ func _populate_blade_field() -> void:
 	if "texture_albedo" in sgt:
 		sgt.texture_albedo = _build_blade_texture()
 	if "albedo" in sgt:
-		# Bright enough to read under the dark NIGHT ambient while still
-		# looking like a field green — pure mid-saturation.
-		sgt.albedo = Color(0.55, 0.72, 0.32)
+		# Skyrim tundra olive-green — cooler and a touch drier than a lush
+		# lawn so it sits under the cold Nordic overcast without glowing.
+		sgt.albedo = Color(0.46, 0.56, 0.28)
 	if "alpha_scissor_threshold" in sgt:
 		sgt.alpha_scissor_threshold = 0.0  # solid blade, no transparent pixels
 	if "light_mode" in sgt:
@@ -204,15 +196,16 @@ func _populate_blade_field() -> void:
 	if "scale_var" in sgt:
 		sgt.scale_var = 0.0
 	if "grass_strength" in sgt:
-		sgt.grass_strength = 0.88  # very rigid — cornfield stalks don't sway
+		sgt.grass_strength = 0.6  # springy — a gentle wind-sway, recovers fast
 	if "interactive" in sgt:
 		sgt.interactive = true
-	# Blades part lightly around the player — a gentle sway, not a wide
-	# clearing. interactive_level_y stays 0 so blades don't flatten.
+	# Blades bend firmly away from the player as he moves through them, so
+	# the field parts around the character instead of clipping through his
+	# legs. Push hard on XZ; a little Y flatten sells the footprint.
 	if "interactive_level_xz" in sgt:
-		sgt.interactive_level_xz = 0.3
+		sgt.interactive_level_xz = 1.2
 	if "interactive_level_y" in sgt:
-		sgt.interactive_level_y = 0.0
+		sgt.interactive_level_y = 0.4
 	if "sgt_dist_min" in sgt:
 		sgt.sgt_dist_min = 0.0
 

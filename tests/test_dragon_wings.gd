@@ -285,7 +285,7 @@ func _setup_dragon() -> void:
 		print("AnimationPlayer found with ", _anim_player.get_animation_list().size(), " animations")
 
 		# Add our procedural wing flap animation
-		DragonWingFlapClass.add_to_animation_player(_anim_player, &"WingFlap")
+		DragonWingFlapClass.add_to_animation_player(_anim_player, _skeleton, &"WingFlap")
 
 		# Play the wing flap animation
 		_anim_player.play(&"WingFlap")
@@ -548,7 +548,7 @@ func _regenerate_animation() -> void:
 		return
 
 	# Start with the original animation from DragonWingFlap
-	var anim := DragonWingFlapClass.create_wing_flap_animation(1.2, 1.0)
+	var anim := DragonWingFlapClass.create_wing_flap_animation(_skeleton, 1.2, 1.0)
 
 	var t0 := 0.0
 	var t1 := 0.48  # 40% downstroke

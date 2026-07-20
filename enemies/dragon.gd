@@ -43,7 +43,7 @@ var _target_rotation: float = 0.0
 var lap_count: int = 0  # For network sync
 
 # Patrol settings (scaled for large dragon)
-@export var patrol_radius: float = 8000.0  # Radius of patrol circle (covers entire map)
+@export var patrol_radius: float = 150.0  # Base orbit radius around patrol_center
 @export var patrol_height: float = 90.0   # Flying height above ground (10m higher)
 @export var patrol_speed: float = 25.0    # Base flying speed
 @export var laps_before_landing: int = 2  # Land after this many laps
@@ -71,10 +71,24 @@ var laps_completed: int = 0
 var wait_timer: float = 0.0
 var target_player: Node3D = null
 
-# Linear back-and-forth patrol: dragon flies along +X, reverses at the boundary,
-# flies back along -X, reverses again. One lap = one full round trip.
-var _patrol_direction: Vector3 = Vector3(1, 0, 0)
-var _patrol_reversals: int = 0
+# Wandering closed-curve orbit around patrol_center: theta advances along a
+# ring whose radius and height breathe through incommensurate harmonics, so
+# every pass traces a different smooth curve. The dragon steers toward a
+# look-ahead point on the curve with a capped turn rate — headings can never
+# snap, only bend.
+const MAX_TURN_RATE := 0.45          # rad/s
+const ORBIT_LOOKAHEAD := 0.35        # radians ahead on the curve
+const BANK_PER_TURN_RATE := 0.9      # roll (rad) per rad/s of applied turn
+const MAX_BANK_RAD := 0.42           # ~24 degrees
+const MAX_PITCH_RAD := 0.21          # ~12 degrees
+var _heading: Vector3 = Vector3(0, 0, 1)
+var _orbit_theta: float = 0.0
+var _lap_theta_accum: float = 0.0
+var _orbit_phase1: float = 0.0
+var _orbit_phase2: float = 0.0
+var _orbit_phase3: float = 0.0
+var _turn_rate_applied: float = 0.0
+var _pitch_angle: float = 0.0
 
 # Flight-pose correction: the compound basis that rotates the model from its
 # rest-pose orientation (head up, belly somewhere) to a horizontal flight pose
@@ -136,6 +150,31 @@ var _skeleton: Skeleton3D
 var _mouth_fire: Node3D
 var _mouth_light: OmniLight3D
 var _mouth_bone_idx: int = -1
+
+# Fire breath: constant visible mouth flame (face-lit beacon) + periodic
+# harmless flame blast. Purely visual — deals NO damage yet.
+const JAW_OPEN_MAX_DEG := 26.0
+# Hover-breath sequence: the dragon pauses mid-air (hummingbird-style
+# upright hover, wings still beating), thrusts its neck forward and blows
+# the flame jet, then tips back over and flies on.
+const HOVER_WAIT_MIN := 8.0
+const HOVER_WAIT_MAX := 16.0
+const HOVER_DECEL_T := 1.3
+const HOVER_BLOW_T := 2.2
+const HOVER_RECOVER_T := 1.1
+const HOVER_PITCH_RAD := 0.75  # ~43 degrees body-upright
+var _hover_timer: float = 6.0
+var _hover_phase: int = 0  # 0 none, 1 decelerate, 2 blow, 3 recover
+var _hover_phase_left: float = 0.0
+var _hover_blend: float = 0.0
+var _breath_jet: GPUParticles3D
+var _jaw_bone_idx: int = -1
+var _jaw_pg_inv: Basis = Basis.IDENTITY
+var _jaw_g: Basis = Basis.IDENTITY
+var _jaw_openness: float = 0.2
+var _breath_time: float = 0.0
+var _breath_noise: FastNoiseLite
+var _blast_left: float = 0.0
 var _debug_label: Label3D
 
 # Animation names (Elder Scrolls Blades dragon)
@@ -171,12 +210,15 @@ func _ready() -> void:
 	_debug_label.no_depth_test = true
 	add_child(_debug_label)
 
-	# Set initial position - center patrol on player start position
-	patrol_center = Vector3(0, 0, 10)  # Player starts at (0, 1, 10)
-	_patrol_direction = Vector3(1, 0, 0)  # Start flying in +X direction
-	_patrol_reversals = 0
-	position = Vector3(patrol_center.x, patrol_height, patrol_center.z)
-	_last_direction = _patrol_direction
+	# Center the wandering orbit on the map centre and start on the curve.
+	patrol_center = Vector3(0, 0, 10)
+	_orbit_phase1 = randf() * TAU
+	_orbit_phase2 = randf() * TAU
+	_orbit_phase3 = randf() * TAU
+	_orbit_theta = 0.0
+	_heading = Vector3(0, 0, 1)  # tangent of the orbit at theta = 0
+	position = _orbit_point(0.0)
+	_last_direction = _heading
 
 	# Wait for skeleton transforms to settle, then measure the model's natural
 	# rest-pose orientation and compute the correction to a horizontal flight pose.
@@ -377,6 +419,11 @@ func _setup_dragon_model() -> void:
 	_model.name = "DragonModel"
 	add_child(_model)
 	_model.scale = Vector3(35.0, 35.0, 35.0)
+	# Dragon visuals live on layers 1|2: layer 1 renders normally, layer 2
+	# lets the mouth-fire lights (cull mask 2) light ONLY the dragon — the
+	# 35× model swings its head near the ground, and an unscoped fire light
+	# there floodlights the night field the archer is supposed to own.
+	_set_visual_layers_recursive(_model, 1 | 2)
 
 	# Find Skeleton for mouth fire attachment
 	_skeleton = _find_skeleton(_model)
@@ -387,8 +434,9 @@ func _setup_dragon_model() -> void:
 	_anim_player = _find_animation_player(_model)
 	if _anim_player:
 		_anim_player.animation_finished.connect(_on_animation_finished)
-		# Create procedural wing flap animation for flying
-		DragonWingFlapClass.add_to_animation_player(_anim_player, &"WingFlap")
+		# Create procedural wing flap animation for flying (rest-composed
+		# deltas — needs the skeleton to read bone rests)
+		DragonWingFlapClass.add_to_animation_player(_anim_player, _skeleton, &"WingFlap")
 		_detect_animations()
 		print("Dragon AnimationPlayer found with ", _anim_player.get_animation_list().size(), " animations")
 	else:
@@ -502,19 +550,21 @@ func _setup_mouth_fire() -> void:
 	# === MAIN FIRE PARTICLES - Intense orange-red flames ===
 	var fire_particles := GPUParticles3D.new()
 	fire_particles.name = "FireParticles"
-	fire_particles.amount = 40
-	fire_particles.lifetime = 0.6
+	fire_particles.amount = 56
+	fire_particles.lifetime = 0.45
 	fire_particles.explosiveness = 0.1
 	fire_particles.randomness = 0.5
 
 	var fire_material := ParticleProcessMaterial.new()
-	fire_material.direction = Vector3(0, 0, -1)  # Forward from mouth
-	fire_material.spread = 25.0
-	fire_material.initial_velocity_min = 3.0
-	fire_material.initial_velocity_max = 8.0
-	fire_material.gravity = Vector3(0, 4.0, 0)  # Fire rises
-	fire_material.scale_min = 0.8
-	fire_material.scale_max = 2.0
+	# Contained in the mouth: barely any forward travel, just licking
+	# flames between the jaws. The blast jet is the only long flame.
+	fire_material.direction = Vector3(0, 0, -1)
+	fire_material.spread = 30.0
+	fire_material.initial_velocity_min = 0.6
+	fire_material.initial_velocity_max = 1.8
+	fire_material.gravity = Vector3(0, 1.6, 0)  # small upward lick
+	fire_material.scale_min = 1.0
+	fire_material.scale_max = 2.2
 
 	# Intense fire color gradient with more RED
 	var color_ramp := GradientTexture1D.new()
@@ -528,22 +578,27 @@ func _setup_mouth_fire() -> void:
 	fire_material.color_ramp = color_ramp
 
 	fire_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	fire_material.emission_sphere_radius = 1.5
+	fire_material.emission_sphere_radius = 0.9
 
 	fire_particles.process_material = fire_material
 
 	# Fire mesh (billboard quad)
 	var fire_mesh := QuadMesh.new()
-	fire_mesh.size = Vector2(2.5, 2.5)
+	fire_mesh.size = Vector2(3.6, 3.6)
 
 	var fire_mesh_material := StandardMaterial3D.new()
 	fire_mesh_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fire_mesh_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	fire_mesh_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	fire_mesh_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	fire_mesh_material.albedo_color = Color(1.0, 0.7, 0.3, 0.9)
+	fire_mesh_material.vertex_color_use_as_albedo = true
+	# Soft radial falloff — hard-edged quads read as confetti (FireFX lesson).
+	fire_mesh_material.albedo_texture = FireFX._soft_circle_tex()
 	fire_mesh_material.emission_enabled = true
 	fire_mesh_material.emission = Color(1.0, 0.4, 0.1)
-	fire_mesh_material.emission_energy_multiplier = 8.0
+	# The rainy-night ACES grade crushes weak emissives — the breath must
+	# stay a readable beacon at 150 m+ so players can track the dragon.
+	fire_mesh_material.emission_energy_multiplier = 16.0
 	fire_mesh.material = fire_mesh_material
 
 	fire_particles.draw_pass_1 = fire_mesh
@@ -552,7 +607,7 @@ func _setup_mouth_fire() -> void:
 	# === EMBER/SPARK PARTICLES - Red hot embers ===
 	var ember_particles := GPUParticles3D.new()
 	ember_particles.name = "EmberParticles"
-	ember_particles.amount = 15
+	ember_particles.amount = 26
 	ember_particles.lifetime = 1.2
 	ember_particles.explosiveness = 0.2
 	ember_particles.randomness = 0.8
@@ -560,8 +615,8 @@ func _setup_mouth_fire() -> void:
 	var ember_material := ParticleProcessMaterial.new()
 	ember_material.direction = Vector3(0, 1, -0.5)
 	ember_material.spread = 45.0
-	ember_material.initial_velocity_min = 2.0
-	ember_material.initial_velocity_max = 6.0
+	ember_material.initial_velocity_min = 0.8
+	ember_material.initial_velocity_max = 2.5
 	ember_material.gravity = Vector3(0, 1.0, 0)
 	ember_material.scale_min = 0.2
 	ember_material.scale_max = 0.5
@@ -574,32 +629,41 @@ func _setup_mouth_fire() -> void:
 	ember_ramp.gradient = ember_gradient
 	ember_material.color_ramp = ember_ramp
 	ember_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	ember_material.emission_sphere_radius = 2.0
+	ember_material.emission_sphere_radius = 1.0
 
 	ember_particles.process_material = ember_material
 
 	var ember_mesh := QuadMesh.new()
-	ember_mesh.size = Vector2(0.6, 0.6)
+	ember_mesh.size = Vector2(1.0, 1.0)
 	var ember_mesh_mat := StandardMaterial3D.new()
 	ember_mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ember_mesh_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	ember_mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ember_mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	ember_mesh_mat.vertex_color_use_as_albedo = true
+	ember_mesh_mat.albedo_texture = FireFX._soft_circle_tex()
 	ember_mesh_mat.albedo_color = Color(1.0, 0.5, 0.2, 1.0)
 	ember_mesh_mat.emission_enabled = true
 	ember_mesh_mat.emission = Color(1.0, 0.3, 0.0)
-	ember_mesh_mat.emission_energy_multiplier = 6.0
+	ember_mesh_mat.emission_energy_multiplier = 12.0
 	ember_mesh.material = ember_mesh_mat
 
 	ember_particles.draw_pass_1 = ember_mesh
 	_mouth_fire.add_child(ember_particles)
 
-	# === MAIN LIGHT - Intense orange-red glow visible from far away ===
+	# === MAIN LIGHT — fiery glow around the dragon's head ===
+	# WAS 800 energy / 25m plus a 300/40m fill: the pair floodlit the whole
+	# field under the patrol path and ACES white-clipped the rainy night
+	# into a pale daylike wash near spawn. The dragon should read as a
+	# fiery beacon in the sky, not light the ground like a sun — the
+	# archer's ground fires own battlefield illumination.
 	_mouth_light = OmniLight3D.new()
 	_mouth_light.name = "MouthFireLight"
 	_mouth_light.light_color = Color(1.0, 0.4, 0.1)  # Orange-red
-	_mouth_light.light_energy = 800.0  # Very intense for visibility
-	_mouth_light.omni_range = 25.0  # Large range to illuminate dragon and surroundings
+	_mouth_light.light_energy = 20.0
+	_mouth_light.omni_range = 14.0  # face only — the breath is the beacon
 	_mouth_light.omni_attenuation = 1.2
+	_mouth_light.light_cull_mask = 2  # lights the dragon only, never the ground
 	_mouth_light.shadow_enabled = not (GameSettings != null and GameSettings.performance_mode)
 	_mouth_fire.add_child(_mouth_light)
 
@@ -607,31 +671,84 @@ func _setup_mouth_fire() -> void:
 	var fill_light := OmniLight3D.new()
 	fill_light.name = "FillLight"
 	fill_light.light_color = Color(1.0, 0.2, 0.0)  # Deep red
-	fill_light.light_energy = 300.0
-	fill_light.omni_range = 40.0  # Even larger for distant visibility
+	fill_light.light_energy = 5.0
+	fill_light.omni_range = 16.0
 	fill_light.omni_attenuation = 1.5
+	fill_light.light_cull_mask = 2  # dragon-only, like the main light
 	fill_light.shadow_enabled = false
 	_mouth_fire.add_child(fill_light)
 
-	# Start light flickering
-	_start_mouth_fire_flicker()
+	# === BREATH JET — the periodic flame blast (~6 m range, world units).
+	# Purely visual: there is NO hitbox, NO damage — by design for now.
+	_breath_jet = GPUParticles3D.new()
+	_breath_jet.name = "BreathJet"
+	_breath_jet.amount = 150
+	_breath_jet.lifetime = 0.55
+	_breath_jet.emitting = false
+	_breath_jet.randomness = 0.25
+	var jet_mat := ParticleProcessMaterial.new()
+	jet_mat.direction = Vector3(0, 0, -1)  # along the mouth node's forward
+	jet_mat.spread = 7.0
+	# v0 ~12.5 m/s, linear damping ~3.7 over a 0.55 s life ≈ 6 m of reach.
+	jet_mat.initial_velocity_min = 11.0
+	jet_mat.initial_velocity_max = 14.0
+	jet_mat.damping_min = 3.0
+	jet_mat.damping_max = 4.5
+	jet_mat.gravity = Vector3(0, 2.0, 0)  # flames lick upward as they slow
+	jet_mat.scale_min = 0.9
+	jet_mat.scale_max = 1.8
+	var jet_grad := Gradient.new()
+	jet_grad.add_point(0.0, Color(1.0, 0.95, 0.6, 0.9))
+	jet_grad.add_point(0.25, Color(1.0, 0.75, 0.2, 0.85))
+	jet_grad.add_point(0.6, Color(1.0, 0.35, 0.05, 0.6))
+	jet_grad.add_point(1.0, Color(0.5, 0.05, 0.0, 0.0))
+	var jet_ramp := GradientTexture1D.new()
+	jet_ramp.gradient = jet_grad
+	jet_mat.color_ramp = jet_ramp
+	jet_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	jet_mat.emission_sphere_radius = 0.5
+	_breath_jet.process_material = jet_mat
+	var jet_mesh := QuadMesh.new()
+	jet_mesh.size = Vector2(2.4, 2.4)
+	var jet_mesh_mat := StandardMaterial3D.new()
+	jet_mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	jet_mesh_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	jet_mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	jet_mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	jet_mesh_mat.vertex_color_use_as_albedo = true
+	jet_mesh_mat.albedo_texture = FireFX._soft_circle_tex()
+	jet_mesh.material = jet_mesh_mat
+	_breath_jet.draw_pass_1 = jet_mesh
+	_mouth_fire.add_child(_breath_jet)
+
+	# Jaw bone drives the visible mouth opening at runtime (WingFlap has no
+	# jaw track, so a per-frame pose write is never overwritten in flight).
+	for i in _skeleton.get_bone_count():
+		if "Jaw" in _skeleton.get_bone_name(i):
+			_jaw_bone_idx = i
+			var jp := _skeleton.get_bone_parent(i)
+			_jaw_pg_inv = _skeleton.get_bone_global_rest(jp).basis.inverse() \
+					if jp >= 0 else Basis.IDENTITY
+			_jaw_g = _skeleton.get_bone_global_rest(i).basis
+			print("Dragon: Jaw bone '%s' at index %d" % [_skeleton.get_bone_name(i), i])
+			break
+	_breath_noise = FastNoiseLite.new()
+	_breath_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_breath_noise.frequency = 0.35
+	_hover_timer = randf_range(5.0, 9.0)
+
+	# Proportional flicker from the shared fire factory.
+	FireFX.start_flicker(_mouth_light, _mouth_light.light_energy)
 
 	print("Dragon: Mouth fire effect created")
 
 
-func _start_mouth_fire_flicker() -> void:
-	## Create realistic fire flicker effect on mouth light
-	if not _mouth_light or not is_inside_tree():
-		return
-
-	var flicker_tween := create_tween()
-	flicker_tween.set_loops()
-	flicker_tween.tween_property(_mouth_light, "light_energy", 900.0, 0.08)
-	flicker_tween.tween_property(_mouth_light, "light_energy", 700.0, 0.12)
-	flicker_tween.tween_property(_mouth_light, "light_energy", 850.0, 0.06)
-	flicker_tween.tween_property(_mouth_light, "light_energy", 750.0, 0.1)
-	flicker_tween.tween_property(_mouth_light, "light_energy", 950.0, 0.05)
-	flicker_tween.tween_property(_mouth_light, "light_energy", 650.0, 0.15)
+## Put every visual under `node` on the given render layers.
+func _set_visual_layers_recursive(node: Node, layers: int) -> void:
+	if node is VisualInstance3D:
+		(node as VisualInstance3D).layers = layers
+	for child in node.get_children():
+		_set_visual_layers_recursive(child, layers)
 
 
 func _update_mouth_fire_position() -> void:
@@ -643,12 +760,67 @@ func _update_mouth_fire_position() -> void:
 	var bone_pose := _skeleton.get_bone_global_pose(_mouth_bone_idx)
 	var bone_global := _skeleton.global_transform * bone_pose
 
-	# Position fire slightly in front of the mouth (forward direction).
-	# With the flight-pose basis, local +Y (head) is the forward direction.
-	var forward_offset := _model.global_transform.basis.y.normalized() * 8.0  # Forward from head
+	# The head bone's local +X axis points out of the snout (measured against
+	# the lip bones at rest), so the ACTUAL head direction — including the
+	# hover's forward-thrust neck — aims the fire, not the body orientation.
+	var forward: Vector3 = (bone_global.basis * Vector3(1, 0, 0)).normalized()
+	if forward.length_squared() < 0.5:
+		forward = _model.global_transform.basis.y.normalized()
 	var up_offset := Vector3(0, 2.0, 0)  # Slightly above
 
-	_mouth_fire.global_position = bone_global.origin + forward_offset + up_offset
+	_mouth_fire.global_position = bone_global.origin + forward * 8.0 + up_offset
+	# Aim the node's -Z along the head direction so the contained flame and
+	# the blast jet stream out of the mouth wherever the head points.
+	if absf(forward.dot(Vector3.UP)) < 0.98:
+		_mouth_fire.global_transform.basis = Basis.looking_at(forward, Vector3.UP)
+
+
+## Constant fire breath + periodic blast. The jaw hangs slightly open and
+## varies with flight effort and a slow noise (so the mouth "breathes" with
+## the movement); every few seconds the dragon blows a ~6 m flame jet.
+## Purely visual — no damage of any kind yet.
+func _update_breath(delta: float) -> void:
+	if _mouth_fire == null:
+		return
+	_breath_time += delta
+
+	# Blast countdown — started by the hover-breath sequence only.
+	if _blast_left > 0.0:
+		_blast_left -= delta
+		if _blast_left <= 0.0 and _breath_jet:
+			_breath_jet.emitting = false
+			_restart_mouth_flicker(20.0)
+
+	# Jaw openness: slow noise + flight effort, wide open while blasting.
+	if _jaw_bone_idx < 0 or _skeleton == null:
+		return
+	var n := _breath_noise.get_noise_1d(_breath_time)
+	var target_open := clampf(0.22 + 0.18 * n + 0.012 * absf(_vertical_velocity), 0.06, 0.6)
+	if _blast_left > 0.0:
+		target_open = 1.0
+	_jaw_openness = lerpf(_jaw_openness, target_open, 6.0 * delta)
+	# Skeleton-space pitch about the lateral axis, composed on the jaw rest
+	# (same rest-composition rule as the flight animation).
+	var r := Basis.from_euler(Vector3(deg_to_rad(-JAW_OPEN_MAX_DEG * _jaw_openness), 0.0, 0.0))
+	_skeleton.set_bone_pose_rotation(_jaw_bone_idx,
+			(_jaw_pg_inv * (r * _jaw_g)).get_rotation_quaternion())
+
+
+func _start_blast(duration: float) -> void:
+	_blast_left = duration
+	if _breath_jet:
+		_breath_jet.emitting = true
+	_restart_mouth_flicker(45.0)
+
+
+func _restart_mouth_flicker(base_energy: float) -> void:
+	if _mouth_light == null:
+		return
+	if _mouth_light.has_meta("flicker_tween"):
+		var tw: Tween = _mouth_light.get_meta("flicker_tween")
+		if tw:
+			tw.kill()
+	FireFX.start_flicker(_mouth_light, base_energy)
 
 
 func _detect_animations() -> void:
@@ -741,14 +913,62 @@ func _find_player() -> void:
 			target_player = get_tree().root.find_child("Player", true, false)
 
 
-func _get_patrol_position() -> Vector3:
-	# Linear patrol: target a point far ahead along the current direction,
-	# at constant patrol height (parallel to the floor).
-	return Vector3(
-		patrol_center.x + _patrol_direction.x * patrol_radius,
-		patrol_height,
-		patrol_center.z + _patrol_direction.z * patrol_radius
-	)
+## Mid-air hover-breath: hummingbird-style pause. The wings keep beating
+## (WingHover clip at a raised flap rate — neck extended, tail swinging,
+## legs hanging), the body tips upright via _hover_blend in
+## _face_direction, and the flame jet fires during the blow phase.
+func _process_hover_breath(delta: float) -> void:
+	_play_animation(&"WingHover" if (_anim_player and _anim_player.has_animation(&"WingHover")) else anim_fly, true, 0.5)
+	if _anim_player:
+		_anim_player.speed_scale = lerpf(_anim_player.speed_scale, 1.35, 3.0 * delta)
+
+	_hover_phase_left -= delta
+	match _hover_phase:
+		1:  # Decelerate and pitch upright.
+			_hover_blend = move_toward(_hover_blend, 1.0, delta / HOVER_DECEL_T)
+			if _hover_phase_left <= 0.0:
+				_hover_phase = 2
+				_hover_phase_left = HOVER_BLOW_T
+				_start_blast(HOVER_BLOW_T)
+		2:  # Blowing fire — jaw wide, neck thrust forward by the clip.
+			_hover_blend = 1.0
+			if _hover_phase_left <= 0.0:
+				_hover_phase = 3
+				_hover_phase_left = HOVER_RECOVER_T
+		3:  # Tip back over and resume the orbit.
+			_hover_blend = move_toward(_hover_blend, 0.0, delta / HOVER_RECOVER_T)
+			if _hover_phase_left <= 0.0:
+				_hover_phase = 0
+				_hover_timer = randf_range(HOVER_WAIT_MIN, HOVER_WAIT_MAX)
+				if _anim_player:
+					_anim_player.speed_scale = 1.0
+
+	# Brake to a hanging hover with a gentle vertical bob.
+	velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+	velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+	_vertical_velocity = sin(_breath_time * 2.4) * 1.1
+	velocity.y = _vertical_velocity
+	_forward_speed_multiplier = lerpf(_forward_speed_multiplier, 0.8, 2.0 * delta)
+
+	_face_direction(_heading, delta)
+
+
+## Orbit radius at curve parameter theta: the base radius modulated by two
+## incommensurate harmonics — smooth, never repeating, always a closed loop
+## around the centre.
+func _orbit_radius(theta: float) -> float:
+	return maxf(patrol_radius * (1.0 + 0.22 * sin(1.7 * theta + _orbit_phase1)
+			+ 0.13 * sin(2.9 * theta + _orbit_phase2)), 45.0)
+
+
+func _orbit_height(theta: float) -> float:
+	return patrol_height + 12.0 * sin(0.8 * theta + _orbit_phase3)
+
+
+func _orbit_point(theta: float) -> Vector3:
+	var r := _orbit_radius(theta)
+	return Vector3(patrol_center.x + cos(theta) * r, _orbit_height(theta),
+			patrol_center.z + sin(theta) * r)
 
 
 func _physics_process(delta: float) -> void:
@@ -756,6 +976,7 @@ func _physics_process(delta: float) -> void:
 	if _is_network_controlled:
 		_handle_network_interpolation(delta)
 		_update_mouth_fire_position()
+		_update_breath(delta)
 		return
 
 	# Stun: neutralized for STUN_DURATION, drifting in the knockback direction
@@ -770,12 +991,14 @@ func _physics_process(delta: float) -> void:
 			velocity = _stun_knockback
 			move_and_slide()
 			_update_mouth_fire_position()
+			_update_breath(delta)
 			return
 
 	# TEST_MULTIPLAYER mode: just patrol, no attacks
 	if GameSettings and GameSettings.test_multiplayer:
 		_process_patrol(delta)
 		_update_mouth_fire_position()
+		_update_breath(delta)
 		return
 
 	# Host controls the dragon AI
@@ -800,6 +1023,7 @@ func _physics_process(delta: float) -> void:
 
 	# Update mouth fire to follow head bone
 	_update_mouth_fire_position()
+	_update_breath(delta)
 
 
 ## Handle interpolation for network-controlled entities
@@ -862,6 +1086,19 @@ func _update_animation_for_state() -> void:
 
 
 func _process_patrol(delta: float) -> void:
+	# Random mid-air hover-breath pause: decelerate into an upright
+	# hummingbird hover, blow the flame jet, then tip over and fly on.
+	if _hover_phase == 0:
+		_hover_timer -= delta
+		if _hover_timer <= 0.0:
+			_hover_phase = 1
+			_hover_phase_left = HOVER_DECEL_T
+			_is_gliding = false
+			print("Dragon: hover-breath sequence starting")
+	if _hover_phase > 0:
+		_process_hover_breath(delta)
+		return
+
 	# Glide/flap state management - alternate between flapping and gliding
 	_update_glide_state(delta)
 
@@ -872,28 +1109,36 @@ func _process_patrol(delta: float) -> void:
 		# Speed-dependent flap rate: faster when climbing, slower at cruise
 		_update_flap_speed()
 
-	# Check if the dragon has reached the patrol boundary and needs to reverse.
-	# Uses the current patrol axis component (X or Z) depending on direction.
-	var offset_along_axis := (position.x - patrol_center.x) * _patrol_direction.x \
-		+ (position.z - patrol_center.z) * _patrol_direction.z
-	if offset_along_axis >= patrol_radius:
-		_patrol_direction = -_patrol_direction
-		_patrol_reversals += 1
-		print("Dragon reversing, reversals=", _patrol_reversals)
-		# Every two reversals = one full round trip = one lap
-		if _patrol_reversals % 2 == 0:
-			laps_completed += 1
-			lap_completed.emit(laps_completed)
-			print("Dragon completed lap ", laps_completed)
-			if laps_completed >= laps_before_landing:
-				laps_completed = 0
-				_is_gliding = false
-				state = DragonState.FLYING_TO_LAND
-				return
+	# Advance along the wandering orbit and steer toward a look-ahead point
+	# on the curve. The turn rate is capped, so direction only ever bends.
+	var theta_step := (patrol_speed * _forward_speed_multiplier * delta) \
+			/ maxf(_orbit_radius(_orbit_theta), 40.0)
+	_orbit_theta += theta_step
+	var target_pos := _orbit_point(_orbit_theta + ORBIT_LOOKAHEAD)
 
-	# Target point far along current direction at constant patrol height
-	var target_pos := _get_patrol_position()
-	var direction := _patrol_direction  # flight direction is fixed along axis
+	var desired := target_pos - position
+	desired.y = 0.0
+	if desired.length_squared() > 0.01:
+		desired = desired.normalized()
+		var ang := _heading.signed_angle_to(desired, Vector3.UP)
+		var step := clampf(ang, -MAX_TURN_RATE * delta, MAX_TURN_RATE * delta)
+		_heading = _heading.rotated(Vector3.UP, step).normalized()
+		_turn_rate_applied = step / maxf(delta, 0.0001)
+
+	# Lap accounting: one full sweep around the centre = one lap.
+	_lap_theta_accum += theta_step
+	if _lap_theta_accum >= TAU:
+		_lap_theta_accum -= TAU
+		laps_completed += 1
+		lap_completed.emit(laps_completed)
+		print("Dragon completed lap ", laps_completed)
+		if laps_completed >= laps_before_landing:
+			laps_completed = 0
+			_is_gliding = false
+			state = DragonState.FLYING_TO_LAND
+			return
+
+	var direction := _heading
 
 	if _is_gliding:
 		# Gliding: no wing-generated lift, gentle sink, maintain forward speed
@@ -1197,6 +1442,13 @@ func _process_takeoff(delta: float) -> void:
 	if position.y >= patrol_height * 0.85:
 		state = DragonState.PATROL
 		patrol_angle = 0.0
+		# Re-anchor the orbit where the climb ended so the curve continues
+		# from here instead of yanking the dragon back to an old theta.
+		_orbit_theta = atan2(position.z - patrol_center.z, position.x - patrol_center.x)
+		_lap_theta_accum = 0.0
+		var fwd := _model.global_transform.basis.y if _model else Vector3(0, 0, 1)
+		fwd.y = 0.0
+		_heading = fwd.normalized() if fwd.length_squared() > 0.01 else Vector3(0, 0, 1)
 		if _anim_player:
 			_anim_player.speed_scale = 1.0
 		print("Dragon resuming patrol")
@@ -1231,7 +1483,27 @@ func _face_direction(direction: Vector3, delta: float, enable_banking: bool = tr
 	# rotates to match the travel direction.
 	var target_yaw := atan2(-horizontal.z, horizontal.x)
 	var yaw_basis := Basis(Vector3.UP, target_yaw)
-	var target_rot := yaw_basis * _pose_correction
+
+	# Bank into the current turn and pitch with the climb/sink. Composed in
+	# WORLD space about the travel axes (roll about forward, pitch about the
+	# right wing) — no euler-order interactions with the pose correction.
+	var bank_target := 0.0
+	var pitch_target := 0.0
+	if enable_banking:
+		bank_target = clampf(-_turn_rate_applied * BANK_PER_TURN_RATE,
+				-MAX_BANK_RAD, MAX_BANK_RAD) * (1.0 - _hover_blend)
+		var air_speed := maxf(Vector2(velocity.x, velocity.z).length(), 4.0)
+		pitch_target = clampf(atan2(_vertical_velocity, air_speed) * 0.6,
+				-MAX_PITCH_RAD, MAX_PITCH_RAD) * (1.0 - _hover_blend)
+		# Hover: rear up into the hummingbird-upright body position.
+		pitch_target += HOVER_PITCH_RAD * _hover_blend
+	_current_bank_angle = lerpf(_current_bank_angle, bank_target, 2.5 * delta)
+	_pitch_angle = lerpf(_pitch_angle, pitch_target, 2.0 * delta)
+	# Decays unless patrol refreshes it every frame — other states unbank.
+	_turn_rate_applied = lerpf(_turn_rate_applied, 0.0, 1.5 * delta)
+	var right_axis := Vector3(-horizontal.z, 0.0, horizontal.x)  # forward x up
+	var target_rot := Basis(horizontal, _current_bank_angle) \
+			* Basis(right_axis, _pitch_angle) * yaw_basis * _pose_correction
 
 	# Slerp the current rotation toward the target for smooth turning.
 	var current_quat := _model.transform.basis.get_rotation_quaternion()
@@ -1241,7 +1513,6 @@ func _face_direction(direction: Vector3, delta: float, enable_banking: bool = tr
 
 	_last_direction = dir_normalized
 	_head_turn_offset = 0.0
-	_current_bank_angle = 0.0
 
 
 func _compute_pose_correction() -> void:
@@ -1346,7 +1617,7 @@ func _apply_head_anticipation(_turn_rate: float, _delta: float) -> void:
 		_skeleton.set_bone_pose_rotation(bone_idx, current_pose * head_turn)
 
 
-func _play_animation(anim_name: StringName, loop: bool = false) -> void:
+func _play_animation(anim_name: StringName, loop: bool = false, blend: float = 0.4) -> void:
 	if not _anim_player or anim_name == &"":
 		return
 
@@ -1354,7 +1625,7 @@ func _play_animation(anim_name: StringName, loop: bool = false) -> void:
 		return
 
 	if _anim_player.has_animation(anim_name):
-		_anim_player.play(anim_name)
+		_anim_player.play(anim_name, blend)
 
 
 func _on_animation_finished(anim_name: StringName) -> void:

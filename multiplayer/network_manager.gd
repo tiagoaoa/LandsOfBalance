@@ -1273,6 +1273,9 @@ func _handle_arrow_hit(packet: PackedByteArray) -> void:
 # =============================================================================
 
 func send_entity_damage(entity_id: int, damage: float, attacker_id: int) -> void:
+	# Offline singleplayer has no socket — damage is applied locally anyway.
+	if socket == null:
+		return
 	var msg: PackedByteArray = client_state.build_entity_damage_msg(entity_id, damage)
 	socket.put_packet(msg)
 	_log("ENTITY DAMAGE: entity=%d damage=%.1f attacker=%d" % [entity_id, damage, attacker_id])

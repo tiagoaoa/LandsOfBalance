@@ -57,14 +57,24 @@ cd "$PROJECT_DIR"
 $GODOT --path "$PROJECT_DIR" \
     --resolution ${WINDOW_WIDTH}x${WINDOW_HEIGHT} \
     --position 0,100 \
-    game.tscn &
+    --scene res://game.tscn \
+    -- \
+    --multiplayer \
+    --test-multiplayer \
+    --server-host=127.0.0.1 \
+    --character-class=archer &
 sleep 1
 
 echo "Launching Player 2 (right window)..."
 $GODOT --path "$PROJECT_DIR" \
     --resolution ${WINDOW_WIDTH}x${WINDOW_HEIGHT} \
     --position ${WINDOW_WIDTH},100 \
-    game.tscn &
+    --scene res://game.tscn \
+    -- \
+    --multiplayer \
+    --test-multiplayer \
+    --server-host=127.0.0.1 \
+    --character-class=paladin &
 
 echo ""
 echo "=== Two players launched side-by-side ==="

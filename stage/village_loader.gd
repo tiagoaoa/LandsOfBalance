@@ -26,7 +26,27 @@ func _load_village() -> void:
 	# Generate collision for all meshes
 	_add_collision_to_meshes(_village_instance)
 
+	# Tame lights baked into the imported model. The FBX ships an OmniLight
+	# at energy 1000 — a floodlight that washed out the entire rainy-night
+	# field around the spawn (enemies are supposed to be revealed by archer
+	# firelight, not by the village). Keep a soft lantern glow instead.
+	_tame_imported_lights(_village_instance)
+
 	print("Village of Eights loaded with collision from: ", VILLAGE_PATH)
+
+
+func _tame_imported_lights(node: Node) -> void:
+	if node is OmniLight3D or node is SpotLight3D:
+		var l := node as Light3D
+		print("VillageLoader: taming imported light '%s' (energy %.0f -> 4)" % [l.name, l.light_energy])
+		l.light_energy = 4.0
+		l.light_color = Color(1.0, 0.75, 0.45)  # warm lantern
+		if l is OmniLight3D:
+			(l as OmniLight3D).omni_range = 14.0
+			(l as OmniLight3D).omni_attenuation = 1.4
+		l.shadow_enabled = false
+	for child in node.get_children():
+		_tame_imported_lights(child)
 
 
 func _add_collision_to_meshes(node: Node) -> void:

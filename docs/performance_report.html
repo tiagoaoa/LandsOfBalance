@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lands of Balance - Performance Audit Report</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card-bg: #16213e;
+    --card-border: #0f3460;
+    --accent: #e94560;
+    --accent2: #533483;
+    --text: #eaeaea;
+    --text-muted: #a0a0b8;
+    --green: #4ecca3;
+    --yellow: #f0c040;
+    --red: #e94560;
+    --orange: #f08a24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+  }
+  h1 {
+    text-align: center;
+    font-size: 2.2rem;
+    margin-bottom: 0.3rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .summary-bar {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 2.5rem;
+  }
+  .summary-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    min-width: 150px;
+  }
+  .summary-card .number {
+    font-size: 1.8rem;
+    font-weight: 700;
+  }
+  .summary-card .label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .section {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .section h2 {
+    font-size: 1.3rem;
+    margin-bottom: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .section .section-desc {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1.2rem;
+  }
+  .priority-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .priority-critical { background: var(--red); color: #fff; }
+  .priority-high { background: var(--orange); color: #fff; }
+  .priority-medium { background: var(--yellow); color: #1a1a2e; }
+  .priority-low { background: var(--green); color: #1a1a2e; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+  }
+  th {
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--card-border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  td {
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.9rem;
+  }
+  tr:hover td { background: rgba(255,255,255,0.03); }
+  .val { font-family: 'Consolas', 'Courier New', monospace; color: var(--green); }
+  .val-bad { color: var(--red); }
+  .val-warn { color: var(--yellow); }
+  .explain {
+    background: rgba(255,255,255,0.03);
+    border-left: 3px solid var(--accent2);
+    padding: 0.8rem 1rem;
+    margin: 0.8rem 0;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+  }
+  .explain strong { color: var(--text); }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+  .recommendation {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .recommendation:last-child { border-bottom: none; }
+  .rec-number {
+    background: var(--accent);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .rec-text { font-size: 0.9rem; }
+  .rec-text strong { color: var(--green); }
+  .impact-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.1);
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .impact-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+  .fill-critical { background: var(--red); }
+  .fill-high { background: var(--orange); }
+  .fill-medium { background: var(--yellow); }
+  .fill-low { background: var(--green); }
+  .hardware {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+  .hw-card {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  .hw-icon { font-size: 1.2rem; }
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--card-border);
+  }
+</style>
+</head>
+<body>
+
+<h1>Lands of Balance &mdash; Performance Audit</h1>
+<p class="subtitle">Project: Douglass The Keeper &bull; Engine: Godot 4.5.1 &bull; Report Date: 7 April 2026</p>
+
+<div class="hardware">
+  <div class="hw-card"><span class="hw-icon">&#128421;</span> Desktop: NVIDIA GeForce GTX 1650</div>
+  <div class="hw-card"><span class="hw-icon">&#128241;</span> Mobile: Android (USB connected)</div>
+</div>
+
+<div class="summary-bar">
+  <div class="summary-card">
+    <div class="number" style="color:var(--red)">400+</div>
+    <div class="label">MB in 3D Models</div>
+  </div>
+  <div class="summary-card">
+    <div class="number" style="color:var(--orange)">241</div>
+    <div class="label">MB in Textures</div>
+  </div>
+  <div class="summary-card">
+    <div class="number" style="color:var(--yellow)">5,479</div>
+    <div class="label">MultiMesh Instances</div>
+  </div>
+  <div class="summary-card">
+    <div class="number" style="color:var(--yellow)">~700</div>
+    <div class="label">Active Particles</div>
+  </div>
+  <div class="summary-card">
+    <div class="number" style="color:var(--green)">27</div>
+    <div class="label">Per-frame Scripts</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: RENDERING PIPELINE -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2><span class="priority-badge priority-critical">Critical</span> Rendering Pipeline</h2>
+  <p class="section-desc">These are the core settings that control how every single pixel on screen is computed. They have the largest impact on both desktop and mobile performance.</p>
+
+  <table>
+    <thead><tr><th>Setting</th><th>Current Value</th><th>Desktop Impact</th><th>Mobile Impact</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Rendering Method</td>
+        <td><span class="val-bad">Forward+</span></td>
+        <td>Good</td>
+        <td><span class="val-bad">Very Heavy</span></td>
+      </tr>
+      <tr>
+        <td>Shadow Atlas Size</td>
+        <td><span class="val-bad">8192 &times; 8192</span></td>
+        <td><span class="val-warn">Heavy</span></td>
+        <td><span class="val-bad">Extremely Heavy</span></td>
+      </tr>
+      <tr>
+        <td>MSAA (3D)</td>
+        <td><span class="val-warn">2x</span></td>
+        <td>Moderate</td>
+        <td><span class="val-bad">Heavy</span></td>
+      </tr>
+      <tr>
+        <td>Anisotropic Filtering</td>
+        <td><span class="val-warn">Level 4</span></td>
+        <td>Low</td>
+        <td><span class="val-warn">Moderate</span></td>
+      </tr>
+      <tr>
+        <td>Moon Shadow Cascades</td>
+        <td><span class="val-warn">2 splits</span></td>
+        <td>Low</td>
+        <td><span class="val-warn">Moderate</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>Rendering Method (Forward+):</strong> This determines the entire rendering architecture. <em>Forward+</em> is Godot's most feature-rich renderer &mdash; it supports SDFGI, volumetric fog, advanced lighting, and more. However, it performs multiple rendering passes per light and per object, making it extremely expensive on mobile GPUs. The <em>Mobile</em> renderer is a stripped-down forward renderer optimized for phones. <em>GL Compatibility</em> uses OpenGL ES 3.0 instead of Vulkan, supporting the widest range of devices but with fewer features.
+  </div>
+
+  <div class="explain">
+    <strong>Shadow Atlas:</strong> When lights cast shadows, the engine renders the scene from the light's perspective into a <em>shadow map</em> &mdash; a depth texture. The <strong>shadow atlas</strong> is the large texture that holds all these shadow maps. At 8192&times;8192 pixels, that's a 67-million-pixel texture that must be rendered and sampled every frame. On a phone, reducing this to 2048&times;2048 cuts the workload by <strong>16&times;</strong>.
+  </div>
+
+  <div class="explain">
+    <strong>MSAA (Multi-Sample Anti-Aliasing):</strong> Jagged edges appear where 3D geometry meets the background. MSAA smooths these by computing each pixel multiple times at slightly different positions. <em>2x MSAA</em> means every pixel is sampled twice, roughly doubling the fragment shader work. On mobile GPUs with limited fill-rate, this is a significant cost for a mostly cosmetic benefit.
+  </div>
+
+  <div class="explain">
+    <strong>Anisotropic Filtering:</strong> When a textured surface is viewed at a steep angle (like a road stretching into the distance), textures become blurry. Anisotropic filtering takes extra texture samples to keep them sharp. <em>Level 4</em> means up to 4 extra samples per pixel. On mobile, level 1-2 is usually sufficient.
+  </div>
+
+  <div class="explain">
+    <strong>Shadow Cascades:</strong> For directional lights (sun/moon), the scene is divided into distance ranges called <em>cascades</em>. Each cascade gets its own shadow map rendering pass. <em>2 splits</em> means 2 separate shadow maps rendered each frame. Reducing to 1 split halves the shadow rendering work, at the cost of lower shadow quality at distance.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: 3D MODELS -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2><span class="priority-badge priority-high">High</span> 3D Models &amp; Meshes</h2>
+  <p class="section-desc">Every 3D model consists of triangles (polygons) that the GPU must process. Larger files generally mean more triangles, more vertex data, and more VRAM consumed.</p>
+
+  <table>
+    <thead><tr><th>Asset</th><th>File Size</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>medieval_fortress_kit.glb</td><td><span class="val-bad">53 MB</span></td><td>Castle builder asset &mdash; largest single mesh</td></tr>
+      <tr><td>Archer.fbx + Archer_Spell.fbx</td><td><span class="val-bad">26 + 25 MB</span></td><td>Player character with animations baked in</td></tr>
+      <tr><td>dragon.glb</td><td><span class="val-warn">15 MB</span></td><td>Dragon enemy with full skeleton</td></tr>
+      <tr><td>bobba_character.fbx</td><td><span class="val-warn">14 MB</span></td><td>Bobba enemy model</td></tr>
+      <tr><td>realistic_grass.glb</td><td><span class="val">3.8 MB</span></td><td>Single grass clump, instanced via MultiMesh</td></tr>
+      <tr><td>village_of_eights.fbx</td><td><span class="val">1 MB</span></td><td>Village buildings</td></tr>
+      <tr><td>mountain.obj</td><td><span class="val">315 KB</span></td><td>Mountain mesh, instanced 3 times</td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>Why file size matters:</strong> A 53 MB GLB file like the fortress kit contains tens of thousands of triangles. The GPU must transform every vertex and rasterize every triangle each frame. On a phone GPU, a high-poly model can single-handedly tank the framerate. Additionally, large meshes consume <em>VRAM</em> (video memory) &mdash; phones typically have 2-6 GB shared between the OS and apps.
+  </div>
+
+  <div class="explain">
+    <strong>FBX animation data:</strong> The Archer files are 25-26 MB each partly because animation keyframes are baked into the file. Each animation clip stores bone transforms for every frame, inflating the file size. These are loaded into RAM even if the animation isn't playing.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 3: TEXTURES -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2><span class="priority-badge priority-high">High</span> Textures</h2>
+  <p class="section-desc">Textures are images wrapped onto 3D surfaces. They consume GPU memory and bandwidth &mdash; the GPU must read from them for every visible pixel.</p>
+
+  <table>
+    <thead><tr><th>Texture Group</th><th>Resolution</th><th>Count</th><th>Size (approx)</th></tr></thead>
+    <tbody>
+      <tr><td>Bobba character skins</td><td><span class="val-bad">2048 &times; 2048</span></td><td>4 files</td><td>~22 MB</td></tr>
+      <tr><td>Medieval fortress kit</td><td><span class="val-warn">1024 &times; 1024</span></td><td>54 files</td><td>~60 MB</td></tr>
+      <tr><td>Ground material maps (Color, Normal, AO, Roughness)</td><td><span class="val-warn">1024 &times; 1024</span></td><td>5 files</td><td>~12 MB</td></tr>
+      <tr><td>Dragon textures</td><td><span class="val">1024 &times; 1024</span></td><td>2 files</td><td>~3.3 MB</td></tr>
+      <tr><td>HUD / UI icons</td><td><span class="val">Small</span></td><td>~10 files</td><td>~0.5 MB</td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>Texture memory vs. file size:</strong> A 1024&times;1024 PNG may be 2 MB on disk, but in GPU memory it's stored uncompressed (or in a GPU-compressed format like ASTC/BC). A single RGBA 1024&times;1024 texture uses <strong>4 MB of VRAM</strong>. A 2048&times;2048 texture uses <strong>16 MB</strong>. With 168 textures, total VRAM usage can easily exceed 500 MB.
+  </div>
+
+  <div class="explain">
+    <strong>Normal maps, AO maps, Roughness maps:</strong> Modern PBR (Physically Based Rendering) materials use multiple texture maps per surface &mdash; color, normal (surface detail), ambient occlusion (shadow detail), and roughness. Each is a separate texture the GPU must sample. The ground alone uses 5 texture lookups per pixel.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 4: VEGETATION -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2><span class="priority-badge priority-high">High</span> Vegetation (Grass Systems)</h2>
+  <p class="section-desc">Grass is rendered using MultiMesh &mdash; a technique where a single mesh is drawn thousands of times with different positions/rotations in a single draw call. Efficient, but still expensive at high counts.</p>
+
+  <table>
+    <thead><tr><th>System</th><th>Instance Count</th><th>Per-frame Script?</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>GrassMultiMesh_0</td><td><span class="val-warn">666</span></td><td>No</td><td>Static placement</td></tr>
+      <tr><td>GrassMultiMesh_1</td><td><span class="val-warn">666</span></td><td>No</td><td>Static placement</td></tr>
+      <tr><td>GrassMultiMesh_2</td><td><span class="val-warn">666</span></td><td>No</td><td>Static placement</td></tr>
+      <tr><td>RealisticGrass (placer)</td><td><span class="val-warn">500</span></td><td>No (setup only)</td><td>Distributed at _ready()</td></tr>
+      <tr><td>SimpleGrassTextured</td><td><span class="val-warn">481</span></td><td><span class="val-bad">Yes &mdash; interactive mode</span></td><td>Shader + per-frame height map update</td></tr>
+      <tr><td colspan="4" style="text-align:right; color:var(--text-muted)"><strong>Total: ~2,979 grass instances</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>MultiMesh instancing:</strong> Instead of creating 666 separate grass nodes (which would mean 666 draw calls), MultiMesh batches them into a single GPU draw call. This is the most efficient way to render repeated objects. However, each instance still adds vertices and fragments the GPU must process.
+  </div>
+
+  <div class="explain">
+    <strong>Interactive grass mode:</strong> The SimpleGrassTextured plugin has an "interactive" mode where grass bends when the player walks through it. This works by updating a <em>height map texture</em> every frame and passing it to the grass shader. This means: (1) CPU work to track player position, (2) texture upload to GPU every frame, (3) extra shader complexity per grass blade. Disabling this is a easy performance win.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 5: PARTICLES & LIGHTS -->
+<!-- ============================================================ -->
+<div class="two-col">
+
+<div class="section">
+  <h2><span class="priority-badge priority-medium">Medium</span> Particle Emitters</h2>
+  <p class="section-desc">GPU particles are small billboards simulated and rendered by the GPU. Each particle has a position, velocity, color, and size updated per frame.</p>
+
+  <table>
+    <thead><tr><th>Source</th><th>Particles</th></tr></thead>
+    <tbody>
+      <tr><td>Dragon mouth fire</td><td><span class="val">40</span></td></tr>
+      <tr><td>Dragon embers</td><td><span class="val">15</span></td></tr>
+      <tr><td>Lightning spell</td><td><span class="val-warn">150</span></td></tr>
+      <tr><td>Spell particles</td><td><span class="val-warn">100</span></td></tr>
+      <tr><td>Fire effects (various)</td><td><span class="val-warn">80 each</span></td></tr>
+      <tr><td>Sparks, trails, smoke</td><td><span class="val">20-60 each</span></td></tr>
+      <tr><td colspan="2" style="text-align:right; color:var(--text-muted)"><strong>Peak total: ~600-800</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>GPU particles (GPUParticles3D):</strong> Each particle is a small quad (two triangles) that always faces the camera (billboard). The GPU updates their physics (gravity, velocity, color fade) via a compute shader, then renders them with transparency blending. Transparent objects are expensive because they can't use the depth buffer for early rejection &mdash; every particle behind another particle must still be rendered.
+  </div>
+</div>
+
+<div class="section">
+  <h2><span class="priority-badge priority-medium">Medium</span> Dynamic Lights</h2>
+  <p class="section-desc">Each light source forces additional rendering work. In Forward+, lights are clustered, but each one still adds shader complexity.</p>
+
+  <table>
+    <thead><tr><th>Light Source</th><th>Type</th><th>When Active</th></tr></thead>
+    <tbody>
+      <tr><td>Directional (sun)</td><td>DirectionalLight3D</td><td>Always (energy=0 at night)</td></tr>
+      <tr><td>Moon light</td><td>DirectionalLight3D</td><td>Night only</td></tr>
+      <tr><td>Dragon mouth (main)</td><td>OmniLight3D</td><td>Always, with shadow</td></tr>
+      <tr><td>Dragon mouth (fill)</td><td>OmniLight3D</td><td>Always</td></tr>
+      <tr><td>Spell effects</td><td>OmniLight3D</td><td>During combat</td></tr>
+      <tr><td>Arrow trails</td><td>OmniLight3D</td><td>When shooting</td></tr>
+      <tr><td colspan="2" style="text-align:right; color:var(--text-muted)"><strong>Peak total: 2 directional + ~12 omni</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>OmniLight3D:</strong> A point light that emits in all directions (like a lightbulb). If shadow-casting is enabled, the engine must render the scene <strong>6 times</strong> (one for each face of a cube map) to create the shadow. The dragon's mouth light with shadows enabled is rendering 6 extra passes per frame.
+  </div>
+
+  <div class="explain">
+    <strong>DirectionalLight3D:</strong> A light with parallel rays (like the sun or moon). Shadow maps for directional lights use <em>cascaded shadow maps</em> &mdash; the scene is rendered multiple times at different distance ranges. With 2 cascades, that's 2 extra full-scene renders per frame.
+  </div>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 6: CSG & ANIMATION -->
+<!-- ============================================================ -->
+<div class="two-col">
+
+<div class="section">
+  <h2><span class="priority-badge priority-high">High</span> CSG Nodes</h2>
+  <p class="section-desc">CSG (Constructive Solid Geometry) builds meshes at runtime by combining primitive shapes. This is great for prototyping but expensive in production.</p>
+
+  <table>
+    <thead><tr><th>Node</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>MainGround</td><td>1070 &times; 1145 unit ground plane</td></tr>
+      <tr><td>RiverBed, RiverBed2</td><td>River channel geometry</td></tr>
+      <tr><td>RiverWater, RiverWater2</td><td>Water surface planes</td></tr>
+      <tr><td>TheLongRoad</td><td>Main road surface</td></tr>
+      <tr><td>TradeRoad</td><td>Side road surface</td></tr>
+      <tr><td>NorthRoad</td><td>Northern road</td></tr>
+      <tr><td colspan="2" style="text-align:right; color:var(--text-muted)"><strong>Total: 8 CSG nodes</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>Why CSG is slow:</strong> Every time the scene loads, each CSGBox3D must compute its final mesh by running a boolean geometry algorithm on the CPU. This generates vertices, normals, UVs, and collision shapes from scratch. A static MeshInstance3D loads pre-computed data directly &mdash; no computation needed. <strong>Baking</strong> CSG to static meshes is a one-time fix that eliminates this startup cost and slightly improves per-frame rendering by using optimized mesh data.
+  </div>
+</div>
+
+<div class="section">
+  <h2><span class="priority-badge priority-medium">Medium</span> Skeletal Animation</h2>
+  <p class="section-desc">Skeletal animation deforms meshes by transforming bones. More bones and more animation tracks mean more CPU work per frame.</p>
+
+  <table>
+    <thead><tr><th>Animation</th><th>Track Count</th><th>Duration</th></tr></thead>
+    <tbody>
+      <tr><td>Dragon WingFlap</td><td><span class="val-warn">~50 rotation tracks</span></td><td>1.2s loop</td></tr>
+      <tr><td>Dragon WingGlide</td><td><span class="val-warn">~32 rotation tracks</span></td><td>2.0s loop</td></tr>
+      <tr><td>Dragon body response</td><td><span class="val">~27 tracks</span></td><td>Runs with WingFlap</td></tr>
+      <tr><td>Player animations</td><td><span class="val">Standard</span></td><td>Various</td></tr>
+      <tr><td>Bobba animations</td><td><span class="val">Standard</span></td><td>Various</td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>Animation tracks:</strong> Each track interpolates one property (rotation, position, scale) of one bone, every frame. With 50+ tracks running simultaneously on the dragon, the CPU must compute 50 quaternion interpolations per frame, then propagate transforms down the bone hierarchy to deform the mesh. This is manageable on desktop CPUs but can be significant on mobile ARM processors.
+  </div>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 7: PER-FRAME SCRIPTS -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2><span class="priority-badge priority-medium">Medium</span> Per-frame Script Execution</h2>
+  <p class="section-desc">Scripts with <code>_process()</code> or <code>_physics_process()</code> run every frame (60 times per second). Each one consumes CPU time.</p>
+
+  <table>
+    <thead><tr><th>Function</th><th>Script Count</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>_process(delta)</code></td>
+        <td><span class="val-warn">17 scripts</span></td>
+        <td>UI updates, camera, grass plugin, join screen, lighting</td>
+      </tr>
+      <tr>
+        <td><code>_physics_process(delta)</code></td>
+        <td><span class="val">10 scripts</span></td>
+        <td>Player movement, dragon AI, bobba AI, arrows, remote players</td>
+      </tr>
+      <tr>
+        <td colspan="3" style="text-align:right; color:var(--text-muted)"><strong>Total: 27 scripts &times; 60 FPS = 1,620 function calls/second</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="explain">
+    <strong>_process() vs _physics_process():</strong> <code>_process()</code> runs every rendered frame (variable rate). <code>_physics_process()</code> runs at a fixed rate (default 60 Hz) for deterministic physics. Both are executed by Godot's scripting engine (GDScript), which is interpreted and significantly slower than compiled C++ code. Each function call has overhead for the virtual machine dispatch.
+  </div>
+
+  <div class="explain">
+    <strong>27 scripts is moderate</strong> for a game of this complexity. The concern is whether any individual script is doing expensive work (e.g., the SimpleGrassTextured plugin iterating through all 481 instances every frame).
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 8: IMPACT VISUALIZATION -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2>Performance Impact Overview</h2>
+  <p class="section-desc">Estimated relative impact of each system on frame time, comparing desktop and mobile.</p>
+
+  <table>
+    <thead><tr><th style="width:25%">System</th><th style="width:37%">Desktop (GTX 1650)</th><th style="width:37%">Mobile (Android)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Rendering Pipeline</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:35%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--red)">Critical</div>
+          <div class="impact-bar"><div class="impact-fill fill-critical" style="width:95%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Shadow Rendering</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:40%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--red)">Critical</div>
+          <div class="impact-bar"><div class="impact-fill fill-critical" style="width:90%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>3D Models (poly count)</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:30%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--orange)">High</div>
+          <div class="impact-bar"><div class="impact-fill fill-high" style="width:70%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Textures (VRAM)</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:15%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--orange)">High</div>
+          <div class="impact-bar"><div class="impact-fill fill-high" style="width:60%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Vegetation</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:25%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--orange)">High</div>
+          <div class="impact-bar"><div class="impact-fill fill-high" style="width:55%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Particles</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:10%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:35%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Dynamic Lights</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:15%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:40%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>CSG Nodes</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low (startup only)</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:10%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate (startup)</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:30%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Skeletal Animation</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:10%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--yellow)">Moderate</div>
+          <div class="impact-bar"><div class="impact-fill fill-medium" style="width:25%"></div></div>
+        </td>
+      </tr>
+      <tr>
+        <td>Per-frame Scripts</td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:8%"></div></div>
+        </td>
+        <td>
+          <div style="font-size:0.8rem; color:var(--green)">Low</div>
+          <div class="impact-bar"><div class="impact-fill fill-low" style="width:15%"></div></div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 9: RECOMMENDATIONS -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2>Optimization Recommendations (by expected impact)</h2>
+  <p class="section-desc">Ordered from highest to lowest expected framerate improvement. Items marked with a phone icon are mobile-specific.</p>
+
+  <div class="recommendation">
+    <div class="rec-number">1</div>
+    <div class="rec-text">
+      <strong>Switch mobile renderer to <code>mobile</code> or <code>gl_compatibility</code></strong><br>
+      Use <code>OS.has_feature("mobile")</code> to detect at runtime, or set the project default. This alone can double the framerate on phones by eliminating Forward+ overhead (clustered lighting, advanced material features).
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">2</div>
+    <div class="rec-text">
+      <strong>Reduce shadow atlas to 2048 on mobile, 4096 on desktop</strong><br>
+      In Project Settings &rarr; Rendering &rarr; Lights and Shadows. The current 8192 is overkill even for desktop. This reduces shadow rendering work by 4-16&times;.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">3</div>
+    <div class="rec-text">
+      <strong>Disable MSAA on mobile</strong><br>
+      Set <code>msaa_3d = 0</code> for mobile builds. Use FXAA (a cheap post-process alternative) if edge smoothing is needed.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">4</div>
+    <div class="rec-text">
+      <strong>Disable or reduce grass on mobile</strong><br>
+      Hide the 3 GrassMultiMesh nodes and SimpleGrassTextured on mobile. Keep only a reduced RealisticGrass (200-300 instances). This removes ~2,500 mesh instances and the interactive grass per-frame update.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">5</div>
+    <div class="rec-text">
+      <strong>Cap dynamic lights on mobile</strong><br>
+      Disable shadow on the dragon's OmniLight3D (saves 6 cube-face renders per frame). Limit total OmniLights to 2-3 on mobile.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">6</div>
+    <div class="rec-text">
+      <strong>Reduce particle counts by 50% on mobile</strong><br>
+      Halve all <code>.amount</code> values when <code>OS.has_feature("mobile")</code>. Transparent particles are disproportionately expensive on mobile GPUs due to fill-rate limitations.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">7</div>
+    <div class="rec-text">
+      <strong>Bake CSG nodes to static meshes</strong><br>
+      Export the 8 CSGBox3D nodes as MeshInstance3D + CollisionShape3D. Eliminates runtime boolean geometry computation and produces more GPU-friendly mesh data. One-time manual step in the editor.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">8</div>
+    <div class="rec-text">
+      <strong>Downscale textures for mobile export</strong><br>
+      In the Import dock, set max texture size to 1024 for mobile. This reduces VRAM usage by 4&times; for the 2048&times;2048 Bobba textures with minimal visual difference on small phone screens.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">9</div>
+    <div class="rec-text">
+      <strong>Reduce dragon animation tracks on mobile</strong><br>
+      Use a simplified wing animation with ~15 tracks instead of 50+ on mobile. The whip effect and body physics response are subtle details invisible on a small screen.
+    </div>
+  </div>
+
+  <div class="recommendation">
+    <div class="rec-number">10</div>
+    <div class="rec-text">
+      <strong>Reduce shadow atlas for desktop too</strong><br>
+      Lower from 8192 to 4096 on desktop. Quality difference is barely noticeable but frees significant GPU bandwidth and VRAM.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 10: GLOSSARY -->
+<!-- ============================================================ -->
+<div class="section">
+  <h2>Glossary of Rendering Terms</h2>
+
+  <table>
+    <thead><tr><th style="width:22%">Term</th><th>Definition</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Draw Call</strong></td><td>A single command sent from the CPU to the GPU saying "render this mesh with this material." Each draw call has CPU overhead. Fewer draw calls = better performance. MultiMesh reduces many objects to one draw call.</td></tr>
+      <tr><td><strong>Fill Rate</strong></td><td>The number of pixels the GPU can render per second. Transparent objects, MSAA, and high-resolution rendering all consume fill rate. Mobile GPUs have 5-20&times; less fill rate than desktop GPUs.</td></tr>
+      <tr><td><strong>VRAM</strong></td><td>Video RAM &mdash; dedicated memory on the GPU for textures, meshes, and render targets. Desktop GPUs: 4-24 GB. Mobile: shared with system RAM, typically 2-6 GB total. Running out of VRAM causes stuttering as data is swapped.</td></tr>
+      <tr><td><strong>Fragment Shader</strong></td><td>A small program that runs on the GPU for every pixel of every visible triangle. It computes the final color by sampling textures, calculating lighting, and applying effects. More complex shaders = slower rendering.</td></tr>
+      <tr><td><strong>Vertex Shader</strong></td><td>A GPU program that transforms each vertex (corner of a triangle) from 3D space to screen space. Skeletal animation and mesh deformation happen here. More vertices = more work.</td></tr>
+      <tr><td><strong>Cascaded Shadow Maps</strong></td><td>A technique for directional lights (sun/moon) where the scene is split into distance-based layers. Near objects get high-resolution shadows, far objects get lower resolution. Each cascade is a separate render pass.</td></tr>
+      <tr><td><strong>PBR Material</strong></td><td>Physically Based Rendering &mdash; a material system that simulates real-world light interaction using multiple texture maps (albedo, normal, roughness, metallic, AO). More realistic but requires more texture lookups per pixel.</td></tr>
+      <tr><td><strong>LOD (Level of Detail)</strong></td><td>A technique where distant objects use simpler meshes with fewer triangles. A dragon at 500 meters doesn't need 50,000 triangles &mdash; a 500-triangle silhouette suffices. Godot supports automatic LOD generation.</td></tr>
+      <tr><td><strong>Overdraw</strong></td><td>When multiple transparent objects overlap, the GPU must render the same pixel multiple times (back to front). Particles, grass, and transparent effects are the main culprits. Mobile GPUs are especially sensitive to overdraw.</td></tr>
+      <tr><td><strong>Compute Shader</strong></td><td>A GPU program that runs general computations (not just rendering). Used by GPU particles, SSAO, and volumetric fog. Not available in <code>gl_compatibility</code> mode.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  Generated by Claude Code &bull; Project: Douglass The Keeper (Lands of Balance) &bull; Godot 4.5.1
+</footer>
+
+</body>
+</html>

@@ -6,8 +6,11 @@ extends Node3D
 
 @export var moon_size: float = 50.0  ## Diameter of the moon sphere
 @export var moon_distance: float = 800.0  ## Distance from origin
-@export var moon_elevation: float = 30.0  ## Degrees above horizon
-@export var moon_azimuth: float = -45.0  ## Degrees from north (Y rotation)
+## Moderate elevation: grazing moonlight is what makes vertical grass
+## blades readable (a high moon barely lights them). Azimuth SE keeps the
+## light clear of the tall western range that shadowed the spawn field.
+@export var moon_elevation: float = 40.0  ## Degrees above horizon
+@export var moon_azimuth: float = 135.0  ## Degrees from north (Y rotation)
 
 @export var light_energy: float = 1.0  ## Moon light intensity (full moon)
 @export var light_color: Color = Color(0.6, 0.65, 0.8)  ## Silvery-blue moonlight
@@ -53,10 +56,11 @@ func _create_moon_mesh() -> void:
 		# Fallback to bright yellowish-white for moon
 		_moon_material.albedo_color = Color(0.95, 0.95, 0.85)
 
-	# Add emission for glow effect
+	# Emissive well past the glow threshold so the disc blooms — the light
+	# in the scene must visibly COME from this object, not from nowhere.
 	_moon_material.emission_enabled = true
 	_moon_material.emission = Color(0.9, 0.92, 0.98)
-	_moon_material.emission_energy_multiplier = 0.8
+	_moon_material.emission_energy_multiplier = 2.2
 
 	_moon_mesh.material_override = _moon_material
 
@@ -72,6 +76,7 @@ func _create_moon_light() -> void:
 	_moon_light.light_color = light_color
 	_moon_light.light_energy = light_energy
 	_moon_light.light_indirect_energy = 0.4  # Colored bounce light for GI
+	_moon_light.light_specular = 0.7  # clear glints on the wet ground/grass
 	_moon_light.light_volumetric_fog_energy = 1.0  # Moon visible in volumetric fog
 	_moon_light.shadow_enabled = true
 	_moon_light.shadow_blur = 1.2

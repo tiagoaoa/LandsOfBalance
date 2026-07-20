@@ -37,6 +37,7 @@ var _stamina_bar: ProgressBar
 var _hp_text: Label
 var _stamina_text: Label
 var _buff_text: Label
+var _estus_text: Label
 
 
 func _ready() -> void:
@@ -46,9 +47,15 @@ func _ready() -> void:
 	_build_top_right_combatants()
 	_build_bottom_left_slots()
 	_build_bottom_right_buff()
+	_build_bottom_right_estus()
 
 
 func _process(_delta: float) -> void:
+	if _combat_panel and _combat_vbox:
+		var want: float = _combat_vbox.get_combined_minimum_size().y + 16.0
+		if absf(_combat_panel.size.y - want) > 1.0:
+			_combat_panel.size.y = want
+			_combat_panel.custom_minimum_size.y = want
 	if _player == null or not is_instance_valid(_player):
 		_player = _find_local_player()
 	_sync_player_stats()
@@ -341,6 +348,10 @@ func _build_top_left_stats() -> void:
 ## Top-right: ornate-framed panel holding the enemy-HP roster (Bobba,
 ## dragon, remote players). The ui/combat_hud.gd script spawns its rows
 ## inside our panel so styling stays coherent.
+var _combat_panel: Panel = null
+var _combat_vbox: VBoxContainer = null
+
+
 func _build_top_right_combatants() -> void:
 	var panel := Panel.new()
 	panel.name = "CombatantsPanel"
@@ -383,6 +394,10 @@ func _build_top_right_combatants() -> void:
 	var combat_hud: VBoxContainer = combat_hud_script.new()
 	combat_hud.name = "CombatHUD"
 	vbox.add_child(combat_hud)
+	# The row count is dynamic (party + every live enemy) — the ornate
+	# frame resizes each frame so no HP bar ever hangs off its bottom edge.
+	_combat_panel = panel
+	_combat_vbox = vbox
 
 
 ## Bottom-left: three small ornate ability slots sitting above a crimson
@@ -481,6 +496,52 @@ func _build_bottom_right_buff() -> void:
 	hbox.add_child(_buff_text)
 
 
+## Bottom-right, stacked above the buff frame: estus flask charges.
+## Healing cross on the left, "charges / max" on the right; the text dims
+## when the flask runs dry.
+func _build_bottom_right_estus() -> void:
+	var panel := Panel.new()
+	panel.name = "EstusCounter"
+	panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	panel.position = Vector2(-160, -110)
+	panel.custom_minimum_size = Vector2(140, 38)
+	panel.size = Vector2(140, 38)
+	panel.add_theme_stylebox_override("panel", _ornate_frame())
+	add_child(panel)
+	_apply_wood_backing(panel)
+	_edge_strip(panel, "top", 1.0, Color(1.0, 0.85, 0.55, 0.22))
+	_edge_strip(panel, "bottom", 2.0, Color(0.0, 0.0, 0.0, 0.4))
+	_attach_corner_gems(panel)
+
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.add_theme_constant_override("separation", 10)
+	hbox.offset_left = 10
+	hbox.offset_right = -10
+	hbox.offset_top = 4
+	hbox.offset_bottom = -4
+	panel.add_child(hbox)
+
+	var glyph := Label.new()
+	glyph.text = "✚"
+	glyph.add_theme_font_size_override("font_size", 20)
+	glyph.add_theme_color_override("font_color", COL_CORNER_GEM)
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(glyph)
+
+	var sep := VSeparator.new()
+	hbox.add_child(sep)
+
+	_estus_text = Label.new()
+	_estus_text.text = "3 / 3"
+	_estus_text.add_theme_font_size_override("font_size", 18)
+	_estus_text.add_theme_color_override("font_color", COL_TEXT_DEEP)
+	_estus_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_estus_text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_estus_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(_estus_text)
+
+
 # ─── Live stat sync ─────────────────────────────────────────────────────
 
 func _sync_player_stats() -> void:
@@ -505,3 +566,10 @@ func _sync_player_stats() -> void:
 	if _buff_text and "damage_buff_pct" in _player:
 		var pct: float = clampf(float(_player.damage_buff_pct), 0.0, 0.5)
 		_buff_text.text = "%d" % int(round(pct * 100.0))
+	# Estus flask charges
+	if _estus_text and "estus_charges" in _player:
+		var charges: int = int(_player.estus_charges)
+		var max_charges: int = int(_player.ESTUS_MAX_CHARGES) if "ESTUS_MAX_CHARGES" in _player else 3
+		_estus_text.text = "%d / %d" % [charges, max_charges]
+		_estus_text.add_theme_color_override("font_color",
+				COL_TEXT_DEEP if charges > 0 else COL_TEXT_DIM)

@@ -43,6 +43,18 @@ const JUMP_FORWARD_BOOST: float = 5.5
 ## `is_on_floor() == false` apply this much of their rated damage.
 ## Rewards reading a telegraph and jumping over a swing.
 const AERIAL_DAMAGE_MULT: float = 0.5
+# Crouching braces the body: 25% less damage taken (souls "brace" rule).
+const CROUCH_DAMAGE_MULT: float = 0.75
+const CROUCH_SPEED_MULT: float = 0.5
+# Co-op revive: hold E beside a fallen ally for 5s. Interruptions (letting
+# go, leaving range, taking a hit) reset the whole channel.
+const REVIVE_RANGE: float = 2.6
+const REVIVE_TIME: float = 5.0
+# Archer aim zoom (drawing/holding the bow) — third-person but tighter.
+const DEFAULT_SPRING_LENGTH: float = 4.2
+const DEFAULT_CAMERA_FOV: float = 55.0
+const AIM_ZOOM_SPRING: float = 1.7
+const AIM_ZOOM_FOV: float = 44.0
 const MOUSE_SENSITIVITY: float = 0.002
 const GAMEPAD_SENSITIVITY: float = 2.5  # radians per second at full stick
 const CAMERA_VERTICAL_LIMIT: float = 85.0  # degrees
@@ -92,6 +104,15 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	"block": "res://player/character/armed/Block.fbx",
 	"sheath": "res://player/character/armed/Sheath.fbx",
 	"spell_cast": "res://player/character/armed/SpellCast.fbx",
+	# Estus drink — the Mixamo "sword and shield power up" flourish (raise
+	# off-hand to the face) doubles convincingly as swigging a flask.
+	"estus": "res://player/character/armed/PowerUp.fbx",
+	# Directional dodge-roll clips. Authored on the Archer's Mixamo rig but
+	# retargeted onto the Paladin skeleton by bone name (same mixamorig).
+	"dodge_f": "res://player/character/archer/standing dodge forward.fbx",
+	"dodge_b": "res://player/character/archer/standing dodge backward.fbx",
+	"dodge_l": "res://player/character/archer/standing dodge left.fbx",
+	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
 }
 
 # Archer animations
@@ -105,6 +126,10 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 	"sprint": "res://player/character/archer/Sprint.fbx",
 	"spell_cast": "res://player/character/archer/Archer_Spell.fbx",
 	"react_hit": "res://player/character/archer/standing react small from front.fbx",
+	"dodge_f": "res://player/character/archer/standing dodge forward.fbx",
+	"dodge_b": "res://player/character/archer/standing dodge backward.fbx",
+	"dodge_l": "res://player/character/archer/standing dodge left.fbx",
+	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
 }
 
 var camera_rotation := Vector2.ZERO  # x = yaw, y = pitch
@@ -124,6 +149,24 @@ var _current_anim: StringName = &""
 # Character class state
 var character_class: CharacterClass = CharacterClass.ARCHER
 
+# Co-op AI companion mode: this player instance is driven by CompanionAI
+# instead of human input. The AI writes _ai_move_vec/_ai_run (read where
+# the Input singleton would normally be polled) and calls the action
+# methods directly. See player/companion_ai.gd.
+@export var is_ai_companion: bool = false
+var companion_class_override: int = -1
+var _ai_move_vec: Vector2 = Vector2.ZERO
+var _ai_run: bool = false
+var is_dead: bool = false
+var is_crouching: bool = false
+var is_reviving: bool = false
+var _revive_progress: float = 0.0
+var _ai_revive_intent: bool = false  # CompanionAI's "E held"
+var _ai_crouch: bool = false
+var _death_marker: Node3D = null
+var _revive_bar_layer: CanvasLayer = null
+var _revive_bar: ProgressBar = null
+
 # Combat state
 var combat_mode: CombatMode = CombatMode.ARMED
 var is_attacking: bool = false
@@ -134,11 +177,124 @@ var is_casting: bool = false
 var attack_combo: int = 0
 var _attack_cooldown: float = 0.0
 
+# Hack-and-slash combo chain (armed Paladin). Clicking attack mid-swing
+# buffers the next step; once the current swing passes COMBO_CHAIN_POINT the
+# buffered step cancels the recovery tail and flows straight into the next
+# swing. Third swing is the finisher: slower cooldown after, bigger hit.
+const COMBO_ANIMS: Array[StringName] = [&"armed/SwordSlash", &"armed/Attack1", &"armed/Attack2"]
+const COMBO_DAMAGE_MULT: Array[float] = [0.9, 1.0, 1.35]
+const COMBO_POISE_DAMAGE: Array[float] = [30.0, 35.0, 60.0]
+const COMBO_KNOCKBACK: Array[float] = [8.0, 9.0, 16.0]
+## Forward step-in per swing — this is where the "longer range" lives: the
+## swing carries the character toward the target, so contact stays visual.
+const COMBO_LUNGE_SPEED: Array[float] = [3.5, 4.0, 6.5]
+## Per-step clip speed — brisk openers, then the finisher slows down so its
+## weight reads (souls/GoW heavy-hit pacing: fast light chain, slow payoff).
+const COMBO_ANIM_SPEEDS: Array[float] = [1.25, 1.25, 0.95]
+const COMBO_CHAIN_POINT: float = 0.6    # progress at which a buffered step cancels in
+const COMBO_CHAIN_STAMINA_COST: float = 15.0  # chained swings cost less than the opener
+const COMBO_FINISHER_COOLDOWN: float = 0.45
+## The chain must be EARNED with fast consecutive clicks: a click only
+## buffers the next step when it lands within this window of the previous
+## attack click. Three fast clicks buffer the whole chain; pausing between
+## clicks drops back to single opener swings.
+const COMBO_CLICK_WINDOW: float = 0.5
+const COMBO_TRAIL_COLOR: Color = Color(1.0, 0.9, 0.55, 0.8)
+const COMBO_TRAIL_COLOR_FINISHER: Color = Color(1.0, 0.75, 0.35, 1.0)
+var _combo_step: int = 0
+var _combo_clicks_buffered: int = 0     # chain steps banked by fast clicks (0..2)
+var _time_since_attack_click: float = 999.0
+var _attack_lunge_dir: Vector3 = Vector3.ZERO
+var _sword_trail: SlashTrail = null
+
+# Lock-on / target tracking (souls-like). When a target is locked, the
+# camera (and therefore the strafe-facing character) orients to it every
+# frame, so block, jump-dodge and the upcoming roll all read relative to
+# the threat. This is the keystone fix for "hits come out of nowhere" —
+# the camera can no longer be pointed away from the thing hitting you.
+# Toggle with T or right-stick click.
+var _lock_target: Node3D = null
+const LOCK_ON_RANGE: float = 22.0          # max distance to acquire a target
+const LOCK_ON_BREAK_RANGE: float = 30.0    # auto-drop the lock past this
+const LOCK_ON_ACQUIRE_HALF_ANGLE: float = 75.0  # deg off camera-forward to be eligible
+const LOCK_ON_PITCH_DEG: float = -10.0     # camera pitch while locked (looks slightly down)
+const LOCK_ON_TURN_SPEED: float = 12.0     # how fast the camera slerps onto the target
+var _lock_indicator: Sprite3D = null       # billboard reticle drawn over the target
+
+# Dodge-roll (souls-like). A committed directional dash with a brief
+# invulnerability window — the genre's core evasion verb, distinct from
+# the jump-dodge (which stays for traversal and aerial attacks). Press X /
+# gamepad LB. Direction comes from the movement stick (camera-relative);
+# no input rolls backward (backstep). i-frames mean a well-timed roll
+# passes clean through an attack for zero damage.
+var is_rolling: bool = false
+var _roll_timer: float = 0.0
+var _roll_dir: Vector3 = Vector3.ZERO
+const ROLL_SPEED: float = 9.0          # m/s peak — faster than RUN_SPEED (7.0)
+const ROLL_DURATION: float = 0.5       # total roll length in seconds
+const ROLL_IFRAME_START: float = 0.06  # i-frames begin shortly after start
+const ROLL_IFRAME_END: float = 0.40    # ...and end before recovery, leaving a punish window
+const ROLL_STAMINA_COST: float = 22.0
+
+# Parry → riposte (souls-like). Press G / gamepad RB to flick the shield.
+# A parryable melee hit that lands on the player INSIDE the active window
+# is deflected for zero damage and staggers the attacker into a long
+# riposte window, during which the next sword hit crits. Missing the
+# window leaves the player in recovery, fully vulnerable — the risk that
+# makes the reward honest. The deflect only ever fires when the enemy's
+# hitbox actually touched us, so the golden rule (no damage/effect
+# without visible collision) holds in both directions.
+var is_parrying: bool = false
+var _parry_timer: float = 0.0          # counts up from 0 toward PARRY_TOTAL
+const PARRY_TOTAL: float = 0.65        # full parry animation commitment
+# Deflect frames. Bobba's fist-contact moment jitters ~0.25s for the same
+# visual windup (depends on range: point-blank touches the instant the
+# damage window arms; at arm's length the arc arrives ~0.2s later). The
+# active window must cover that spread or identical, well-timed presses
+# fail at random — which reads as unfair. 0.33s of actives + 0.27s of
+# punishable recovery keeps the parry a commitment, not a free block.
+const PARRY_WINDOW_START: float = 0.05
+const PARRY_WINDOW_END: float = 0.38
+const PARRY_STAMINA_COST: float = 12.0
+# Chip damage through a held block. A block SOFTENS a hit, it never erases
+# it — only a timed parry cancels damage outright. Shields excel against
+# clean weapon strikes (sword, arrow); heavy blunt force (Bobba's fists)
+# hurts through the guard.
+const BLOCK_CHIP_MULT_WEAPON: float = 0.15
+const BLOCK_CHIP_MULT_BLUNT: float = 0.30
+## Sword damage multiplier when hitting a parried (riposte-ready) enemy.
+const RIPOSTE_DAMAGE_MULT: float = 3.0
+## Sword damage multiplier when the hit lands from the enemy's rear cone.
+const BACKSTAB_DAMAGE_MULT: float = 2.0
+## dot(enemy_forward, dir_to_attacker) below this = attacker is behind.
+## -0.45 ≈ a 117° rear cone.
+const BACKSTAB_CONE_DOT: float = -0.45
+
+# Estus flask (souls-like healing). Press H / d-pad down. Limited charges
+# per life, refilled on respawn. Drinking is a slow, interruptible channel:
+# the charge is spent the moment the drink starts, and taking an unblocked
+# hit mid-drink wastes it — healing in melee range is a gamble, as the
+# genre demands.
+var estus_charges: int = 3
+const ESTUS_MAX_CHARGES: int = 3
+var is_drinking: bool = false
+var _drink_timer: float = 0.0
+const ESTUS_DRINK_DURATION: float = 1.1
+const ESTUS_HEAL_PCT: float = 0.45     # heal 45% of max HP per flask
+
 # Archer bow state
 var is_drawing_bow: bool = false  # True while holding left-click to draw
 var is_holding_bow: bool = false  # True when fully drawn (0.3s) and ready to shoot
 var _bow_draw_time: float = 0.0   # How long bow has been drawn
+var _bow_loose_lock: float = 0.0  # seconds locomotion yields to the loose anim
 const BOW_DRAW_TIME_REQUIRED: float = 0.3  # Seconds to hold before arrow is ready
+# The archer/Attack source clip is ~3.77s (full draw + loose). Gameplay is
+# much faster than the mocap, so the clip is played in pieces:
+const BOW_DRAW_ANIM_SPEED: float = 3.0   # draw portion playback speed
+const BOW_DRAW_POSE_TIME: float = 0.9    # clip-time of the "drawn" hold pose
+const BOW_LOOSE_TAIL: float = 0.85       # the loose lives in the last part
+const BOW_LOOSE_SPEED: float = 1.4       # loose burst playback speed
+const BOW_LOOSE_LOCK: float = 0.65       # locomotion yields this long per shot
 var _bow_progress_bar: ProgressBar  # UI progress bar for bow draw
 
 # Damage/knockback state
@@ -222,6 +378,8 @@ var _spell_tween: Tween
 # Enhanced spell VFX
 var _spell_time: float = 0.0  # For sin() flicker calculations
 var _lightning_bolts_3d: Array = []  # Lightning3DBranched instances from addon
+var _bolt_rejitter_timer: float = 0.0  # irregular re-strike cadence
+var _last_damage_ms: int = -100000     # for the paladin battle-focus cast rule
 # Archer fire circle spell
 var _fire_circle_particles: Array[GPUParticles3D] = []  # Multiple fire emitters in a circle
 var _fire_circle_light: OmniLight3D
@@ -233,7 +391,7 @@ const FIRE_CIRCLE_EMITTERS: int = 8
 const FIRE_CIRCLE_DURATION: float = 4.0  # 4 seconds with 1/time intensity decay
 var _character_aura_material: ShaderMaterial  # Fresnel aura shader
 var _original_character_materials: Array[Dictionary] = []  # Store {mesh, material} pairs
-const NUM_LIGHTNING_BOLTS: int = 6  # Number of 3D lightning bolts
+const NUM_LIGHTNING_BOLTS: int = 9  # Number of 3D lightning bolts
 # Audio system placeholders (assign audio streams in inspector or load at runtime)
 var _audio_scream: AudioStreamPlayer3D  # Initial power-up scream
 var _audio_static: AudioStreamPlayer3D  # Looping electric static
@@ -259,18 +417,33 @@ var _force_field_material: ShaderMaterial  # Bubble shader with noise distortion
 		ProjectSettings.get_setting("physics/3d/default_gravity_vector")
 
 @onready var _camera_pivot := $CameraPivot as Node3D
-@onready var _camera := $CameraPivot/Camera3D as Camera3D
+@onready var _spring_arm := $CameraPivot/SpringArm3D as SpringArm3D
+@onready var _camera := $CameraPivot/SpringArm3D/Camera3D as Camera3D
 
 
 func _ready() -> void:
-	print("Player: _ready() starting")
-	add_to_group("player")  # Add to player group so NetworkManager can find us
-	_parse_fifo_args()  # Check for --fifo and --player-id command line args
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	print("Player: _ready() starting (ai_companion=%s)" % is_ai_companion)
+	if is_ai_companion:
+		add_to_group("companion")
+	else:
+		add_to_group("player")  # Add to player group so NetworkManager can find us
+	add_to_group("characters")  # every AI perceives via this group
+	if not is_ai_companion:
+		_parse_fifo_args()  # Check for --fifo and --player-id command line args
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	# Souls camera: the spring arm must never collide with our own capsule,
+	# and the default view sits slightly above the shoulder looking down.
+	if _spring_arm != null:
+		_spring_arm.add_excluded_object(get_rid())
+	camera_rotation.y = deg_to_rad(-10.0)
+	_camera_pivot.rotation.x = camera_rotation.y
 	_setup_health_component()
 	_setup_stamina_component()
 	_setup_footstep_audio()
 	_setup_attack_hitbox()  # Must be before _create_characters which attaches hitbox to bones
+	# Slash ribbon follows the sword hitbox wherever it gets bone-attached.
+	_sword_trail = SlashTrail.attach(self, _attack_hitbox,
+			Vector3(0, 0, 0.15), Vector3(0, 0, 1.55), COMBO_TRAIL_COLOR)
 	_create_characters()
 	_create_lightning_particles()
 	_create_fire_circle_spell()
@@ -279,12 +452,21 @@ func _ready() -> void:
 	_setup_health_bar()
 	_setup_multiplayer()
 	_setup_fifo()
-	# Spawn player on a random hill
-	_spawn_at_tower()
+	if is_ai_companion:
+		# The spawner positions the companion; its camera must never take
+		# over the viewport and no human input may reach it.
+		_camera.current = false
+		set_process_input(false)
+		set_process_unhandled_input(false)
+	else:
+		# Spawn player on a random hill
+		_spawn_at_tower()
 	# Apply character selection from GameSettings (character select menu)
 	call_deferred("_apply_character_selection")
-	# Connect to Bobba death signal for game restart
-	call_deferred("_connect_bobba_death_signal")
+	# Connect to Bobba death signal for game restart (companion must not
+	# double-trigger the restart)
+	if not is_ai_companion:
+		call_deferred("_connect_bobba_death_signal")
 	# Notify NetworkManager that game scene is ready for remote players
 	call_deferred("_notify_network_manager_ready")
 
@@ -345,6 +527,12 @@ func _apply_character_selection_if_ready() -> void:
 
 
 func _apply_character_selection() -> void:
+	# AI companion: class is dictated by the spawner (the opposite of the
+	# human's pick), never by menu/GameSettings.
+	if is_ai_companion:
+		if companion_class_override >= 0:
+			_switch_character_class(companion_class_override as CharacterClass)
+		return
 	# First check GameSettings autoload (from character select menu)
 	if GameSettings:
 		var selected_class = GameSettings.selected_character_class
@@ -353,6 +541,7 @@ func _apply_character_selection() -> void:
 			_switch_character_class(CharacterClass.PALADIN)
 		else:
 			_switch_character_class(CharacterClass.ARCHER)
+		call_deferred("_spawn_companion_if_coop")
 		return
 
 	# Fallback: check join_screen (legacy multiplayer)
@@ -369,6 +558,193 @@ func _apply_character_selection() -> void:
 			_switch_character_class(CharacterClass.ARCHER)
 	else:
 		print("Player: No character selection found - using default (Archer)")
+
+
+## ------------------------------------------------------------------
+## CO-OP REVIVE: one player can raise the other. The fallen body stays
+## where it dropped under a bright blue beacon label; the living player
+## holds E beside it (the AI companion "holds" _ai_revive_intent) for 5
+## uninterrupted seconds — a progress bar fills, every action except
+## crouching is locked, and letting go / walking off / taking a hit
+## resets the channel to zero.
+## ------------------------------------------------------------------
+
+## The other half of the duo (companion for the human, human for the AI).
+func _party_other() -> Node3D:
+	var gname := "player" if is_ai_companion else "companion"
+	return get_tree().get_first_node_in_group(gname) as Node3D
+
+
+func _update_revive(delta: float) -> void:
+	if is_dead:
+		return
+	var other := _party_other()
+	if other == null or not is_instance_valid(other) \
+			or not ("is_dead" in other) or not other.is_dead:
+		if is_reviving:
+			_cancel_revive("ally gone")
+		return
+	var wants: bool = _ai_revive_intent if is_ai_companion \
+			else Input.is_action_pressed(&"revive")
+	var in_range: bool = global_position.distance_to(other.global_position) <= REVIVE_RANGE
+	if wants and in_range:
+		if not is_reviving:
+			is_reviving = true
+			_revive_progress = 0.0
+			print("Player(%s): reviving ally…" % name)
+		_revive_progress += delta
+		_update_revive_bar(_revive_progress / REVIVE_TIME)
+		if _revive_progress >= REVIVE_TIME:
+			is_reviving = false
+			_revive_progress = 0.0
+			_update_revive_bar(-1.0)
+			other.revive_from_death()
+			Sfx.play3d("estus_drink", other.global_position + Vector3(0, 1, 0), -4.0)
+			print("Player(%s): ally revived!" % name)
+	elif is_reviving:
+		_cancel_revive("released or out of range")
+
+
+func _cancel_revive(reason: String) -> void:
+	is_reviving = false
+	_revive_progress = 0.0
+	_update_revive_bar(-1.0)
+	print("Player(%s): revive interrupted (%s) — progress lost" % [name, reason])
+
+
+## Bottom-centre loading bar, human instance only. value < 0 hides it.
+func _update_revive_bar(value: float) -> void:
+	if is_ai_companion:
+		return
+	if _revive_bar_layer == null:
+		_revive_bar_layer = CanvasLayer.new()
+		_revive_bar_layer.name = "ReviveBarLayer"
+		add_child(_revive_bar_layer)
+		var panel := Control.new()
+		panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		panel.position = Vector2(-160, -140)
+		_revive_bar_layer.add_child(panel)
+		var label := Label.new()
+		label.name = "ReviveLabel"
+		label.text = "REVIVING ALLY"
+		label.add_theme_color_override("font_color", Color(0.45, 0.8, 1.0))
+		label.add_theme_font_size_override("font_size", 18)
+		label.position = Vector2(96, -26)
+		panel.add_child(label)
+		_revive_bar = ProgressBar.new()
+		_revive_bar.min_value = 0.0
+		_revive_bar.max_value = 1.0
+		_revive_bar.show_percentage = false
+		_revive_bar.custom_minimum_size = Vector2(320, 18)
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = Color(0.35, 0.75, 1.0)
+		_revive_bar.add_theme_stylebox_override("fill", fill)
+		var bg := StyleBoxFlat.new()
+		bg.bg_color = Color(0.05, 0.1, 0.18, 0.85)
+		_revive_bar.add_theme_stylebox_override("background", bg)
+		panel.add_child(_revive_bar)
+	_revive_bar_layer.visible = value >= 0.0
+	if value >= 0.0:
+		_revive_bar.value = value
+
+
+## Bright blue beacon over the fallen body — visible through everything,
+## it POINTS the living player at the revive spot.
+func _spawn_death_marker() -> void:
+	_clear_death_marker()
+	var marker := Node3D.new()
+	marker.name = name + "DeathMarker"
+	get_tree().current_scene.add_child(marker)
+	marker.global_position = global_position
+	var label := Label3D.new()
+	label.text = "⚑ REVIVE [E]"
+	label.font_size = 120
+	label.pixel_size = 0.02
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.modulate = Color(0.3, 0.75, 1.0)
+	label.outline_modulate = Color(0.0, 0.15, 0.4)
+	label.outline_size = 24
+	label.position = Vector3(0, 2.4, 0)
+	marker.add_child(label)
+	var beam := OmniLight3D.new()
+	beam.light_color = Color(0.3, 0.6, 1.0)
+	beam.light_energy = 6.0
+	beam.omni_range = 6.0
+	beam.position = Vector3(0, 1.5, 0)
+	marker.add_child(beam)
+	_death_marker = marker
+
+
+func _clear_death_marker() -> void:
+	if _death_marker != null and is_instance_valid(_death_marker):
+		_death_marker.queue_free()
+	_death_marker = null
+
+
+## Downed, not gone: the body stays under the beacon awaiting the ally.
+func _enter_downed() -> void:
+	is_dead = true
+	is_attacking = false
+	is_reviving = false
+	_ai_move_vec = Vector2.ZERO
+	velocity = Vector3.ZERO
+	_update_revive_bar(-1.0)
+	set_physics_process(false)
+	if _character_model:
+		_character_model.rotation.x = deg_to_rad(-90.0)
+	_spawn_death_marker()
+
+
+## An ally finished the 5s channel: back on our feet at half strength.
+func revive_from_death() -> void:
+	is_dead = false
+	current_health = max_health * 0.5
+	health_changed.emit(current_health, max_health)
+	velocity = Vector3.ZERO
+	_spawn_immunity_timer = 3.0
+	if _character_model:
+		_character_model.rotation.x = 0.0
+	_clear_death_marker()
+	set_physics_process(true)
+	print("Player(%s): back from the dead at %.0f hp" % [name, current_health])
+
+
+## Co-op: the human picked a class in the menu — spawn the OTHER class as
+## an AI-driven companion beside them.
+func _spawn_companion_if_coop() -> void:
+	if is_ai_companion:
+		return
+	if GameSettings == null or not ("coop_mode" in GameSettings) or not GameSettings.coop_mode:
+		return
+	if get_tree().get_first_node_in_group("companion") != null:
+		return
+	var comp: CharacterBody3D = load("res://player/player.tscn").instantiate()
+	comp.name = "Companion"
+	comp.is_ai_companion = true
+	comp.enable_multiplayer = false
+	comp.enable_fifo = false
+	comp.companion_class_override = CharacterClass.ARCHER \
+			if character_class == CharacterClass.PALADIN else CharacterClass.PALADIN
+	get_tree().current_scene.add_child(comp)
+	# The party spawns SEPARATED, neither knowing where the other is — the
+	# companion takes the spawn point FARTHEST from the human's.
+	var far_point: Vector3 = SPAWN_POINTS[0]
+	var far_dist: float = -1.0
+	for sp in SPAWN_POINTS:
+		var d: float = global_position.distance_to(sp)
+		if d > far_dist:
+			far_dist = d
+			far_point = sp
+	var ang := randf() * TAU
+	comp.global_position = far_point \
+			+ Vector3(cos(ang) * randf_range(4.0, 10.0), 0.5, sin(ang) * randf_range(4.0, 10.0))
+	var ai := CompanionAI.new()
+	ai.name = "CompanionAI"
+	ai.body = comp
+	comp.add_child(ai)
+	print("Player: Co-op companion spawned (%s)" % (
+			"Archer" if comp.companion_class_override == CharacterClass.ARCHER else "Paladin"))
 
 
 func _setup_fifo() -> void:
@@ -477,91 +853,12 @@ func _on_network_arrow_hit(arrow_id: int, hit_pos: Vector3, hit_entity_id: int) 
 
 ## Creates a ground fire effect at a network-synced position
 func _create_network_ground_fire(pos: Vector3) -> void:
-	# Create a persistent fire light at landing position
-	var fire_node = Node3D.new()
-	fire_node.name = "NetworkGroundFire"
-	get_tree().current_scene.add_child(fire_node)
-	fire_node.global_position = pos
-
-	# Main fireplace light - intense warm glow with 5m radius
-	var ground_light = OmniLight3D.new()
-	ground_light.name = "FireplaceLight"
-	ground_light.light_color = Color(1.0, 0.5, 0.1)
-	ground_light.light_energy = 500.0
-	ground_light.omni_range = 5.0
-	ground_light.omni_attenuation = 0.8
-	ground_light.shadow_enabled = false
-	ground_light.position = Vector3(0, 0.5, 0)
-	fire_node.add_child(ground_light)
-
-	# Secondary fill light
-	var fill_light = OmniLight3D.new()
-	fill_light.name = "FillLight"
-	fill_light.light_color = Color(1.0, 0.7, 0.3)
-	fill_light.light_energy = 200.0
-	fill_light.omni_range = 8.0
-	fill_light.omni_attenuation = 1.5
-	fill_light.shadow_enabled = false
-	fill_light.position = Vector3(0, 1.0, 0)
-	fire_node.add_child(fill_light)
-
-	# Fire particles
-	var ground_fire = GPUParticles3D.new()
-	ground_fire.name = "GroundFireParticles"
-	ground_fire.amount = 80
-	ground_fire.lifetime = 0.8
-	ground_fire.explosiveness = 0.1
-	ground_fire.randomness = 0.6
-
-	var fire_mat = ParticleProcessMaterial.new()
-	fire_mat.direction = Vector3(0, 1, 0)
-	fire_mat.spread = 35.0
-	fire_mat.initial_velocity_min = 1.0
-	fire_mat.initial_velocity_max = 4.0
-	fire_mat.gravity = Vector3(0, 3.0, 0)
-	fire_mat.scale_min = 0.3
-	fire_mat.scale_max = 0.8
-
-	var color_ramp = GradientTexture1D.new()
-	var gradient = Gradient.new()
-	gradient.add_point(0.0, Color(1.0, 1.0, 0.5, 1.0))
-	gradient.add_point(0.3, Color(1.0, 0.8, 0.2, 1.0))
-	gradient.add_point(0.6, Color(1.0, 0.4, 0.0, 0.9))
-	gradient.add_point(1.0, Color(0.8, 0.1, 0.0, 0.0))
-	color_ramp.gradient = gradient
-	fire_mat.color_ramp = color_ramp
-	fire_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	fire_mat.emission_sphere_radius = 0.4
-
-	ground_fire.process_material = fire_mat
-
-	var fire_mesh = QuadMesh.new()
-	fire_mesh.size = Vector2(0.5, 0.5)
-	var mesh_mat = StandardMaterial3D.new()
-	mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mesh_mat.albedo_color = Color(1.0, 0.8, 0.3, 1.0)
-	mesh_mat.emission_enabled = true
-	mesh_mat.emission = Color(1.0, 0.6, 0.1)
-	mesh_mat.emission_energy_multiplier = 5.0
-	fire_mesh.material = mesh_mat
-
-	ground_fire.draw_pass_1 = fire_mesh
-	ground_fire.position = Vector3(0, 0.2, 0)
-	fire_node.add_child(ground_fire)
-
-	# Add light flickering effect
-	var flicker_tween = fire_node.create_tween()
-	flicker_tween.set_loops()
-	flicker_tween.tween_property(ground_light, "light_energy", 600.0, 0.1)
-	flicker_tween.tween_property(ground_light, "light_energy", 400.0, 0.15)
-	flicker_tween.tween_property(ground_light, "light_energy", 550.0, 0.08)
-	flicker_tween.tween_property(ground_light, "light_energy", 450.0, 0.12)
-
-	# Auto-destroy after 30 seconds
-	var destroy_timer = get_tree().create_timer(30.0)
-	destroy_timer.timeout.connect(fire_node.queue_free)
+	# Visual-only fire for a remote player's arrow (no local damage aura —
+	# the shooter's client owns the DoT). Same FireFX composition as local
+	# arrow fires; shadows off since several may burn at once. The name
+	# keeps "GroundFire" so Bobba's fire avoidance sees it.
+	FireFX.create_ground_fire(get_tree().current_scene, pos,
+			"NetworkGroundFire", 30.0, false)
 
 
 ## Returns the current player state for network synchronization
@@ -962,6 +1259,8 @@ func _create_fire_circle_spell() -> void:
 		mesh_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD  # Additive blending for glow
 		mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mesh_mat.vertex_color_use_as_albedo = true  # Use particle color
+		# Soft radial falloff — hard-edged quads read as confetti, not fire.
+		mesh_mat.albedo_texture = FireFX._soft_circle_tex()
 		fire_mesh.material = mesh_mat
 		fire.draw_pass_1 = fire_mesh
 
@@ -1234,25 +1533,45 @@ func _create_spell_audio_system() -> void:
 
 
 func _randomize_lightning_bolt_endpoints() -> void:
-	# Set random endpoints for each Lightning3DBranched bolt
+	## Irregular storm: every re-strike each bolt rolls its own character —
+	## most crackle upward around the body, some LASH OUT and ground-strike
+	## meters away, a few gutter down to faint short arcs — and the chaos
+	## parameters (deviation, branching) re-roll per strike so no two bolts
+	## and no two moments look alike.
 	for i in range(_lightning_bolts_3d.size()):
 		var bolt = _lightning_bolts_3d[i]
 		if not bolt.visible:
 			continue
 
-		# Random start/end points around the character
-		var angle := TAU * i / _lightning_bolts_3d.size() + randf_range(-0.3, 0.3)
-		var height_start := randf_range(0.3, 0.8)
-		var height_end := randf_range(2.5, 4.0)
-		var radius_start := randf_range(0.2, 0.4)
-		var radius_end := randf_range(1.0, 2.0)
-
+		var angle := TAU * i / _lightning_bolts_3d.size() + randf_range(-0.6, 0.6)
+		var height_start := randf_range(0.2, 1.4)
+		var radius_start := randf_range(0.15, 0.5)
 		var start := Vector3(cos(angle) * radius_start, height_start, sin(angle) * radius_start)
-		var end_angle := angle + randf_range(-0.5, 0.5)
-		var end := Vector3(cos(end_angle) * radius_end, height_end, sin(end_angle) * radius_end)
-
+		var end: Vector3
+		var mode := randf()
+		if mode < 0.30:
+			# Ground strike: the arc slams into the earth meters away.
+			var ga := angle + randf_range(-0.8, 0.8)
+			var gr := randf_range(2.2, 4.8)
+			end = Vector3(cos(ga) * gr, 0.05, sin(ga) * gr)
+		elif mode < 0.45:
+			# Short gutter arc hugging the armour.
+			var sa := angle + randf_range(-0.4, 0.4)
+			end = Vector3(cos(sa) * randf_range(0.4, 0.9),
+					height_start + randf_range(-0.3, 0.6),
+					sin(sa) * randf_range(0.4, 0.9))
+		else:
+			# Sky arc: crackles up and outward.
+			var ea := angle + randf_range(-0.5, 0.5)
+			var er := randf_range(0.9, 2.4)
+			end = Vector3(cos(ea) * er, randf_range(2.3, 4.4), sin(ea) * er)
 		bolt.set_origin(start)
 		bolt.set_end(end)
+		# Re-roll the bolt's chaos, when the addon exposes the knobs.
+		if "max_deviation" in bolt:
+			bolt.max_deviation = randf_range(0.35, 1.0)
+		if "branch_deviation" in bolt:
+			bolt.branch_deviation = randf_range(0.25, 0.7)
 
 
 func _update_spell_effects(delta: float) -> void:
@@ -1282,7 +1601,18 @@ func _update_spell_effects(delta: float) -> void:
 	var flicker := sin(_spell_time * 20.0) * 2.0 + sin(_spell_time * 33.0) * 1.0 + sin(_spell_time * 47.0) * 0.5
 	_spell_light.light_energy = base_energy + flicker
 
-	# Lightning3DBranched auto-updates via ON_PROCESS mode - no manual regeneration needed
+	# Irregular re-strikes: bolts jump to new anchor points at a jittered
+	# cadence instead of holding one pattern for the whole cast.
+	_bolt_rejitter_timer -= delta
+	if _bolt_rejitter_timer <= 0.0:
+		_bolt_rejitter_timer = randf_range(0.10, 0.30)
+		_randomize_lightning_bolt_endpoints()
+
+	# The magic circle breathes: uneven spin and a two-frequency pulse.
+	if _magic_circle and _magic_circle.visible:
+		_magic_circle.rotation.y += delta * (1.7 + 0.9 * sin(_spell_time * 2.6))
+		var pulse := 1.0 + 0.07 * sin(_spell_time * 9.0) + 0.04 * sin(_spell_time * 17.3)
+		_magic_circle.scale = Vector3(pulse, 1.0, pulse)
 
 
 ## Apply healing to self and nearby players during spell cast
@@ -1449,6 +1779,11 @@ func _start_fire_circle_spell() -> void:
 	# Archer fire circle spell - flames stay lit for FIRE_CIRCLE_DURATION with 1/time decay
 	_fire_circle_active = true
 	_fire_circle_time = 0.0
+	# The burning ring is a REAL fire to every AI: it reveals whoever
+	# stands in it (including the caster) and Bobba's fire-avoidance and
+	# escape-route planning treat it as a hazard.
+	if _fire_circle_node and not _fire_circle_node.is_in_group("ground_fire"):
+		_fire_circle_node.add_to_group("ground_fire")
 
 	# Start fire light (intensity will be managed by _update_spell_effects)
 	_fire_circle_light.light_energy = 4.0
@@ -1486,6 +1821,8 @@ func _destroy_buff_aura() -> void:
 func _stop_fire_circle_spell() -> void:
 	# Stop the Archer fire circle spell effects
 	_fire_circle_active = false
+	if _fire_circle_node and _fire_circle_node.is_in_group("ground_fire"):
+		_fire_circle_node.remove_from_group("ground_fire")
 
 	# Destroy the damage-buff aura so any Paladin inside starts decaying.
 	_destroy_buff_aura()
@@ -1580,6 +1917,11 @@ func _get_armed_config() -> Dictionary:
 		"block": ["Block", true],
 		"sheath": ["Sheath", false],
 		"spell_cast": ["SpellCast", false],
+		"estus": ["Estus", false],
+		"dodge_f": ["DodgeF", false],
+		"dodge_b": ["DodgeB", false],
+		"dodge_l": ["DodgeL", false],
+		"dodge_r": ["DodgeR", false],
 	}
 
 
@@ -1594,6 +1936,10 @@ func _get_archer_config() -> Dictionary:
 		"sprint": ["Sprint", true],
 		"spell_cast": ["SpellCast", false],
 		"react_hit": ["ReactHit", false],
+		"dodge_f": ["DodgeF", false],
+		"dodge_b": ["DodgeB", false],
+		"dodge_l": ["DodgeL", false],
+		"dodge_r": ["DodgeR", false],
 	}
 
 
@@ -1796,9 +2142,20 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		return
 
 	if is_attacking:
+		# Banked step still pending at clip end (click landed past the chain
+		# point): chain here instead of dropping the combo.
+		if _combo_clicks_buffered > 0 and combat_mode == CombatMode.ARMED \
+				and _combo_step < COMBO_ANIMS.size() - 1:
+			_combo_clicks_buffered -= 1
+			if _start_combo_swing(_combo_step + 1):
+				return
+			_combo_clicks_buffered = 0
 		is_attacking = false
 		disable_attack_hitbox()  # Disable hitbox when attack ends
-		_attack_cooldown = 0.2
+		# Finisher commits: longer recovery after the third swing.
+		_attack_cooldown = COMBO_FINISHER_COOLDOWN if _combo_step >= COMBO_ANIMS.size() - 1 else 0.2
+		_combo_step = 0
+		_combo_clicks_buffered = 0
 		# Play transition from attack to idle (unarmed mode only)
 		if combat_mode == CombatMode.UNARMED and _current_anim_player.has_animation(&"unarmed/ActionToIdle"):
 			is_transitioning = true
@@ -1821,7 +2178,9 @@ func _play_anim(anim_name: StringName) -> void:
 	if _current_anim == anim_name:
 		return
 	if _current_anim_player.has_animation(anim_name):
-		_current_anim_player.play(anim_name)
+		# Cross-blend locomotion changes — pose pops read as cheap; a short
+		# blend is most of what makes movement look "weighted".
+		_current_anim_player.play(anim_name, 0.25)
 		_current_anim = anim_name
 
 
@@ -1835,8 +2194,24 @@ func _update_animation(input_dir: Vector2) -> void:
 	if _current_anim_player == null:
 		return
 
-	if is_attacking or is_sheathing or is_transitioning or is_casting or is_drawing_bow or is_holding_bow:
+	# Safety net: is_attacking must always correspond to the archer\'s
+	# Attack clip actually playing. If anything replaced the clip (an
+	# interruption, a mid-burst state change) the flag would otherwise
+	# stick and freeze locomotion forever.
+	if character_class == CharacterClass.ARCHER and is_attacking \
+			and _archer_anim_player \
+			and _archer_anim_player.current_animation != "archer/Attack":
+		is_attacking = false
+
+	if is_attacking or is_sheathing or is_transitioning or is_casting or is_rolling or is_parrying or is_drinking:
 		return
+	# Aiming archer: standing still holds the drawn pose (restoring it if
+	# a walk cycle had taken over); on the move the legs keep walking and
+	# the loose plays at the moment of release instead.
+	if is_drawing_bow or is_holding_bow:
+		if input_dir.length() < 0.15:
+			_restore_aim_pose()
+			return
 
 	var prefix: String = _get_current_mode_prefix()
 	var desired_anim: StringName = &""
@@ -1994,13 +2369,16 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 
 
 func _shoot_arrow() -> void:
+	Sfx.play3d("bow_release", global_position + Vector3(0, 1.4, 0), -4.0)
 	# Create arrow instance
 	var arrow = ArrowScene.instantiate()
 	arrow.shooter = self
 	arrow.is_local = true
+	# A mid-air loose is weaker: half-bright flame, reduced damage.
+	arrow.airborne_shot = not is_on_floor()
 
 	# Get camera direction for aiming
-	var camera = _camera_pivot.get_node("Camera3D") as Camera3D
+	var camera = _camera
 	var spawn_pos = global_position + Vector3(0, 1.5, 0)  # Spawn at chest height
 
 	# Calculate direction from camera
@@ -2024,7 +2402,11 @@ func _shoot_arrow() -> void:
 
 func _start_bow_draw() -> void:
 	# Start drawing the bow (on left-click press)
-	if is_drawing_bow or is_holding_bow or is_attacking or _attack_cooldown > 0:
+	if is_drawing_bow or is_holding_bow or is_attacking or _attack_cooldown > 0 \
+			or is_reviving or is_dead:
+		return
+	# No archery in the air: jumping is flight, the bow stays down.
+	if not is_on_floor():
 		return
 
 	is_drawing_bow = true
@@ -2039,13 +2421,56 @@ func _start_bow_draw() -> void:
 		if ready_label:
 			ready_label.text = ""
 
-	# Play draw animation from the beginning
+	# Play draw animation from the beginning, sped up so the visual draw
+	# roughly tracks the 0.3s gameplay draw.
 	if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Attack"):
-		_archer_anim_player.play(&"archer/Attack")
+		_archer_anim_player.play(&"archer/Attack", 0.1, BOW_DRAW_ANIM_SPEED)
 		_current_anim = &"archer/Attack"
 
 
+## Cancel an in-progress draw/hold (early release, jump, interruption).
+func _cancel_bow_draw() -> void:
+	is_drawing_bow = false
+	is_holding_bow = false
+	_bow_draw_time = 0.0
+	if _bow_progress_bar:
+		_bow_progress_bar.visible = false
+	if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Idle"):
+		_archer_anim_player.play(&"archer/Idle")
+		_current_anim = &"archer/Idle"
+
+
+## Where the full-draw hold sits inside the Attack clip — the loose plays
+## from here to the end.
+func _bow_release_seek_time() -> float:
+	if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Attack"):
+		var clip: Animation = _archer_anim_player.get_animation(&"archer/Attack")
+		return maxf(clip.length - BOW_LOOSE_TAIL, 0.0)
+	return BOW_DRAW_POSE_TIME
+
+
+## A stationary aiming archer holds the drawn pose. If locomotion played
+## over it (aim-walking), stepping still brings the pose right back.
+func _restore_aim_pose() -> void:
+	if _archer_anim_player == null \
+			or not _archer_anim_player.has_animation(&"archer/Attack"):
+		return
+	if _archer_anim_player.current_animation != "archer/Attack":
+		_archer_anim_player.play(&"archer/Attack")
+		_current_anim = &"archer/Attack"
+	if is_holding_bow:
+		_archer_anim_player.seek(BOW_DRAW_POSE_TIME, true)
+		_archer_anim_player.pause()
+	else:
+		var frac: float = clampf(_bow_draw_time / BOW_DRAW_TIME_REQUIRED, 0.0, 1.0)
+		_archer_anim_player.seek(frac * BOW_DRAW_POSE_TIME, true)
+
+
 func _update_bow_draw(delta: float) -> void:
+	# Leaving the ground cancels any draw or hold — no airborne archery.
+	if (is_drawing_bow or is_holding_bow) and not is_on_floor():
+		_cancel_bow_draw()
+		return
 	# Update bow draw progress based on time
 	if not is_drawing_bow:
 		# Hide progress bar when not drawing
@@ -2078,8 +2503,11 @@ func _update_bow_draw(delta: float) -> void:
 	if _bow_draw_time >= BOW_DRAW_TIME_REQUIRED:
 		is_drawing_bow = false
 		is_holding_bow = true
-		# Pause animation at current position
-		if _archer_anim_player:
+		# Freeze on the drawn pose — but only if the aim clip is what is
+		# actually playing (aim-walking legs must never be paused).
+		if _archer_anim_player \
+				and _archer_anim_player.current_animation == "archer/Attack":
+			_archer_anim_player.seek(BOW_DRAW_POSE_TIME, true)
 			_archer_anim_player.pause()
 
 
@@ -2116,42 +2544,61 @@ func _release_bow() -> void:
 	# Shoot the arrow
 	_shoot_arrow()
 
-	# Quick transition back to idle for responsiveness
-	if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Idle"):
-		_archer_anim_player.play(&"archer/Idle")
-		_current_anim = &"archer/Idle"
+	# Play the LOOSE: the tail of the Attack clip (from the full-draw
+	# point through the release and follow-through). is_attacking guards
+	# it from being stomped by locomotion for its short duration;
+	# _on_animation_finished clears the state and hands back to Idle.
+	if _archer_anim_player and _archer_anim_player.has_animation(&"archer/Attack"):
+		is_attacking = true
+		_bow_loose_lock = BOW_LOOSE_LOCK
+		_archer_anim_player.play(&"archer/Attack", 0.1, BOW_LOOSE_SPEED)
+		_archer_anim_player.seek(_bow_release_seek_time(), true)
+		_current_anim = &"archer/Attack"
 
 
 func _do_attack() -> void:
-	if is_attacking or _attack_cooldown > 0:
+	if is_rolling or is_parrying or is_drinking or is_reviving or is_dead:
+		return
+	# Jumping is FLIGHT, not offense: an airborne paladin cannot swing at
+	# all — leaping away halves incoming damage (AERIAL_DAMAGE_MULT) but
+	# buys zero attack. The archer may still loose arrows mid-air.
+	if character_class == CharacterClass.PALADIN and not is_on_floor():
 		return
 
-	# Paladin only — archer stamina is gated separately (bow draw).
+	# Hack-and-slash chain: only FAST consecutive clicks bank combo steps.
+	# Each click within COMBO_CLICK_WINDOW of the previous one buffers one
+	# more step (up to the finisher), fired at COMBO_CHAIN_POINT (see
+	# _update_attack_hitbox_timing) or when the swing ends. A slow click
+	# mid-swing does nothing — the chain is a deliberate triple-click.
+	var click_gap: float = _time_since_attack_click
+	_time_since_attack_click = 0.0
+	if is_attacking:
+		if character_class == CharacterClass.PALADIN and combat_mode == CombatMode.ARMED \
+				and click_gap <= COMBO_CLICK_WINDOW \
+				and _combo_step + _combo_clicks_buffered < COMBO_ANIMS.size() - 1:
+			_combo_clicks_buffered += 1
+		return
+
+	if _attack_cooldown > 0:
+		return
+
+	if character_class == CharacterClass.PALADIN and combat_mode == CombatMode.ARMED:
+		_combo_clicks_buffered = 0
+		_start_combo_swing(0)
+		return
+
+	# Legacy non-combo paths (unarmed boxing, archer melee fallback).
 	if character_class == CharacterClass.PALADIN and _stamina != null:
 		if not _stamina.try_spend(SWORD_STAMINA_COST):
 			return
 
-	# Remember the AttackData for this swing so hit-window timing can be
-	# driven from the resource rather than hardcoded constants.
-	_current_attack = _get_knight_sword_attack() if character_class == CharacterClass.PALADIN and combat_mode == CombatMode.ARMED else null
-
+	_current_attack = null
 	is_attacking = true
-
-	# Paladin class uses melee attacks
 	enable_attack_hitbox()  # Enable hitbox when attack starts
 
 	if combat_mode == CombatMode.ARMED:
-		# Use SwordSlash as primary attack, fall back to Attack1/Attack2
-		var attack_anim: StringName = &"armed/SwordSlash"
-		if not _current_anim_player.has_animation(attack_anim):
-			attack_combo = (attack_combo + 1) % 2
-			attack_anim = &"armed/Attack1" if attack_combo == 0 else &"armed/Attack2"
-		if _current_anim_player.has_animation(attack_anim):
-			_current_anim_player.play(attack_anim)
-			_current_anim = attack_anim
-		else:
-			is_attacking = false
-			disable_attack_hitbox()
+		is_attacking = false
+		disable_attack_hitbox()
 	else:
 		# Unarmed boxing attack - play transition first if coming from idle
 		if _current_anim == &"unarmed/Idle" and _current_anim_player.has_animation(&"unarmed/IdleToFight"):
@@ -2167,11 +2614,101 @@ func _do_attack() -> void:
 			disable_attack_hitbox()
 
 
+## Kick off combo step `step` (0-based). Pays stamina, arms the hitbox for a
+## fresh swing (each chain step may land its own hit) and starts the clip at
+## combo speed. Returns false when the step can't start (no clip / winded).
+func _start_combo_swing(step: int) -> bool:
+	var attack_anim: StringName = COMBO_ANIMS[step]
+	if _current_anim_player == null or not _current_anim_player.has_animation(attack_anim):
+		return false
+	var cost: float = SWORD_STAMINA_COST if step == 0 else COMBO_CHAIN_STAMINA_COST
+	if _stamina != null and not _stamina.try_spend(cost):
+		return false
+
+	_combo_step = step
+	_current_attack = _get_combo_attack(step)
+	is_attacking = true
+	enable_attack_hitbox()  # resets _has_hit_this_attack — each swing can hit
+	_current_anim_player.play(attack_anim, 0.1, COMBO_ANIM_SPEEDS[step])
+	_current_anim = attack_anim
+	Sfx.play3d("sword_whoosh_%d" % (step + 1), global_position, -6.0)
+
+	# Lunge direction: locked target when locked, else straight ahead of the
+	# camera. The character always faces camera-forward (mouse-controlled),
+	# so the swing always goes where the player is looking — never backward.
+	if _lock_target != null and is_instance_valid(_lock_target):
+		var to_target: Vector3 = _lock_target.global_position - global_position
+		to_target.y = 0.0
+		_attack_lunge_dir = to_target.normalized() if to_target.length() > 0.05 else Vector3.ZERO
+	else:
+		_attack_lunge_dir = Vector3.FORWARD.rotated(Vector3.UP, _camera_pivot.rotation.y)
+
+	if _sword_trail != null:
+		_sword_trail.color = COMBO_TRAIL_COLOR_FINISHER if step == COMBO_ANIMS.size() - 1 else COMBO_TRAIL_COLOR
+	return true
+
+
+## Per-combo-step sword AttackData, lazily built. Damage escalates through
+## the chain; the finisher hits hardest and shoves furthest.
+var _combo_attacks: Array[Resource] = []
+
+func _get_combo_attack(step: int) -> Resource:
+	if _combo_attacks.is_empty():
+		for i in range(COMBO_ANIMS.size()):
+			var a = AttackDataClass.new()
+			a.attack_name = "KnightSwordCombo%d" % (i + 1)
+			a.damage = KNIGHT_SWORD_DAMAGE * COMBO_DAMAGE_MULT[i]
+			a.poise_damage = COMBO_POISE_DAMAGE[i]
+			a.stamina_cost = SWORD_STAMINA_COST if i == 0 else COMBO_CHAIN_STAMINA_COST
+			a.knockback_magnitude = COMBO_KNOCKBACK[i]
+			a.is_fully_blockable = true
+			a.hit_window_start = 0.15
+			a.hit_window_end = 0.9
+			_combo_attacks.append(a)
+	return _combo_attacks[step]
+
+
+## A landed hit (blocked or clean) breaks the paladin's channelled rite
+## and stamps the battle clock the casting rule checks.
+func _interrupt_paladin_spell() -> void:
+	_last_damage_ms = Time.get_ticks_msec()
+	if is_casting and character_class == CharacterClass.PALADIN:
+		is_casting = false
+		_stop_spell_effects()
+		_show_hit_label("SPELL BROKEN")
+		print("Player: paladin spell interrupted by hit")
+
+
+## Distance to the closest live enemy — the "direct combat" test for the
+## paladin's casting rule.
+func _nearest_combat_threat_dist() -> float:
+	var best: float = INF
+	for b in get_tree().get_nodes_in_group("bobba"):
+		if is_instance_valid(b) and ("health" in b and float(b.health) > 0.0):
+			best = minf(best, global_position.distance_to(b.global_position))
+	for sk in get_tree().get_nodes_in_group("skeletons"):
+		if sk is Node3D and is_instance_valid(sk) \
+				and not ("is_dead_skeleton" in sk and sk.is_dead_skeleton):
+			best = minf(best, global_position.distance_to((sk as Node3D).global_position))
+	return best
+
+
 func _do_spell_cast() -> void:
 	# Allow spell cast in armed mode (Paladin) or for Archer class
 	if character_class == CharacterClass.PALADIN and combat_mode != CombatMode.ARMED:
 		return
-	if is_casting or is_attacking or _attack_cooldown > 0:
+	# PALADIN battle-focus rule: the lightning rite demands calm. It cannot
+	# be STARTED in direct combat — a live enemy within melee reach, or a
+	# hit taken moments ago — and a landed hit shatters it (see take_hit).
+	if character_class == CharacterClass.PALADIN:
+		if Time.get_ticks_msec() - _last_damage_ms < 2500:
+			_show_hit_label("TOO HURT TO FOCUS")
+			return
+		if _nearest_combat_threat_dist() < 8.0:
+			_show_hit_label("IN COMBAT!")
+			return
+	if is_casting or is_attacking or _attack_cooldown > 0 or is_parrying or is_drinking \
+			or is_reviving or is_dead:
 		return
 	# Archer cannot cast while drawing/holding bow
 	if is_drawing_bow or is_holding_bow:
@@ -2201,18 +2738,45 @@ func _do_spell_cast() -> void:
 ## Combat - Take damage and knockback from enemy attacks.
 ## `blocked` is provided by the caller for non-player attackers (e.g. Bobba
 ## tracks the player's block state when it hits). `is_fully_blockable` is
-## set by the attacker when the hit is a deliberate strike that a proper
-## block fully negates (Knight sword swings, archer arrows). Other hits
-## (Bobba punches, DoT auras) retain the 70% reduction instead.
+## set by the attacker when the hit is a clean weapon strike a shield is
+## made for (Knight sword swings, archer arrows) — those chip for less
+## through a block than blunt force (Bobba punches, DoT auras). No block
+## ever negates a hit entirely; only a timed parry cancels damage.
 ##
 ## The HP label is emitted automatically by the HealthComponent.damaged
 ## signal (see _on_damage_taken) — take_hit only applies the flash,
 ## knockback and stun.
 func take_hit(damage: float, knockback: Vector3, blocked: bool,
-		_attacker: Node3D = null, is_fully_blockable: bool = false) -> void:
+		attacker: Node3D = null, is_fully_blockable: bool = false) -> void:
+	# Dodge-roll i-frames: a hit that lands during the roll's invulnerable
+	# window passes clean through — no damage, no knockback. This is the
+	# souls payoff for timing a roll into the swing. Startup and recovery
+	# of the roll are still vulnerable (the punish window).
+	if is_rolling:
+		var roll_elapsed: float = ROLL_DURATION - _roll_timer
+		if roll_elapsed >= ROLL_IFRAME_START and roll_elapsed <= ROLL_IFRAME_END:
+			print("Player: Hit dodged - roll i-frames (t=%.2f)" % roll_elapsed)
+			return
+
 	# Check spawn immunity
 	if is_spawn_immune():
 		print("Player: Hit ignored - spawn immunity active (%.1fs remaining)" % _spawn_immunity_timer)
+		return
+
+	# Parry deflect: the enemy's hit visually connected with us while the
+	# shield flick was in its active frames, and the attacker is something
+	# that can be parried (exposes on_parried). The hit is negated and the
+	# attacker staggers into a riposte window. Outside the active frames
+	# (the parry's recovery) this falls through to full, unblocked damage.
+	if is_parrying and attacker != null and is_instance_valid(attacker) \
+			and attacker.has_method("on_parried") \
+			and _parry_timer >= PARRY_WINDOW_START and _parry_timer <= PARRY_WINDOW_END:
+		_flash_hit(Color(1.0, 0.85, 0.2))  # gold — distinct from block blue
+		_show_hit_label("PARRY!")
+		Sfx.play3d("parry_ring", global_position + Vector3(0, 1.2, 0), -2.0)
+		attacker.on_parried(self)
+		print("Player: PARRY! deflected %.1f damage from %s (t=%.2f)" % [
+			damage, attacker.name, _parry_timer])
 		return
 
 	# Airborne mitigation: jumping over a swing halves the damage. The
@@ -2232,21 +2796,34 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		# an impact has to LOOK like an impact).
 		_flash_hit(Color(0.2, 0.4, 1.0))
 		_knockback_velocity = knockback * PLAYER_KNOCKBACK_RESISTANCE
-		# Fully-blockable hits (sword, arrow) are negated entirely on a
-		# successful block. Other hits still get the 70% reduction,
-		# compounded with the aerial mitigation (so a perfect jump-block
-		# against a Bobba punch lands at 15% of rated damage).
-		if is_fully_blockable:
-			actual_damage = 0.0
-		else:
-			actual_damage = damage * 0.3 * airborne_mult
+		# A block never erases a hit — chip damage always gets through;
+		# only a timed parry cancels a hit outright. Clean weapon strikes
+		# (sword, arrow) are what shields are best at; heavy blunt force
+		# (Bobba's fists) hurts through the guard. Compounds with the
+		# aerial mitigation.
+		var chip_mult: float = BLOCK_CHIP_MULT_WEAPON if is_fully_blockable else BLOCK_CHIP_MULT_BLUNT
+		actual_damage = damage * chip_mult * airborne_mult
+		Sfx.play3d("block_chip", global_position + Vector3(0, 1.2, 0), -4.0)
+		_interrupt_paladin_spell()
 	else:
 		# Unblocked hit - red flash, full knockback, 1/3s stun, attack cancel
 		_flash_hit(Color(1.0, 0.2, 0.2))
 		_knockback_velocity = knockback * PLAYER_KNOCKBACK_RESISTANCE
+		Sfx.play3d("hit_flesh", global_position + Vector3(0, 1.2, 0), -3.0)
+		_interrupt_paladin_spell()
 		_is_stunned = true
 		_stun_timer = STUN_DURATION
 		is_attacking = false  # Cancel attack if hit
+		_combo_step = 0  # a clean hit breaks the combo chain
+		_combo_clicks_buffered = 0
+		# A clean hit knocks the player out of a parry attempt (recovery
+		# punish) and ruins an estus drink — the charge was already spent
+		# when the drink started, so the heal is simply lost.
+		is_parrying = false
+		if is_drinking:
+			is_drinking = false
+			_show_hit_label("Estus lost!")
+			print("Player: estus drink INTERRUPTED — charge wasted (%d left)" % estus_charges)
 		# Play a hit-react animation if the current character has one
 		# (archer loads `standing react small from front`; paladin has none).
 		_play_hit_react_animation()
@@ -2254,6 +2831,13 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		# Interrupt spell casting if hit (Bobba hit stops spells)
 		if is_casting:
 			_interrupt_spell()
+
+	# Crouching braces for impact — 25% off everything that lands.
+	if is_crouching:
+		actual_damage *= CROUCH_DAMAGE_MULT
+	# A hit shatters an in-progress revive channel — back to zero.
+	if is_reviving:
+		_cancel_revive("hit")
 
 	# Apply damage
 	if actual_damage > 0.0:
@@ -2450,9 +3034,26 @@ func _play_hit_react_animation() -> void:
 
 ## Called when player health reaches 0
 func _on_player_death() -> void:
+	Sfx.play3d("death_thud", global_position, -2.0)
+	var other := _party_other()
+	var ally_alive: bool = other != null and is_instance_valid(other) \
+			and not ("is_dead" in other and other.is_dead)
+	if is_ai_companion:
+		# Companion down: the body stays under a revive beacon. Match only
+		# ends if the human is ALSO already down.
+		print("Companion died — awaiting revive")
+		_enter_downed()
+		if not ally_alive and other != null:
+			other._trigger_game_restart("Player died!")
+		return
 	print("Player died!")
 	player_died.emit()
-	# Restart the game after a short delay
+	if GameSettings and "coop_mode" in GameSettings and GameSettings.coop_mode \
+			and ally_alive:
+		# Downed, not lost: the AI ally can still raise us.
+		_enter_downed()
+		return
+	# No ally left standing — the match is lost.
 	_trigger_game_restart("Player died!")
 
 
@@ -2657,10 +3258,15 @@ func _respawn() -> void:
 	is_casting = false
 	is_drawing_bow = false
 	is_holding_bow = false
+	is_parrying = false
+	is_drinking = false
 	_is_stunned = false
 	_stun_timer = 0.0
 	_knockback_velocity = Vector3.ZERO
 	velocity = Vector3.ZERO
+
+	# A fresh life comes with a full flask — the souls respawn contract.
+	estus_charges = ESTUS_MAX_CHARGES
 
 	# Stop any spell effects
 	_stop_spell_effects()
@@ -3014,14 +3620,14 @@ func _setup_attack_hitbox() -> void:
 	# blade actually intersects the target, not any time the hand is near.
 	var sword_shape = CollisionShape3D.new()
 	var capsule = CapsuleShape3D.new()
-	capsule.radius = 0.09        # blade thickness ~ 18cm diameter
-	capsule.height = 1.15        # blade is ~ 1.1m long
+	capsule.radius = 0.1         # blade thickness ~ 20cm diameter — still narrow
+	capsule.height = 1.5         # long-reach blade for the hack-and-slash combos
 	sword_shape.shape = capsule
 	# Capsule is Y-axis aligned by default. Rotate so it lies along the
 	# hand's forward (+Z local) and shift so the blade spans from the grip
 	# outward instead of centering on the hand.
 	sword_shape.rotation = Vector3(deg_to_rad(90.0), 0, 0)
-	sword_shape.position = Vector3(0, 0, 0.65)  # midpoint of blade
+	sword_shape.position = Vector3(0, 0, 0.8)  # midpoint of blade
 
 	_attack_hitbox.add_child(sword_shape)
 
@@ -3116,6 +3722,11 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 
 	print("Player: Sword hitbox detected body: ", body.name, " (class: ", body.get_class(), ")")
 
+	# Airborne paladin deals NO damage — belt and braces for the no-swing
+	# rule (e.g. a swing carried off a ledge).
+	if character_class == CharacterClass.PALADIN and not is_on_floor():
+		return
+
 	# Check if we hit an enemy with take_hit method
 	if body.has_method("take_hit"):
 		_has_hit_this_attack = true
@@ -3130,16 +3741,43 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		var damage: float = PLAYER_ATTACK_DAMAGE
 		var fully_blockable: bool = false
 		if character_class == CharacterClass.PALADIN and combat_mode == CombatMode.ARMED:
-			var atk = _get_knight_sword_attack()
-			atk.damage = KNIGHT_SWORD_DAMAGE * (1.0 + clampf(damage_buff_pct, 0.0, DAMAGE_BUFF_MAX_PCT))
+			# Positional/stateful crits. Both require the sword hitbox to have
+			# visually connected (we're inside this callback), so the golden
+			# rule holds — the crit only changes how much the contact hurts.
+			# Riposte: the enemy is staggered from our parry; consume it.
+			# Backstab: the contact came from the enemy's rear cone.
+			var crit_mult: float = 1.0
+			var crit_label: String = ""
+			if body.has_method("is_riposte_ready") and body.is_riposte_ready():
+				crit_mult = RIPOSTE_DAMAGE_MULT
+				crit_label = "RIPOSTE!"
+				if body.has_method("consume_riposte"):
+					body.consume_riposte()
+			elif _is_behind_target(body):
+				crit_mult = BACKSTAB_DAMAGE_MULT
+				crit_label = "BACKSTAB!"
+			# Per-combo-step AttackData when a chain swing is live; damage
+			# escalates through the chain and the finisher hits hardest.
+			var atk: Resource = _current_attack if _current_attack != null else _get_knight_sword_attack()
+			var step_mult: float = COMBO_DAMAGE_MULT[_combo_step] if _current_attack != null else 1.0
+			atk.damage = KNIGHT_SWORD_DAMAGE * step_mult * (1.0 + clampf(damage_buff_pct, 0.0, DAMAGE_BUFF_MAX_PCT)) * crit_mult
 			damage = atk.damage
 			fully_blockable = atk.is_fully_blockable
-			print("Knight sword attack: %.1f HP (buff +%.0f%%)" % [damage, damage_buff_pct * 100.0])
+			if crit_label != "":
+				_show_hit_label(crit_label)
+				print("Knight sword CRIT (%s): %.1f HP (x%.1f)" % [crit_label, damage, crit_mult])
+			else:
+				print("Knight sword attack: %.1f HP (buff +%.0f%%)" % [damage, damage_buff_pct * 100.0])
 			atk.apply_to(body, self)
 		else:
 			# Unarmed fallback — still the old flat-damage path.
 			body.take_hit(damage, knockback_dir * PLAYER_KNOCKBACK_FORCE, false, self, fully_blockable)
 		print("Player: HIT LANDED on enemy: ", body.name)
+		# Spark burst where the blade met the body — hack-and-slash "clang".
+		var spark_pos: Vector3 = _attack_hitbox.global_transform * Vector3(0, 0, 0.9) \
+				if combat_mode == CombatMode.ARMED else body.global_position + Vector3(0, 1.2, 0)
+		SlashTrail.spawn_hit_spark(self, spark_pos, Color(1.0, 0.85, 0.45))
+		Sfx.play3d("hit_metal" if combat_mode == CombatMode.ARMED else "hit_flesh", spark_pos, -4.0)
 		# Juice: hitstop + screen shake. Sword hits are heavy (weight 0.9);
 		# unarmed jabs lighter (0.5).
 		if has_node("/root/CombatFX"):
@@ -3153,6 +3791,21 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 				print("Player: Sent entity damage to server - entity_id=%d damage=%.1f" % [body.entity_id, damage])
 	else:
 		print("Player: Body has no take_hit method")
+
+
+## True when this player stands inside `body`'s rear cone — the backstab
+## position. Uses the same facing convention the enemies use for movement:
+## model rotation θ means world-forward (sin θ, 0, cos θ).
+func _is_behind_target(body: Node3D) -> bool:
+	if not body.has_method("get_facing_rotation"):
+		return false
+	var facing: float = body.get_facing_rotation()
+	var fwd := Vector3(sin(facing), 0.0, cos(facing))
+	var to_me: Vector3 = global_position - body.global_position
+	to_me.y = 0.0
+	if to_me.length() < 0.01:
+		return false
+	return fwd.dot(to_me.normalized()) < BACKSTAB_CONE_DOT
 
 
 func enable_attack_hitbox() -> void:
@@ -3181,6 +3834,8 @@ func _update_attack_hitbox_timing() -> void:
 		return
 	if not is_attacking or _current_anim_player == null:
 		_hitbox_active_window = false
+		if _sword_trail != null:
+			_sword_trail.emitting = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -3190,6 +3845,16 @@ func _update_attack_hitbox_timing() -> void:
 		_attack_anim_progress = anim_position / anim_length
 	else:
 		_attack_anim_progress = 0.0
+
+	# Banked combo step cancels the recovery tail of the current swing:
+	# once past the chain point the next swing starts immediately.
+	if _combo_clicks_buffered > 0 and combat_mode == CombatMode.ARMED \
+			and _attack_anim_progress >= COMBO_CHAIN_POINT \
+			and _combo_step < COMBO_ANIMS.size() - 1:
+		_combo_clicks_buffered -= 1
+		if _start_combo_swing(_combo_step + 1):
+			return  # fresh swing — timing restarts next frame
+		_combo_clicks_buffered = 0  # couldn't chain (winded) — drop the bank
 
 	# Select the correct hitbox based on combat mode
 	var active_hitbox: Area3D = _attack_hitbox if combat_mode == CombatMode.ARMED else _unarmed_hitbox
@@ -3206,6 +3871,11 @@ func _update_attack_hitbox_timing() -> void:
 	elif not should_be_active and _hitbox_active_window:
 		_hitbox_active_window = false
 		print("Player: Attack window ENDED at progress ", _attack_anim_progress)
+
+	# The slash ribbon draws exactly while the blade can hurt — the visible
+	# arc IS the hit volume's path (golden rule made legible).
+	if _sword_trail != null:
+		_sword_trail.emitting = _hitbox_active_window and combat_mode == CombatMode.ARMED
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:
@@ -3233,6 +3903,236 @@ func _show_hit_label(text: String = "Hit!") -> void:
 	tween.tween_property(_hit_label, "position", Vector3(0, 3.8, 0), 0.8).set_ease(Tween.EASE_OUT)
 	tween.tween_property(_hit_label, "modulate:a", 0.0, 0.4).set_delay(0.4)
 	tween.chain().tween_callback(func(): _hit_label.visible = false)
+
+
+# ----------------------------------------------------------------------------
+# Lock-on / target tracking
+# ----------------------------------------------------------------------------
+
+func _toggle_lock_on() -> void:
+	if _lock_target != null and is_instance_valid(_lock_target):
+		_drop_lock_on()
+	else:
+		_acquire_lock_target()
+
+
+func _acquire_lock_target() -> void:
+	# Pick the enemy best aligned with where the camera is already pointing,
+	# within range and inside the acquire cone. Prefers what you're looking at,
+	# then proximity.
+	var candidates: Array = []
+	candidates.append_array(get_tree().get_nodes_in_group(&"bobba"))
+	candidates.append_array(get_tree().get_nodes_in_group(&"remote_players"))
+	var cam_fwd: Vector3 = -_camera.global_transform.basis.z
+	var half_cos: float = cos(deg_to_rad(LOCK_ON_ACQUIRE_HALF_ANGLE))
+	var best: Node3D = null
+	var best_score: float = -INF
+	for c in candidates:
+		if c == null or not is_instance_valid(c) or c == self or not (c is Node3D):
+			continue
+		if "health" in c and c.health <= 0.0:
+			continue  # skip corpses
+		var n3d: Node3D = c
+		var to: Vector3 = n3d.global_position - global_position
+		var dist: float = to.length()
+		if dist < 0.1 or dist > LOCK_ON_RANGE:
+			continue
+		var aim: float = (to / dist).dot(cam_fwd)
+		if aim < half_cos:
+			continue
+		var score: float = aim - dist * 0.02  # well-aimed first, then nearer
+		if score > best_score:
+			best_score = score
+			best = n3d
+	if best != null:
+		_lock_target = best
+		_show_lock_indicator()
+
+
+func _drop_lock_on() -> void:
+	_lock_target = null
+	if _lock_indicator != null:
+		_lock_indicator.visible = false
+
+
+func _update_lock_on(delta: float) -> void:
+	if _lock_target == null:
+		return
+	# Validate: still exists, still in range, not a corpse.
+	var lost: bool = not is_instance_valid(_lock_target)
+	if not lost:
+		if global_position.distance_to(_lock_target.global_position) > LOCK_ON_BREAK_RANGE:
+			lost = true
+		elif "health" in _lock_target and _lock_target.health <= 0.0:
+			lost = true
+	if lost:
+		_drop_lock_on()
+		return
+
+	# Park the reticle over the target (roughly head height).
+	if _lock_indicator != null:
+		_lock_indicator.global_position = _lock_target.global_position + Vector3.UP * 1.5
+
+	# Steer the camera to face the target. atan2(-x, -z) matches the engine's
+	# yaw convention used for movement (Vector3.FORWARD rotated by cam yaw).
+	var to: Vector3 = _lock_target.global_position - _camera_pivot.global_position
+	var flat := Vector3(to.x, 0.0, to.z)
+	if flat.length() < 0.05:
+		return
+	var desired_yaw: float = atan2(-flat.x, -flat.z)
+	camera_rotation.x = lerp_angle(camera_rotation.x, desired_yaw, LOCK_ON_TURN_SPEED * delta)
+	camera_rotation.y = lerp_angle(camera_rotation.y, deg_to_rad(LOCK_ON_PITCH_DEG), LOCK_ON_TURN_SPEED * delta)
+	_camera_pivot.rotation.y = camera_rotation.x
+	_camera_pivot.rotation.x = camera_rotation.y
+
+
+func _show_lock_indicator() -> void:
+	if _lock_indicator == null:
+		_lock_indicator = Sprite3D.new()
+		_lock_indicator.name = "LockOnReticle"
+		_lock_indicator.texture = _make_reticle_texture()
+		_lock_indicator.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_lock_indicator.no_depth_test = true   # always visible over the target
+		_lock_indicator.fixed_size = true      # constant on-screen size
+		_lock_indicator.pixel_size = 0.0022
+		_lock_indicator.render_priority = 20
+		add_child(_lock_indicator)
+	_lock_indicator.visible = true
+
+
+func _make_reticle_texture() -> ImageTexture:
+	# A bronze diamond ring, matching the gothic HUD palette. Drawn as an
+	# L1-distance band so it reads as a crisp rotated-square outline.
+	var size: int = 64
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var col := Color(0.96, 0.84, 0.46, 1.0)  # bronze-gold
+	var c: float = size / 2.0
+	var r: float = size * 0.40
+	for i in range(size):
+		for j in range(size):
+			var d: float = abs(i - c) + abs(j - c)  # L1 -> diamond
+			if abs(d - r) <= 1.7:
+				img.set_pixel(i, j, col)
+	return ImageTexture.create_from_image(img)
+
+
+# ----------------------------------------------------------------------------
+# Dodge-roll
+# ----------------------------------------------------------------------------
+
+func _try_dodge() -> void:
+	# Can't roll mid-air, mid-attack, mid-roll, while stunned/casting,
+	# drawing, parrying, or drinking.
+	if is_rolling or is_attacking or _is_stunned or is_casting or is_parrying or is_drinking \
+			or is_reviving or is_dead:
+		return
+	if is_drawing_bow or is_holding_bow:
+		return
+	if not is_on_floor():
+		return
+	# Stamina gate — a roll you can't afford simply doesn't happen.
+	if _stamina != null and not _stamina.try_spend(ROLL_STAMINA_COST):
+		return
+
+	# Direction from the movement stick, converted to world space via camera
+	# yaw (same convention as walking). No input → roll straight backward.
+	var raw: Vector2 = _ai_move_vec if is_ai_companion \
+			else Input.get_vector(&"move_left", &"move_right",
+			&"move_forward", &"move_back", 0.15)
+	var cam_yaw: float = _camera_pivot.rotation.y
+	var fwd := Vector3.FORWARD.rotated(Vector3.UP, cam_yaw)
+	var rt := Vector3.RIGHT.rotated(Vector3.UP, cam_yaw)
+	var anim_key: String = "dodge_b"
+	if raw.length() > 0.15:
+		var n: Vector2 = raw.normalized()
+		_roll_dir = (fwd * -n.y + rt * n.x).normalized()
+		# Pick the directional clip from the dominant input axis.
+		if absf(n.y) >= absf(n.x):
+			anim_key = "dodge_f" if n.y < 0.0 else "dodge_b"
+		else:
+			anim_key = "dodge_l" if n.x < 0.0 else "dodge_r"
+	else:
+		_roll_dir = -fwd  # backstep away from where the camera faces
+
+	is_rolling = true
+	_roll_timer = ROLL_DURATION
+	Sfx.play3d("roll", global_position, -8.0)
+
+	# Play the directional dodge clip for the current character/mode.
+	var prefix: String = _get_current_mode_prefix()
+	var anim_name := StringName("%s/%s" % [prefix, _dodge_anim_suffix(anim_key)])
+	if _current_anim_player != null and _current_anim_player.has_animation(anim_name):
+		_current_anim_player.play(anim_name)
+		_current_anim = anim_name
+
+
+func _dodge_anim_suffix(key: String) -> String:
+	match key:
+		"dodge_f": return "DodgeF"
+		"dodge_b": return "DodgeB"
+		"dodge_l": return "DodgeL"
+		"dodge_r": return "DodgeR"
+	return "DodgeB"
+
+
+## Start a parry attempt. Paladin (shield) only — the archer's evasion
+## verbs are the roll and the jump. The shield flick is the armed Block
+## clip played fast; the deflect frames and recovery are tracked by
+## _parry_timer in _physics_process.
+func _try_parry() -> void:
+	if character_class != CharacterClass.PALADIN or combat_mode != CombatMode.ARMED:
+		return
+	if is_parrying or is_attacking or is_rolling or _is_stunned or is_casting or is_drinking \
+			or is_reviving or is_dead:
+		return
+	if not is_on_floor():
+		return
+	if _stamina != null and not _stamina.try_spend(PARRY_STAMINA_COST):
+		return
+
+	is_parrying = true
+	_parry_timer = 0.0
+	is_blocking = false  # parry replaces any held block for its duration
+	if _current_anim_player != null and _current_anim_player.has_animation(&"armed/Block"):
+		_current_anim_player.play(&"armed/Block", -1, 2.2)
+		_current_anim = &"armed/Block"
+
+
+## Start drinking an estus flask. The charge is consumed up front; the
+## heal lands only if the channel completes uninterrupted.
+func _try_estus() -> void:
+	if is_drinking or is_attacking or is_rolling or is_parrying or _is_stunned or is_casting \
+			or is_reviving or is_dead:
+		return
+	if is_drawing_bow or is_holding_bow:
+		return
+	if estus_charges <= 0:
+		_show_hit_label("No estus!")
+		return
+	if current_health >= max_health:
+		return
+
+	estus_charges -= 1
+	is_drinking = true
+	_drink_timer = ESTUS_DRINK_DURATION
+	Sfx.play3d("estus_drink", global_position + Vector3(0, 1.4, 0), -6.0)
+	print("Player: drinking estus (%d left)" % estus_charges)
+	var prefix: String = _get_current_mode_prefix()
+	var drink_anim := StringName(prefix + "/Estus")
+	if _current_anim_player != null and _current_anim_player.has_animation(drink_anim):
+		_current_anim_player.play(drink_anim)
+		_current_anim = drink_anim
+
+
+## Completes the estus channel: heal lands, green feedback.
+func _finish_estus() -> void:
+	is_drinking = false
+	heal_pct(ESTUS_HEAL_PCT)
+	_flash_hit(Color(0.2, 1.0, 0.35))
+	_show_hit_label("+%d HP  (%d estus left)" % [int(max_health * ESTUS_HEAL_PCT), estus_charges])
+	print("Player: estus drunk — HP %.1f/%.1f (%d charges left)" % [
+		current_health, max_health, estus_charges])
 
 
 func _input(event: InputEvent) -> void:
@@ -3264,6 +4164,22 @@ func _input(event: InputEvent) -> void:
 		_toggle_combat_mode()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
 		_toggle_combat_mode()
+
+	# Lock-on toggle (T key or right-stick click). Souls-style target lock.
+	if event.is_action_pressed(&"lock_on"):
+		_toggle_lock_on()
+
+	# Dodge-roll (X key or gamepad LB). Direction from the movement stick.
+	if event.is_action_pressed(&"dodge"):
+		_try_dodge()
+
+	# Parry (G key or gamepad RB). Shield flick with a short deflect window.
+	if event.is_action_pressed(&"parry"):
+		_try_parry()
+
+	# Estus flask (H key or d-pad down). Slow, interruptible heal channel.
+	if event.is_action_pressed(&"estus"):
+		_try_estus()
 
 	# Attack with left mouse button, F key, or gamepad X button
 	# Archer: press to draw bow, release to shoot
@@ -3336,6 +4252,21 @@ func _physics_process(delta: float) -> void:
 	if _attack_cooldown > 0:
 		_attack_cooldown -= delta
 
+	# Clock between attack clicks — gates combo chaining to fast clicks.
+	_time_since_attack_click += delta
+
+	# Advance the parry attempt — active frames then recovery, then done.
+	if is_parrying:
+		_parry_timer += delta
+		if _parry_timer >= PARRY_TOTAL:
+			is_parrying = false
+
+	# Advance the estus channel — heal lands when the timer empties.
+	if is_drinking:
+		_drink_timer -= delta
+		if _drink_timer <= 0.0:
+			_finish_estus()
+
 	# Feed blocking state to the stamina component so regen halves.
 	if _stamina != null:
 		_stamina.blocking = is_blocking
@@ -3358,6 +4289,20 @@ func _physics_process(delta: float) -> void:
 
 	# Update bow draw state (time-based progress)
 	_update_bow_draw(delta)
+	# Crouch: held stance — slower, braced (25% less damage), body lowered.
+	is_crouching = _ai_crouch if is_ai_companion \
+			else Input.is_action_pressed(&"crouch")
+	if _character_model:
+		var want_squash: float = 0.74 if is_crouching else 1.0
+		_character_model.scale.y = lerpf(_character_model.scale.y, want_squash, 12.0 * delta)
+	_update_revive(delta)
+	# The loose burst borrows the body only briefly — then locomotion gets
+	# it back even though the (long) source clip keeps running underneath.
+	if _bow_loose_lock > 0.0:
+		_bow_loose_lock -= delta
+		if _bow_loose_lock <= 0.0 and character_class == CharacterClass.ARCHER \
+				and is_attacking:
+			is_attacking = false
 
 	# Handle stun/knockback state
 	if _is_stunned:
@@ -3382,8 +4327,10 @@ func _physics_process(delta: float) -> void:
 	_update_spell_effects(delta)
 
 	# Gamepad camera control (right stick)
-	var look_x: float = Input.get_action_strength(&"camera_look_right") - Input.get_action_strength(&"camera_look_left")
-	var look_y: float = Input.get_action_strength(&"camera_look_down") - Input.get_action_strength(&"camera_look_up")
+	var look_x: float = 0.0 if is_ai_companion \
+			else Input.get_action_strength(&"camera_look_right") - Input.get_action_strength(&"camera_look_left")
+	var look_y: float = 0.0 if is_ai_companion \
+			else Input.get_action_strength(&"camera_look_down") - Input.get_action_strength(&"camera_look_up")
 	if abs(look_x) > 0.01 or abs(look_y) > 0.01:
 		camera_rotation.x -= look_x * GAMEPAD_SENSITIVITY * delta
 		camera_rotation.y -= look_y * GAMEPAD_SENSITIVITY * delta
@@ -3391,7 +4338,21 @@ func _physics_process(delta: float) -> void:
 		_camera_pivot.rotation.y = camera_rotation.x
 		_camera_pivot.rotation.x = camera_rotation.y
 
-	if Input.is_action_pressed(&"reset_position") or global_position.y < -12:
+	# Lock-on steers the camera onto the target, overriding mouse/stick look.
+	_update_lock_on(delta)
+
+	# Archer aim zoom: drawing or holding the bow eases the camera in over
+	# the shoulder and narrows the FOV — still third person, but the aim
+	# point reads far better. Eases back out the moment the string is off.
+	if _spring_arm != null and _camera != null:
+		var aiming: bool = character_class == CharacterClass.ARCHER \
+				and (is_drawing_bow or is_holding_bow) and is_on_floor()
+		var want_len: float = AIM_ZOOM_SPRING if aiming else DEFAULT_SPRING_LENGTH
+		var want_fov: float = AIM_ZOOM_FOV if aiming else DEFAULT_CAMERA_FOV
+		_spring_arm.spring_length = lerpf(_spring_arm.spring_length, want_len, 10.0 * delta)
+		_camera.fov = lerpf(_camera.fov, want_fov, 10.0 * delta)
+
+	if (not is_ai_companion and Input.is_action_pressed(&"reset_position")) or global_position.y < -12:
 		_spawn_at_tower()
 		velocity = Vector3.ZERO
 		reset_physics_interpolation()
@@ -3402,7 +4363,8 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor():
 		if is_jumping:
 			is_jumping = false
-		if Input.is_action_just_pressed(&"jump") and not is_attacking:
+		if not is_ai_companion and Input.is_action_just_pressed(&"jump") and not is_attacking \
+				and not is_rolling and not is_reviving:
 			velocity.y = JUMP_VELOCITY
 			is_jumping = true
 			_play_footstep(_footstep_jump, -3.0, 0.06)
@@ -3424,14 +4386,21 @@ func _physics_process(delta: float) -> void:
 
 	# Get movement input with analog stick support (includes touch joystick)
 	# Don't normalize yet - we need the raw length to determine run vs walk
-	var input_dir_raw := Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
+	var input_dir_raw := _ai_move_vec if is_ai_companion \
+			else Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
+	# Reviving roots the medic: no walking mid-channel. Crouching halves pace.
+	if is_reviving:
+		input_dir_raw = Vector2.ZERO
+	elif is_crouching:
+		input_dir_raw *= CROUCH_SPEED_MULT
 	var input_dir := input_dir_raw
 
 	# Determine run state:
 	# - Shift key for keyboard
 	# - Stick intensity > 60% for gamepad
 	# - Touch joystick intensity > 80% (COD Mobile style - max forward = run)
-	var keyboard_run := Input.is_action_pressed(&"run") if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false
+	var keyboard_run := _ai_run if is_ai_companion \
+			else (Input.is_action_pressed(&"run") if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false)
 
 	# Check if using gamepad (joy axis)
 	var joy_input := Vector2(
@@ -3455,9 +4424,11 @@ func _physics_process(delta: float) -> void:
 	if input_dir.length() > 0.1:
 		input_dir = input_dir.normalized()
 
-	# Reduce movement speed while attacking
+	# Reduce movement speed while attacking, parrying, or drinking estus
 	if is_attacking:
 		input_dir *= 0.3
+	elif is_parrying or is_drinking:
+		input_dir *= 0.25
 
 	# Convert to world direction based on camera yaw
 	var cam_yaw: float = _camera_pivot.rotation.y
@@ -3466,7 +4437,23 @@ func _physics_process(delta: float) -> void:
 
 	var movement_direction := (forward * -input_dir.y + right * input_dir.x).normalized()
 
-	if is_on_floor():
+	if is_rolling:
+		# Committed dash along the locked roll direction with an ease-out;
+		# movement input is ignored for the duration. Tick the roll clock here.
+		_roll_timer -= delta
+		var roll_t: float = clampf(_roll_timer / ROLL_DURATION, 0.0, 1.0)  # 1 → 0
+		var roll_speed: float = ROLL_SPEED * (0.25 + 0.75 * roll_t)
+		horizontal_velocity = _roll_dir * roll_speed
+		if _roll_timer <= 0.0:
+			is_rolling = false
+	elif is_attacking and is_on_floor() and combat_mode == CombatMode.ARMED \
+			and character_class == CharacterClass.PALADIN:
+		# Combo lunge: the swing carries the character forward, front-loaded
+		# into the first half of the clip. This is the sword's extra reach —
+		# the blade still has to visually connect.
+		var lunge_t: float = clampf(1.0 - _attack_anim_progress / 0.55, 0.0, 1.0)
+		horizontal_velocity = _attack_lunge_dir * COMBO_LUNGE_SPEED[_combo_step] * lunge_t
+	elif is_on_floor():
 		if movement_direction.length() > 0.1:
 			horizontal_velocity = horizontal_velocity.move_toward(movement_direction * current_max_speed, ACCEL * delta)
 		else:
@@ -3478,9 +4465,16 @@ func _physics_process(delta: float) -> void:
 			if horizontal_velocity.length() > current_max_speed:
 				horizontal_velocity = horizontal_velocity.normalized() * current_max_speed
 
-	# Always rotate character to face camera/mouse direction (strafe-style movement)
+	# Facing: the character ALWAYS faces camera-forward — the mouse is the
+	# steering wheel, in and out of combat. Swings lunge along this same
+	# facing (or at the locked target), so the paladin can never end up
+	# swinging away from what the player is looking at.
 	if _character_model:
 		var mesh_target_rotation: float = _camera_pivot.rotation.y + PI
+		if is_attacking and _lock_target != null and is_instance_valid(_lock_target) \
+				and _attack_lunge_dir.length() > 0.1:
+			# Locked-on swings square up to the target itself.
+			mesh_target_rotation = atan2(_attack_lunge_dir.x, _attack_lunge_dir.z)
 		_character_model.rotation.y = lerp_angle(_character_model.rotation.y, mesh_target_rotation, 12.0 * delta)
 
 	velocity = horizontal_velocity + Vector3.UP * velocity.y

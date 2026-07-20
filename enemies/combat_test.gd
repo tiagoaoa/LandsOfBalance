@@ -1,6 +1,6 @@
 extends Node
 
-## Automated Paladin test harness. Activated via --combat-scenario=A|B|GRASS
+## Automated Paladin test harness. Activated via --combat-scenario=<NAME>
 ## on the command line; otherwise self-removes.
 ##
 ## A — Paladin wins combat vs Bobba with some HP left.
@@ -8,6 +8,17 @@ extends Node
 ## GRASS — Teleports Paladin into a dense open-grass area, walks in a
 ##         small circle so the interactive blade-parting is visible, and
 ##         captures screenshots. No Bobba, no combat.
+## PROMO/LOCKON/DODGE — capture director / lock-on orbit / roll i-frames.
+## PARRY/BACKSTAB/ESTUS — scripted single-mechanic checks.
+## SOULS — full live duel playing the whole kit (bait→parry→riposte,
+##         estus under pressure); reports per-verb usage counts.
+## MOVE — locomotion check: presses REAL input actions (walk, run,
+##        strafe, back) and logs which clip the AnimationPlayer plays,
+##        so input-driven movement animation regressions are visible.
+##
+## While any scenario is active the player's real input pipeline is
+## disabled, so a stray click on the popped-up window can't fight
+## alongside the script.
 ##
 ## Screenshots go to /tmp/combat_test/; a one-line outcome is printed on
 ## conclusion.
@@ -28,6 +39,25 @@ var _outcome_logged: bool = false
 var _start_wait_timer: float = 0.0
 var _bobba_prev_state: int = -1
 var _bobba_attack_count: int = 0
+var _lockon_setup_done: bool = false
+var _dodge_test_started: bool = false
+var _scripted_test_started: bool = false  # one-shot latch for PARRY/BACKSTAB/ESTUS
+var _coop_fire_dropped: bool = false  # spare one-shot latch (COOP/SKEL scripted events)
+var _skel_arrow_shot: bool = false
+var _poster_marks: Dictionary = {}  # actor → staged x/z mark (movie-set pinning)
+var _bowsim_flags: Dictionary = {}
+var _bowsim_freeze: int = 0
+var _bowsim_noaim: int = 0
+
+
+# SOULS scenario state — full live duel using the whole kit.
+var _souls_parries: int = 0          # deflects that opened a riposte window
+var _souls_ripostes: int = 0         # crits >= 250 dmg in one frame
+var _souls_backstabs: int = 0        # crits 150..250 dmg in one frame
+var _souls_estus_start: int = -1     # charges at fight start
+var _souls_prev_riposte: bool = false
+var _souls_prev_bobba_hp: float = -1.0
+var _souls_parried_this_attack: bool = false
 
 
 func _ready() -> void:
@@ -41,7 +71,8 @@ func _ready() -> void:
 	print("[CombatTest] Scenario %s armed — waiting for player and Bobba" % scenario)
 	# The GRASS showcase forces DAY lighting so the grass field is visually
 	# verifiable. Night mode stays on for normal gameplay / combat scenarios.
-	if scenario == "GRASS":
+	if scenario == "GRASS" or scenario == "MOVE" or scenario == "DRAGON" \
+			or scenario == "SKEL" or scenario == "BOWSIM":
 		get_tree().create_timer(0.5).timeout.connect(_force_day_lighting)
 
 
@@ -50,15 +81,16 @@ func _force_day_lighting() -> void:
 	if lm and lm.has_method("set_time"):
 		# LightingManager.TimeOfDay.DAY = 0
 		lm.set_time(0, true)
-	# Also disable interactive grass bending during the showcase so the
-	# tall blades stay at their full authored height instead of parting
-	# around the player.
-	var sgt := get_tree().current_scene.find_child("SimpleGrassTextured", true, false)
-	if sgt and "interactive" in sgt:
-		sgt.interactive = false
-	var singleton := get_node_or_null("/root/SimpleGrass")
-	if singleton and singleton.has_method("set_interactive"):
-		singleton.set_interactive(false)
+	# Disable interactive grass bending for the static GRASS showcase only
+	# (so blades stay at full authored height). MOVE wants parting ON so we
+	# can verify the field bends around the moving character.
+	if scenario != "MOVE":
+		var sgt := get_tree().current_scene.find_child("SimpleGrassTextured", true, false)
+		if sgt and "interactive" in sgt:
+			sgt.interactive = false
+		var singleton := get_node_or_null("/root/SimpleGrass")
+		if singleton and singleton.has_method("set_interactive"):
+			singleton.set_interactive(false)
 
 
 func _process(delta: float) -> void:
@@ -67,14 +99,37 @@ func _process(delta: float) -> void:
 
 	if _player == null or not is_instance_valid(_player):
 		_player = _find_in_group("player")
-	if scenario != "GRASS" and (_bobba == null or not is_instance_valid(_bobba)):
+		# Scenarios drive the player by calling methods directly. Cut off
+		# the real input pipeline so a stray click/keypress on the test
+		# window (it pops up on the desktop and steals focus) can't fight
+		# alongside the script and corrupt the measurements. PLAY and the
+		# ARCHER playtest are the exceptions — there the human IS the driver.
+		if _player != null and scenario != "PLAY" and scenario != "ARCHER" \
+				and scenario != "COOP":
+			_player.set_process_input(false)
+	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
+			or scenario == "DRAGON" or scenario == "BOWSIM"
+	if not solo and (_bobba == null or not is_instance_valid(_bobba)):
 		_bobba = _find_in_group("bobba")
 
-	var need_bobba: bool = scenario != "GRASS"
+	var need_bobba: bool = not solo
 	if _player == null or (need_bobba and _bobba == null):
-		_start_wait_timer += delta
-		if _start_wait_timer > 20.0:
-			_finish("TIMEOUT_SPAWN")
+		# COOP waits on the human in the character menu — no spawn timeout.
+		if scenario != "COOP":
+			_start_wait_timer += delta
+			if _start_wait_timer > 20.0:
+				_finish("TIMEOUT_SPAWN")
+		return
+
+	if scenario == "POSTER":
+		_drive_poster(delta)
+		if _elapsed > 9.0:
+			_finish("POSTER_DONE")
+		_elapsed += delta
+		_screenshot_timer += delta
+		if _screenshot_timer >= 0.12:
+			_screenshot_timer = 0.0
+			_capture()
 		return
 
 	if scenario == "PROMO":
@@ -90,6 +145,52 @@ func _process(delta: float) -> void:
 			_capture()
 		return
 
+	# PLAY: hands-on arena — set the stage once, then get out of the way.
+	# No screenshots, no timeout, no scripted driving; deaths go through the
+	# game's normal restart flow.
+	if scenario == "PLAY":
+		_setup_play_arena()
+		return
+
+	# ARCHER: hands-on bow playtest — archer class (forced by GameSettings),
+	# spawned on the highest ground near Bobba's spawn, human keeps controls.
+	# The first seconds are captured so the spawn/vantage can be verified
+	# from logs+frames; after that, no more screenshots — it's a play session.
+	if scenario == "ARCHER":
+		_setup_archer_arena()
+		if _elapsed < 3.0:
+			_elapsed += delta
+			_screenshot_timer += delta
+			if _screenshot_timer >= SCREENSHOT_INTERVAL:
+				_screenshot_timer = 0.0
+				_capture()
+		return
+
+	# COOP: hands-on co-op playtest. The human chose Archer or Paladin in
+	# the character menu and controls that character with the normal game
+	# inputs; the AI companion plays the other class. No scripted driving —
+	# only the first seconds are captured (spawn verification) plus a light
+	# telemetry heartbeat so perception behavior can be reviewed from logs.
+	if scenario == "COOP":
+		var prev_elapsed := _elapsed
+		_elapsed += delta
+		if _elapsed < 3.0:
+			_screenshot_timer += delta
+			if _screenshot_timer >= SCREENSHOT_INTERVAL:
+				_screenshot_timer = 0.0
+				_capture()
+		if int(_elapsed / 5.0) != int(prev_elapsed / 5.0):
+			var comp := _find_in_group("companion")
+			var tname: String = str(_bobba.target.name) \
+					if ("target" in _bobba and _bobba.target != null) else "none"
+			print("[CombatTest] COOP t=%d player=%s(hp %.0f) companion=%s bobba_target=%s bobba_hp=%.0f" % [
+					int(_elapsed),
+					"Paladin" if _player.character_class == _player.CharacterClass.PALADIN else "Archer",
+					float(_player.current_health),
+					("dead" if comp.is_dead else "hp %.0f" % float(comp.current_health)) if comp else "missing",
+					tname, float(_bobba.health)])
+		return
+
 	_elapsed += delta
 	_screenshot_timer += delta
 	if _screenshot_timer >= SCREENSHOT_INTERVAL:
@@ -101,6 +202,113 @@ func _process(delta: float) -> void:
 		# Auto-exit after a short showcase window.
 		if _elapsed > 12.0:
 			_finish("GRASS_SHOWCASE_DONE")
+		return
+
+	if scenario == "MOVE":
+		_drive_move(delta)
+		if _elapsed > 17.0:
+			_finish("MOVE_DONE")
+		return
+
+	if scenario == "LOCKON":
+		_drive_lockon(delta)
+		if _elapsed > 9.0:
+			_finish("LOCKON_DONE")
+		return
+
+	if scenario == "DODGE":
+		_drive_dodge(delta)
+		if _elapsed > 12.0:
+			_finish("DODGE_TIMEOUT")
+		return
+
+	if scenario == "PARRY":
+		_drive_parry(delta)
+		if _elapsed > 20.0:
+			_finish("PARRY_TIMEOUT")
+		return
+
+	if scenario == "BACKSTAB":
+		_drive_backstab(delta)
+		if _elapsed > 20.0:
+			_finish("BACKSTAB_TIMEOUT")
+		return
+
+	if scenario == "ESTUS":
+		_drive_estus(delta)
+		if _elapsed > 20.0:
+			_finish("ESTUS_TIMEOUT")
+		return
+
+	if scenario == "COMBO":
+		_drive_combo(delta)
+		if _elapsed > 25.0:
+			_finish("COMBO_TIMEOUT")
+		return
+
+	if scenario == "ARROW":
+		_drive_arrow(delta)
+		if _elapsed > 14.0:
+			_finish("ARROW_DONE")
+		return
+
+	if scenario == "RIVER":
+		_drive_river(delta)
+		if _elapsed > 12.0:
+			_finish("RIVER_DONE")
+		return
+
+	if scenario == "DRAGON":
+		_drive_dragon(delta)
+		if _elapsed > 26.0:
+			_finish("DRAGON_DONE")
+		return
+
+	if scenario == "REVIVE":
+		_drive_revive(delta)
+		if _elapsed > 13.0:
+			print("[CombatTest] REVIVE summary: interrupt_ok=%s revived_ok=%s crouch_ok=%s" % [
+					str(_bowsim_flags.get("interrupt_ok", false)),
+					str(_bowsim_flags.get("revived_ok", false)),
+					str(_bowsim_flags.get("crouch_ok", false))])
+			_finish("REVIVE_DONE")
+		return
+
+	if scenario == "BOWSIM":
+		_drive_bowsim(delta)
+		if _elapsed > 14.0:
+			print("[CombatTest] BOWSIM summary: freeze_frames=%d noaim_shots=%d airdraw_blocked=%s aircancel_ok=%s shots=%d" % [
+					_bowsim_freeze, _bowsim_noaim,
+					str(_bowsim_flags.get("airdraw_blocked", false)),
+					str(_bowsim_flags.get("aircancel_ok", false)),
+					int(_bowsim_flags.get("shots", 0))])
+			_finish("BOWSIM_DONE")
+		return
+
+	if scenario == "SKEL":
+		_drive_skel(delta)
+		if _elapsed > 34.0:
+			var alive := 0
+			for sk in get_tree().get_nodes_in_group("skeletons"):
+				if not sk.is_dead_skeleton:
+					alive += 1
+			print("[CombatTest] SKEL summary: alive=%d/5 player_hp=%.0f" % [
+					alive, float(_player.current_health)])
+			_finish("SKEL_DONE")
+		return
+
+
+
+	if scenario == "SOULS":
+		_drive_souls(delta)
+		var souls_php: float = float(_player.current_health)
+		var souls_bhp: float = float(_bobba.health)
+		if souls_php <= 0.0:
+			_finish_souls("BOBBA_WINS")
+		elif souls_bhp <= 0.0:
+			_finish_souls("PALADIN_WINS")
+		elif _elapsed > MAX_DURATION_SEC:
+			_finish_souls("TIMEOUT")
 		return
 
 	if _elapsed > MAX_DURATION_SEC:
@@ -125,6 +333,111 @@ func _process(delta: float) -> void:
 ## the frame is pure composition, grants the Paladin invincibility so no
 ## red damage-label pops mid-capture, and loops a sword swing so each
 ## screenshot catches a blade arc in motion.
+## POSTER: staged promotional shot. One frame tells the whole game:
+## the paladin trading blows with Bobba up front, the archer ally beset
+## by the skeleton pack to the side, arrow-fires burning through the
+## night grass, and the dragon rearing into its hover-breath overhead.
+func _drive_poster(_delta: float) -> void:
+	const P := Vector3(110.0, 0.0, -135.0)  # deep in the blade field
+	# The skeleton crew rises ~1s after scene load — hold the whole staging
+	# until the full cast is present.
+	if get_tree().get_nodes_in_group("skeletons").is_empty():
+		return
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		# --- Paladin vs Bobba, centre stage.
+		var pp := P
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		var bp: Vector3 = P + Vector3(-0.9, 0.0, 5.4)
+		bp.y = _bobba.global_position.y
+		_bobba.global_position = bp
+		_poster_marks[_bobba] = bp
+		var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if cam_pivot:
+			cam_pivot.rotation.y = deg_to_rad(184.0)  # face +Z, tiny offset
+			cam_pivot.rotation.x = deg_to_rad(9.0)    # lift to catch the dragon
+		# --- Archer ally, beset by the pack on the right of frame.
+		var archer: CharacterBody3D = load("res://player/player.tscn").instantiate()
+		archer.name = "PromoArcher"
+		archer.is_ai_companion = true
+		archer.enable_multiplayer = false
+		archer.enable_fifo = false
+		archer.companion_class_override = 1  # ARCHER
+		get_tree().current_scene.add_child(archer)
+		var ap: Vector3 = P + Vector3(5.2, 0.0, 7.2)
+		ap.y = pp.y
+		archer.global_position = ap
+		var apivot: Node3D = archer.get_node_or_null("CameraPivot") as Node3D
+		if apivot:
+			apivot.rotation.y = deg_to_rad(75.0)  # squares up to its attackers
+		# --- Skeleton pack: three on the archer, two flanking the duel.
+		var skels: Array = get_tree().get_nodes_in_group("skeletons")
+		var slots: Array = [
+			ap + Vector3(1.4, 0.0, 1.0), ap + Vector3(-0.6, 0.0, 1.7),
+			ap + Vector3(1.7, 0.0, -1.0),
+			P + Vector3(-3.2, 0.0, 6.6), P + Vector3(-4.2, 0.0, 9.0),
+		]
+		for i in mini(skels.size(), slots.size()):
+			var sk: Node3D = skels[i]
+			var sp: Vector3 = slots[i]
+			sp.y = pp.y + 0.3
+			sk.global_position = sp
+			sk.home_post = sp
+			_poster_marks[sk] = sp
+		if skels.size() >= 3:
+			skels[2].ignite(20.0)  # one brother burns — an arrow found him
+		# --- Arrow-fires burning in the grass.
+		for fp in [P + Vector3(2.6, 0.0, 12.5), P + Vector3(-7.2, 0.0, 12.0),
+				P + Vector3(10.0, 0.0, 4.5), P + Vector3(-5.2, 0.0, 0.4)]:
+			FireFX.create_ground_fire(get_tree().current_scene, fp,
+					"PosterArrowGroundFire", 40.0, false)
+		# --- Dragon: parked overhead behind the fight, forced straight
+		# into the hover-breath so it rears and blows fire on camera.
+		var dragon: Node3D = _find_in_group("dragon") as Node3D
+		if dragon:
+			dragon.patrol_center = Vector3(P.x + 5.0, 0.0, P.z + 34.0)
+			dragon.patrol_radius = 40.0
+			dragon.patrol_height = 11.0
+			dragon.global_position = P + Vector3(5.0, 10.5, 34.0)
+			dragon._hover_timer = 0.4
+			# The night grade swallows an unlit dragon — park a promo fill
+			# light in the air between camera and dragon.
+			var dlight := OmniLight3D.new()
+			dlight.name = "PosterDragonFill"
+			dlight.light_color = Color(0.8, 0.85, 1.0)
+			dlight.light_energy = 85.0
+			dlight.omni_range = 90.0
+			dlight.omni_attenuation = 1.1
+			dlight.shadow_enabled = false
+			get_tree().current_scene.add_child(dlight)
+			dlight.global_position = P + Vector3(4.0, 14.0, 22.0)
+		_hide_promo_ui()
+		_boost_promo_lighting()
+		_add_key_light()
+	# Immortal cast — no red damage pops mid-capture.
+	_player._spawn_immunity_timer = 30.0
+	var promo_archer := get_tree().current_scene.get_node_or_null("PromoArcher")
+	if promo_archer:
+		promo_archer._spawn_immunity_timer = 30.0
+	# Damage labels pop every hit — keep every 3D label dark for the shot.
+	_hide_labels_recursive(_bobba)
+	for sk in get_tree().get_nodes_in_group("skeletons"):
+		_hide_labels_recursive(sk)
+	# Movie-set pinning: the cast ACTS in place (swings, telegraphs, jaw
+	# chatter) but nobody walks off their mark — fire panic and crowd
+	# steering would otherwise scatter the composition.
+	for actor in _poster_marks:
+		if actor != null and is_instance_valid(actor):
+			var mark: Vector3 = _poster_marks[actor]
+			actor.global_position.x = mark.x
+			actor.global_position.z = mark.z
+	# Keep the paladin swinging so frames catch the golden slash arc.
+	if not _player.is_attacking and "_attack_cooldown" in _player \
+			and _player._attack_cooldown <= 0.0:
+		_player._do_attack()
+
+
 func _drive_promo(_delta: float) -> void:
 	const PROMO_POS := Vector3(110.0, 0.0, -135.0)  # deep in the blade field
 	const BOBBA_OFFSET := Vector3(0.0, 0.0, 5.0)    # Bobba 5m ahead of paladin
@@ -265,6 +578,1087 @@ func _drive_grass(delta: float) -> void:
 
 	# Gentle forward drift along +Z so we see fresh grass all the time.
 	_player.global_position += Vector3(0, 0, 1) * WALK_SPEED * delta
+
+
+## Locomotion check. Unlike the combat drivers (which teleport the player),
+## this presses REAL input actions so the full input→physics→animation
+## pipeline runs exactly as it does for a human at the keyboard. Each
+## phase logs the clip the AnimationPlayer is actually playing.
+const _MOVE_PHASES := [
+	# [end_time, name, actions_held]
+	[3.0, "walk_f", ["move_forward"]],
+	[5.5, "run_f", ["move_forward", "run"]],
+	[7.5, "strafe_l", ["move_left"]],
+	[9.5, "strafe_r", ["move_right"]],
+	[11.5, "walk_b", ["move_back"]],
+	[13.0, "idle", []],
+	[16.5, "walk_unarmed", ["move_forward"]],
+]
+const _MOVE_ALL_ACTIONS := ["move_forward", "move_back", "move_left", "move_right", "run"]
+var _move_setup_done: bool = false
+var _move_toggled_unarmed: bool = false
+var _move_last_log: float = -1.0
+
+
+func _drive_move(_delta: float) -> void:
+	if not _move_setup_done:
+		_move_setup_done = true
+		const MOVE_CENTER := Vector3(120.0, 0.0, -140.0)
+		var start_pos := MOVE_CENTER
+		start_pos.y = _player.global_position.y
+		_player.global_position = start_pos
+		# keyboard_run in the player only counts when the mouse is captured.
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		# Light the rig like the promo shots — silhouettes hide broken limbs.
+		_add_key_light()
+		var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if cam_pivot:
+			cam_pivot.rotation.x = deg_to_rad(-8.0)
+
+	# Find the active phase and hold exactly its actions.
+	var phase_name: String = "done"
+	var held: Array = []
+	for p in _MOVE_PHASES:
+		if _elapsed < float(p[0]):
+			phase_name = p[1]
+			held = p[2]
+			break
+	if phase_name == "walk_unarmed" and not _move_toggled_unarmed:
+		_move_toggled_unarmed = true
+		if _player.has_method("_toggle_combat_mode"):
+			_player._toggle_combat_mode()
+	for action in _MOVE_ALL_ACTIONS:
+		if action in held:
+			Input.action_press(action)
+		else:
+			Input.action_release(action)
+
+	# Log twice per second: phase, clip playing, and actual ground speed.
+	if _elapsed - _move_last_log >= 0.5:
+		_move_last_log = _elapsed
+		var anim_name: String = "<none>"
+		var playing: bool = false
+		var ap: AnimationPlayer = _player._current_anim_player
+		if ap != null:
+			anim_name = String(ap.current_animation)
+			playing = ap.is_playing()
+		var hspeed: float = Vector3(_player.velocity.x, 0.0, _player.velocity.z).length()
+		print("[CombatTest/MOVE] t=%05.2f phase=%s anim=%s playing=%s speed=%.2f" % [
+			_elapsed, phase_name, anim_name, playing, hspeed])
+
+
+## Lock-on verification. Pins Bobba, makes the Paladin immortal, engages
+## lock-on (the same _toggle_lock_on() the T key calls), then orbits the
+## Paladin around Bobba. If lock-on works the camera keeps Bobba centered,
+## so the logged residual angle between camera-forward and the direction to
+## Bobba stays near 0° the whole orbit. Screenshots show the bronze reticle
+## parked over Bobba.
+func _drive_lockon(delta: float) -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	const ORBIT_R: float = 4.0
+
+	if not _lockon_setup_done:
+		_lockon_setup_done = true
+		var bp := CENTER
+		bp.y = _bobba.global_position.y
+		_bobba.global_position = bp
+		var pp := CENTER + Vector3(0.0, 0.0, ORBIT_R)
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		# Aim the camera at Bobba first so acquisition finds him in the cone.
+		var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if cam_pivot:
+			var d: Vector3 = _bobba.global_position - _player.global_position
+			cam_pivot.rotation.y = atan2(-d.x, -d.z)
+		if _player.has_method("_toggle_lock_on"):
+			_player._toggle_lock_on()
+		var got: bool = ("_lock_target" in _player) and (_player._lock_target != null)
+		print("[CombatTest/LOCKON] acquire attempted — locked=%s" % str(got))
+		return
+
+	# Hold Bobba still and keep the Paladin immortal for a clean orbit.
+	var bp2 := CENTER
+	bp2.y = _bobba.global_position.y
+	_bobba.global_position = bp2
+	if "_spawn_immunity_timer" in _player:
+		_player._spawn_immunity_timer = 30.0
+
+	# Strafe the Paladin in a circle around Bobba.
+	var ang: float = _elapsed * 0.9  # rad/s
+	var orbit := CENTER + Vector3(sin(ang), 0.0, cos(ang)) * ORBIT_R
+	orbit.y = _player.global_position.y
+	_player.global_position = orbit
+
+	# Twice a second, log the residual aim error. Near 0° == lock holding.
+	if int(_elapsed * 2) != int((_elapsed - delta) * 2):
+		var cam: Camera3D = _player.get_node_or_null("CameraPivot/SpringArm3D/Camera3D") as Camera3D
+		if cam:
+			var fwd: Vector3 = -cam.global_transform.basis.z
+			var to_b: Vector3 = _bobba.global_position - _player.global_position
+			fwd.y = 0.0
+			to_b.y = 0.0
+			var residual: float = rad_to_deg(fwd.normalized().angle_to(to_b.normalized()))
+			var locked: bool = ("_lock_target" in _player) and (_player._lock_target != null)
+			print("[CombatTest/LOCKON] t=%.1f orbit=%.0f° residual=%.1f° locked=%s" % [
+				_elapsed, rad_to_deg(ang), residual, str(locked)])
+
+
+## Dodge i-frame verification. Runs a one-shot scripted coroutine: roll, then
+## land a scripted hit DURING the invuln window (expect no damage); roll again,
+## land a hit during RECOVERY after the window (expect damage). Proves the roll
+## negates damage only while invulnerable. Bobba is parked far away so its AI
+## can't add stray hits — all damage in this test is the scripted take_hit().
+func _drive_dodge(_delta: float) -> void:
+	if _dodge_test_started:
+		return
+	_dodge_test_started = true
+	_run_dodge_test()
+
+
+func _run_dodge_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	# Park Bobba 50 m away (outside its detection radius) so it stays roaming.
+	var bp := CENTER + Vector3(50.0, 0.0, 0.0)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	# Let the player settle onto the ground so _try_dodge()'s is_on_floor passes.
+	await get_tree().create_timer(0.4).timeout
+
+	var kb := Vector3(0.0, 0.0, 5.0)
+
+	# --- Test A: hit lands DURING the i-frame window -> expect no damage. ---
+	_player._spawn_immunity_timer = 0.0
+	var hp0: float = float(_player.current_health)
+	_player._try_dodge()
+	await get_tree().create_timer(0.20).timeout  # ~0.20s into 0.5s roll (window 0.06–0.40)
+	_player._spawn_immunity_timer = 0.0
+	_player.take_hit(50.0, kb, false, _bobba, true)
+	await get_tree().process_frame
+	var hp1: float = float(_player.current_health)
+	print("[CombatTest/DODGE] A in-window:  hp %.0f -> %.0f (expect unchanged)" % [hp0, hp1])
+
+	await get_tree().create_timer(0.7).timeout  # let the roll fully finish
+
+	# --- Test B: hit lands during RECOVERY (after i-frames) -> expect damage. ---
+	_player._spawn_immunity_timer = 0.0
+	var hp2: float = float(_player.current_health)
+	_player._try_dodge()
+	await get_tree().create_timer(0.45).timeout  # past window end (0.40), still rolling (<0.5)
+	_player._spawn_immunity_timer = 0.0
+	_player.take_hit(50.0, kb, false, _bobba, true)
+	await get_tree().process_frame
+	var hp3: float = float(_player.current_health)
+	print("[CombatTest/DODGE] B post-window: hp %.0f -> %.0f (expect -50)" % [hp2, hp3])
+
+	var a_ok: bool = is_equal_approx(hp0, hp1)
+	var b_ok: bool = hp3 < hp2 - 1.0
+	print("[CombatTest/DODGE] RESULT iframe_negates=%s recovery_vulnerable=%s" % [str(a_ok), str(b_ok)])
+	_finish("DODGE_DONE")
+
+
+## Parry → riposte verification. Three scripted checks:
+##   A) a Bobba hit landing INSIDE the parry's active frames deals no
+##      damage and staggers Bobba into a riposte-ready stun;
+##   B) a real sword swing during that window lands a 3× riposte crit;
+##   C) a hit landing in the parry's RECOVERY (after the window) deals
+##      full damage — whiffing the parry is punished.
+func _drive_parry(_delta: float) -> void:
+	if _scripted_test_started:
+		return
+	_scripted_test_started = true
+	_run_parry_test()
+
+
+func _run_parry_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	# Bobba close enough for the riposte swing to connect, but held in
+	# place by the parry stagger for part B.
+	var bp := CENTER + Vector3(0.0, 0.0, 1.7)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	# Face Bobba (+Z) so the riposte swing connects: yaw for direction
+	# (dx,dz) is atan2(-dx,-dz), same convention as the other scenarios.
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = atan2(-0.0, -1.0)  # PI — face +Z
+	# Immunity stays up between scripted hits so Bobba's real swings can't
+	# pollute the HP measurements; it's zeroed for exactly one scripted hit
+	# at a time.
+	_player._spawn_immunity_timer = 30.0
+	await get_tree().create_timer(0.5).timeout
+
+	var kb := Vector3(0.0, 0.0, 5.0)
+
+	# --- A: hit inside the parry window -> deflected, Bobba staggered. ---
+	var hp0: float = float(_player.current_health)
+	_player._try_parry()
+	await get_tree().create_timer(0.15).timeout  # inside window 0.05–0.28
+	_player._spawn_immunity_timer = 0.0
+	_player.take_hit(65.0, kb, false, _bobba, false)
+	_player._spawn_immunity_timer = 30.0
+	await get_tree().process_frame
+	var hp1: float = float(_player.current_health)
+	var staggered: bool = _bobba.state == 4  # Proto.BobbaState.STUNNED
+	var riposte_open: bool = _bobba.is_riposte_ready()
+	print("[CombatTest/PARRY] A deflect: hp %.0f -> %.0f (expect unchanged) bobba_stunned=%s riposte=%s" % [
+		hp0, hp1, str(staggered), str(riposte_open)])
+
+	# --- B: real sword swing during the riposte window -> 3x crit. ---
+	# Wait out the rest of the parry commitment first (attack is gated
+	# while is_parrying, 0.65s total); the riposte window is 2.5s so
+	# there's time to spare.
+	await get_tree().create_timer(0.60).timeout
+	var bhp0: float = float(_bobba.health)
+	_player._do_attack()
+	await get_tree().create_timer(1.4).timeout  # let the swing land
+	var bhp1: float = float(_bobba.health)
+	var riposte_dmg: float = bhp0 - bhp1
+	print("[CombatTest/PARRY] B riposte: bobba hp %.0f -> %.0f (dealt %.0f, expect ~270)" % [
+		bhp0, bhp1, riposte_dmg])
+
+	await get_tree().create_timer(0.6).timeout
+
+	# --- C: hit in the parry's recovery -> full damage. ---
+	var hp2: float = float(_player.current_health)
+	_player._try_parry()
+	await get_tree().create_timer(0.50).timeout  # past window end (0.38), still parrying (<0.65)
+	_player._spawn_immunity_timer = 0.0
+	_player.take_hit(50.0, kb, false, _bobba, false)
+	_player._spawn_immunity_timer = 30.0
+	await get_tree().process_frame
+	var hp3: float = float(_player.current_health)
+	print("[CombatTest/PARRY] C recovery: hp %.0f -> %.0f (expect -50)" % [hp2, hp3])
+
+	var a_ok: bool = is_equal_approx(hp0, hp1) and staggered and riposte_open
+	var b_ok: bool = riposte_dmg >= 250.0
+	var c_ok: bool = hp3 < hp2 - 1.0
+	print("[CombatTest/PARRY] RESULT deflect=%s riposte_crit=%s recovery_punished=%s" % [
+		str(a_ok), str(b_ok), str(c_ok)])
+	_finish("PARRY_DONE")
+
+
+## PLAY: playable combat test. Same arena spot the scripted scenarios use,
+## Paladin + singleplayer forced by the --combat-scenario flag, Bobba planted
+## a few strides ahead — but the human keeps the controls.
+var _play_setup_done: bool = false
+
+func _setup_play_arena() -> void:
+	if _play_setup_done:
+		return
+	_play_setup_done = true
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	var bp := CENTER + Vector3(0.0, 0.0, 5.0)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = PI  # face Bobba
+	print("[CombatTest] PLAY arena ready — you have the controls.")
+	print("[CombatTest]   LMB/F attack (mash = 3-hit combo) | RMB block | G parry")
+	print("[CombatTest]   X roll | T lock-on | H estus | Space jump | Shift run | L day/night")
+
+
+## ARCHER playtest: find the highest ground within bow range of Bobba's
+## spawn by raycasting a ring of candidate points, and perch the archer
+## there facing him. Bobba stays at his natural spawn so the fight starts
+## the way the real game does.
+func _setup_archer_arena() -> void:
+	if _play_setup_done:
+		return
+	_play_setup_done = true
+
+	# Bobba stays at his ORIGINAL spawn — the point of this playtest is to
+	# learn how close a fire arrow must land to clearly reveal him for the
+	# other players. The archer just takes the best ground the probe finds
+	# around that spawn, even if the area is nearly flat.
+	var bobba_pos: Vector3 = _bobba.global_position
+	var found: Dictionary = _probe_highest_ground(bobba_pos)
+
+	_player.global_position = (found.pos as Vector3) + Vector3(0, 0.6, 0)
+	_player.velocity = Vector3.ZERO
+
+	# Face the camera down at Bobba from the perch.
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		var to_bobba: Vector3 = bobba_pos - _player.global_position
+		cam_pivot.rotation.y = atan2(-to_bobba.x, -to_bobba.z)
+		cam_pivot.rotation.x = deg_to_rad(-12.0)
+
+	print("[CombatTest] ARCHER perch ready at %.1f, %.1f, %.1f (%.1fm from Bobba, %.1fm above him) — you have the controls." % [
+			_player.global_position.x, _player.global_position.y, _player.global_position.z,
+			_player.global_position.distance_to(bobba_pos),
+			_player.global_position.y - bobba_pos.y])
+	print("[CombatTest]   hold LMB/F to draw, release to loose | arrows ignite ground fires")
+	print("[CombatTest]   E spell | Space jump | Shift run | T lock-on | L day/night")
+
+
+## Highest terrain point on probe rings around `center` (bow-fight radii).
+## Returns {pos: Vector3, y: float}; y is -INF if nothing was hit.
+func _probe_highest_ground(center: Vector3) -> Dictionary:
+	var best := {"pos": center + Vector3(0, 0.5, 20.0), "y": -INF}
+	for radius in [18.0, 26.0, 34.0]:
+		for i in range(16):
+			var ang: float = TAU * float(i) / 16.0
+			var probe := center + Vector3(cos(ang) * radius, 0.0, sin(ang) * radius)
+			var hit: Dictionary = _raycast_ground(probe)
+			if hit and hit.position.y > float(best.y):
+				best.y = hit.position.y
+				best.pos = hit.position
+	return best
+
+
+## Straight-down world raycast (layer 1) at `xz`, from y+60 to y-30.
+func _raycast_ground(xz: Vector3) -> Dictionary:
+	var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(
+			Vector3(xz.x, xz.y + 60.0, xz.z), Vector3(xz.x, xz.y - 30.0, xz.z), 1)
+	return space.intersect_ray(query)
+
+
+## RIVER: night showcase of the upgraded river. First half frames the water
+## and its earthy banks from the shore; second half pans up to the moon to
+## verify the visible disc sits where the light comes from.
+func _drive_river(_delta: float) -> void:
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot == null:
+		return
+	# Find the shader water surface the river builder spawned.
+	var surface: Node3D = get_tree().current_scene.find_child("RiverWaterSurface", true, false) as Node3D
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		_player._spawn_immunity_timer = 60.0
+		# Park Bobba far away — he wanders into the shot otherwise.
+		var bobba := _find_in_group("bobba")
+		if bobba:
+			bobba.global_position = Vector3(180.0, bobba.global_position.y, 180.0)
+		if surface:
+			# Stand on the bank: off the surface centre, perpendicular to flow.
+			var side: Vector3 = surface.global_transform.basis.x.normalized()
+			var pos: Vector3 = surface.global_position + side * 9.0
+			pos.y = _player.global_position.y
+			_player.global_position = pos
+			_player.velocity = Vector3.ZERO
+	if _elapsed < 6.0 and surface:
+		# Look across the water, slightly down.
+		var to_river: Vector3 = surface.global_position - _player.global_position
+		to_river.y = 0.0
+		cam_pivot.rotation.y = atan2(-to_river.x, -to_river.z)
+		cam_pivot.rotation.x = deg_to_rad(-16.0)
+	else:
+		# Pan up at the moon (azimuth 135° SE, elevation 40°).
+		cam_pivot.rotation.y = deg_to_rad(-45.0)
+		cam_pivot.rotation.x = deg_to_rad(30.0)
+
+
+## SKEL: skeleton-pack verification (day-lit so the captures read).
+## The player is parked 30 m from the pack's haunt — inside the 50 m
+## dark-vision aggro — so the pack should RUSH and CROWD him. At t=10 one
+## skeleton is destroyed by script (expect "rises again" 10 s later,
+## somewhere else). At t=14 a ground fire is dropped between pack and
+## player — the crowd must swerve around it and never stand in it.
+func _drive_skel(_delta: float) -> void:
+	var skels: Array = get_tree().get_nodes_in_group("skeletons")
+	if skels.is_empty():
+		return
+	var crew := get_tree().current_scene.find_child("SkeletonCrew", true, false)
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		var center: Vector3 = crew.haunt_center if crew else (skels[0] as Node3D).global_position
+		var pp: Vector3 = center + Vector3(30.0, 0.0, 0.0)
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		_player.velocity = Vector3.ZERO
+		# The observer must survive the whole crowd to verify revive + fire.
+		_player._spawn_immunity_timer = 120.0
+		print("[CombatTest] SKEL: player parked 30m from haunt %s" % str(center.snapped(Vector3.ONE)))
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot and crew:
+		var to_c: Vector3 = crew.haunt_center - _player.global_position
+		cam_pivot.rotation.y = atan2(-to_c.x, -to_c.z)
+		cam_pivot.rotation.x = deg_to_rad(-4.0)
+	# t=15: put a fire arrow into the nearest skeleton — it must catch
+	# fire, burn, and every brother must keep clear of floor flames.
+	if _elapsed >= 15.0 and not _skel_arrow_shot:
+		_skel_arrow_shot = true
+		var nearest_sk: Node3D = null
+		var nd := INF
+		for sk in skels:
+			if not sk.is_dead_skeleton:
+				var d: float = _player.global_position.distance_to((sk as Node3D).global_position)
+				if d < nd:
+					nd = d
+					nearest_sk = sk
+		if nearest_sk:
+			var arrow = load("res://player/arrow.tscn").instantiate()
+			arrow.shooter = _player
+			arrow.is_local = true
+			get_tree().current_scene.add_child(arrow)
+			arrow.global_position = _player.global_position + Vector3(0, 1.5, 0)
+			var aim: Vector3 = (nearest_sk.global_position + Vector3(0, 1.0, 0)) \
+					- arrow.global_position
+			arrow.launch(aim.normalized())
+			print("[CombatTest] SKEL: fire arrow loosed at %s (%.1fm)" % [nearest_sk.name, nd])
+	if _elapsed >= 10.0 and not _coop_fire_dropped:
+		# (reusing the spare one-shot latch var) kill one skeleton...
+		_coop_fire_dropped = true
+		var victim: Node3D = skels[0]
+		victim.take_hit(999.0, Vector3.ZERO)
+		print("[CombatTest] SKEL: destroyed %s — expecting revive in 20s" % victim.name)
+		FireFX.create_ground_fire(get_tree().current_scene,
+				_player.global_position + Vector3(-6.0, 0.0, 0.0),
+				"SkelTestGroundFire", 30.0, false)
+		print("[CombatTest] SKEL: fire wall dropped between pack and player")
+	if int(_elapsed) != int(_elapsed - _delta):
+		var nearest := INF
+		var alive := 0
+		for sk in skels:
+			if not sk.is_dead_skeleton:
+				alive += 1
+				nearest = minf(nearest, _player.global_position.distance_to((sk as Node3D).global_position))
+		print("[CombatTest] SKEL t=%d alive=%d nearest=%.1f player_hp=%.0f" % [
+				int(_elapsed), alive, nearest, float(_player.current_health)])
+
+
+## REVIVE: co-op revive + crouch simulation. Kills the AI companion,
+## then drives the human through the E-hold channel: an interrupted
+## channel must reset to zero, a full 5s channel must raise the ally at
+## half HP, and a crouched hit must land at 75% damage.
+func _drive_revive(_delta: float) -> void:
+	var comp := _find_in_group("companion")
+	if comp == null:
+		return
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+
+	if once.call("setup", 0.0):
+		var bobba := _find_in_group("bobba")
+		if bobba:
+			bobba.global_position = Vector3(200.0, bobba.global_position.y, 200.0)
+		comp.global_position = _player.global_position \
+				+ Vector3(2.0, 0.5, 0.0)
+	if once.call("kill", 1.0):
+		comp.take_hit(999.0, Vector3.ZERO, false)
+		print("[CombatTest] REVIVE: companion killed (dead=%s)" % str(comp.is_dead))
+	if once.call("marker_check", 1.4):
+		var marker := get_tree().current_scene.find_child("*DeathMarker*", true, false)
+		print("[CombatTest] REVIVE: death marker present=%s" % str(marker != null))
+	if once.call("hold1", 2.0):
+		Input.action_press(&"revive")
+	if once.call("release1", 4.0):
+		Input.action_release(&"revive")
+	if once.call("check_interrupt", 4.3):
+		var ok: bool = not _player.is_reviving and _player._revive_progress == 0.0 \
+				and comp.is_dead
+		_bowsim_flags["interrupt_ok"] = ok
+		print("[CombatTest] REVIVE: interrupt resets progress -> %s" % str(ok))
+	if once.call("hold2", 4.6):
+		Input.action_press(&"revive")
+	if once.call("check_revived", 10.4):
+		Input.action_release(&"revive")
+		var ok: bool = not comp.is_dead \
+				and absf(float(comp.current_health) - float(comp.max_health) * 0.5) < 1.0
+		_bowsim_flags["revived_ok"] = ok
+		print("[CombatTest] REVIVE: ally revived at half hp -> %s (dead=%s hp=%.0f)" % [
+				str(ok), str(comp.is_dead), float(comp.current_health)])
+	if once.call("crouch_on", 11.0):
+		_player._spawn_immunity_timer = 0.0
+		Input.action_press(&"crouch")
+	if once.call("crouch_hit", 11.5):
+		var before: float = float(_player.current_health)
+		_player.take_hit(40.0, Vector3.ZERO, false)
+		var dealt: float = before - float(_player.current_health)
+		var ok: bool = absf(dealt - 30.0) < 1.5
+		_bowsim_flags["crouch_ok"] = ok
+		print("[CombatTest] REVIVE: crouched 40dmg hit dealt %.1f (expect 30) -> %s" % [dealt, str(ok)])
+		Input.action_release(&"crouch")
+
+
+## BOWSIM: archer bow/locomotion state-machine simulation. Drives REAL
+## movement input plus the actual draw/release methods through every
+## combination — walk, standing shot, aim-walking shot, quick-cancel,
+## airborne draw attempt, jump-cancel mid-draw — while per-frame detectors
+## count anomalies:
+##   freeze_frames — moving on the ground but no locomotion clip playing
+##                   (the "walking stops" bug),
+##   noaim_shots   — an arrow released without the Attack clip visibly
+##                   playing its loose (the "no aiming movement" bug).
+func _drive_bowsim(_delta: float) -> void:
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+
+	if once.call("setup", 0.0):
+		var start := Vector3(120.0, 0.0, -140.0)
+		start.y = _player.global_position.y
+		_player.global_position = start
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		_add_key_light()
+		_player._spawn_immunity_timer = 120.0
+
+	# ---- scripted timeline --------------------------------------------
+	if once.call("walk_on", 0.2):
+		Input.action_press(&"move_forward")
+		_bowsim_flags["input_held"] = true
+	if once.call("walk_off", 2.0):
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+	if once.call("draw1", 2.3):
+		_player._start_bow_draw()
+	if once.call("shot1", 3.3):
+		_bowsim_release("standing")
+	if once.call("walk2_on", 4.0):
+		Input.action_press(&"move_forward")
+		_bowsim_flags["input_held"] = true
+	if once.call("draw2", 4.5):
+		_player._start_bow_draw()
+	if once.call("shot2", 5.5):
+		_bowsim_release("aim-walking")
+	if once.call("draw3", 6.3):
+		_player._start_bow_draw()
+	if once.call("shot3", 7.3):
+		_bowsim_release("aim-walking-2")
+	if once.call("walk2_off", 8.0):
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+	if once.call("draw4", 8.2):
+		_player._start_bow_draw()
+	if once.call("cancel4", 8.35):
+		_player._release_bow()  # early release: cancel path, no shot
+	if once.call("draw5", 8.7):
+		_player._start_bow_draw()
+	if once.call("shot5", 9.7):
+		_bowsim_release("standing-2")
+	if once.call("jump1", 10.3):
+		Input.action_press(&"jump")
+	if once.call("jump1_off", 10.45):
+		Input.action_release(&"jump")
+	if once.call("airdraw", 10.55):
+		if not _player.is_on_floor():
+			_player._start_bow_draw()
+			_bowsim_flags["airdraw_blocked"] = not _player.is_drawing_bow
+			print("[CombatTest] BOWSIM: airborne draw attempt -> drawing=%s" % str(_player.is_drawing_bow))
+		else:
+			_bowsim_flags["airdraw_blocked"] = true  # landed too fast to test
+	if once.call("draw6", 11.4):
+		_player._start_bow_draw()
+	if once.call("jump2", 11.7):
+		Input.action_press(&"jump")
+	if once.call("jump2_off", 11.85):
+		Input.action_release(&"jump")
+	if once.call("aircheck", 12.4):
+		_bowsim_flags["aircancel_ok"] = not _player.is_drawing_bow and not _player.is_holding_bow
+		print("[CombatTest] BOWSIM: after jump mid-draw -> drawing=%s holding=%s" % [
+				str(_player.is_drawing_bow), str(_player.is_holding_bow)])
+
+	# ---- per-frame detectors ------------------------------------------
+	var ap: AnimationPlayer = _player._archer_anim_player
+	if ap == null:
+		return
+	var anim := String(ap.current_animation)
+	var hspeed := Vector2(_player.velocity.x, _player.velocity.z).length()
+	if _player.is_on_floor() and hspeed > 2.5 \
+			and bool(_bowsim_flags.get("input_held", false)):
+		# Locomotion counts only if the clip is actually RUNNING — a paused
+		# Walk while moving is precisely the frozen-legs bug.
+		var loco: bool = anim in ["archer/Walk", "archer/Run", "archer/StrafeLeft", "archer/StrafeRight"] \
+				and ap.is_playing()
+		var aim_burst: bool = anim == "archer/Attack" \
+				and (_player.is_attacking or _player.is_drawing_bow or _player.is_holding_bow)
+		if not loco and not aim_burst:
+			_bowsim_freeze += 1
+			if _bowsim_freeze <= 5:
+				print("[CombatTest] BOWSIM FREEZE t=%.2f anim=%s speed=%.1f attacking=%s draw=%s hold=%s" % [
+						_elapsed, anim, hspeed, str(_player.is_attacking),
+						str(_player.is_drawing_bow), str(_player.is_holding_bow)])
+
+
+## Release the bow expecting a SHOT: verifies the loose animation is
+## actually playing right after the arrow leaves.
+func _bowsim_release(label: String) -> void:
+	var was_ready: bool = _player.is_holding_bow
+	_player._release_bow()
+	_bowsim_flags["shots"] = int(_bowsim_flags.get("shots", 0)) + (1 if was_ready else 0)
+	if was_ready:
+		var ap: AnimationPlayer = _player._archer_anim_player
+		var ok: bool = ap != null and ap.current_animation == "archer/Attack" and ap.is_playing()
+		if not ok:
+			_bowsim_noaim += 1
+			print("[CombatTest] BOWSIM NO-AIM shot (%s): anim=%s playing=%s" % [
+					label, String(ap.current_animation) if ap else "nil", str(ap.is_playing()) if ap else "nil"])
+		else:
+			print("[CombatTest] BOWSIM shot ok (%s)" % label)
+
+
+## DRAGON: flight-animation observation. Pins the dragon's patrol to a short
+## leg near a fixed viewpoint so it sweeps past the camera repeatedly, then
+## tracks it every frame. Frames land in /tmp/combat_test for review of the
+## wing/neck/tail/head motion.
+func _drive_dragon(_delta: float) -> void:
+	var dragon: Node3D = _find_in_group("dragon") as Node3D
+	if dragon == null:
+		return
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot == null:
+		return
+	const VIEW := Vector3(0.0, 0.0, 130.0)
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		_player._spawn_immunity_timer = 120.0
+		var bobba := _find_in_group("bobba")
+		if bobba:
+			bobba.global_position = Vector3(180.0, bobba.global_position.y, 180.0)
+		var pp := VIEW
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		_player.velocity = Vector3.ZERO
+		# The paladin model otherwise fills the frame when the camera pitches
+		# up to track the dragon overhead — this is a dragon shoot, hide the
+		# mesh only (hiding the whole player node takes the camera with it).
+		if _player._character_model:
+			_player._character_model.visible = false
+		# Lift the camera pivot above the shoulder-high grass — the shots
+		# are otherwise fenced in by foreground blades.
+		cam_pivot.position.y = 7.0
+		# Short patrol leg centred in front of the viewpoint: the dragon
+		# crosses the frame, turns around, and crosses back.
+		dragon.patrol_center = Vector3(0.0, 0.0, 10.0)
+		dragon.patrol_radius = 120.0
+		dragon.position = Vector3(-100.0, dragon.patrol_height, 10.0)
+	# Track the dragon.
+	var to_dragon: Vector3 = dragon.global_position - _player.global_position
+	var flat := Vector2(to_dragon.x, to_dragon.z).length()
+	cam_pivot.rotation.y = atan2(-to_dragon.x, -to_dragon.z)
+	cam_pivot.rotation.x = atan2(to_dragon.y - 1.5, flat)
+	if int(_elapsed * 4.0) != int((_elapsed - _delta) * 4.0) and int(_elapsed * 4.0) % 4 == 0:
+		print("[CombatTest] DRAGON t=%.1f dragon=%s player=%s pivot=(%.1f°,%.1f°)" % [
+				_elapsed, str(dragon.global_position.snapped(Vector3.ONE)),
+				str(_player.global_position.snapped(Vector3.ONE)),
+				rad_to_deg(cam_pivot.rotation.x), rad_to_deg(cam_pivot.rotation.y)])
+
+
+## ARROW: fire-arrow showcase under the rainy-night lighting. Hangs one
+## frozen arrow in front of the camera for model inspection, then launches
+## a volley downrange so the ground fires (flames/embers/smoke/scorch/light)
+## are visible burning in the grass. Bobba is parked near the impact zone
+## so his fire-avoidance keeps working against the new FireFX nodes.
+func _drive_arrow(_delta: float) -> void:
+	if _scripted_test_started:
+		return
+	_scripted_test_started = true
+	_run_arrow_test()
+
+
+func _run_arrow_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	_player._spawn_immunity_timer = 60.0
+	var bp := CENTER + Vector3(3.0, 0.0, 14.0)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = PI  # look +Z, downrange
+		cam_pivot.rotation.x = deg_to_rad(-3.0)
+	await get_tree().create_timer(0.4).timeout
+
+	var arrow_scene: PackedScene = load("res://player/arrow.tscn")
+
+	# Static arrow floating in front of the camera — model close-up.
+	var display = arrow_scene.instantiate()
+	display.shooter = _player
+	get_tree().current_scene.add_child(display)
+	display.global_position = pp + Vector3(-0.7, 1.6, 2.2)
+	display.freeze = true
+	display.rotation_degrees = Vector3(0, 115, 0)
+	# Inspection light — the wooden shaft is invisible in the rainy night.
+	var inspect := OmniLight3D.new()
+	inspect.light_color = Color(0.9, 0.9, 1.0)
+	inspect.light_energy = 3.0
+	inspect.omni_range = 3.0
+	inspect.position = Vector3(0.5, 0.8, 0.5)
+	display.add_child(inspect)
+	print("[CombatTest/ARROW] display arrow spawned")
+
+	# Volley: three arrows arcing downrange into the grass.
+	for i in range(3):
+		var arrow = arrow_scene.instantiate()
+		arrow.shooter = _player
+		get_tree().current_scene.add_child(arrow)
+		arrow.global_position = pp + Vector3(0, 1.6, 0)
+		var target := pp + Vector3(-2.0 + 2.0 * i, 0.0, 9.0 + 3.0 * i)
+		var dir: Vector3 = (target - arrow.global_position).normalized()
+		arrow.launch(dir + Vector3(0, 0.12, 0))
+		print("[CombatTest/ARROW] volley arrow %d launched" % i)
+		await get_tree().create_timer(1.2).timeout
+	# Let the fires burn on camera; _process finishes the scenario at 14s.
+
+
+## Hack-and-slash combo verification.
+## A: mash attack — the paladin should chain SwordSlash → Attack1 → Attack2
+##    (combo steps 0→1→2) and land three separate hits on a pinned Bobba.
+## B: stand in range — Bobba should chain swipe → punch → jump slam
+##    (his combo steps 0→1→2) before backing into the punish cooldown.
+func _drive_combo(_delta: float) -> void:
+	if _scripted_test_started:
+		return
+	_scripted_test_started = true
+	_run_combo_test()
+
+
+func _run_combo_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	var bp := CENTER + Vector3(0.0, 0.0, 2.2)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = PI  # face +Z, toward Bobba
+	_player._spawn_immunity_timer = 60.0  # Bobba's swings can't pollute part A
+	# No opportunistic blocking — part A measures raw chain damage.
+	_bobba.is_blocking = false
+	_bobba._block_check_cooldown = 999.0
+	await get_tree().create_timer(0.5).timeout
+
+	# --- A: THREE FAST CLICKS (0.18s apart) must bank and play the whole
+	# 3-hit chain. 6s watch window: the finisher plays at 0.95 speed. ---
+	var bhp0: float = float(_bobba.health)
+	var hits: int = 0
+	var max_step: int = -1
+	var prev_bhp: float = bhp0
+	var clicks_left: int = 3
+	var click_timer: float = 0.0
+	var t: float = 0.0
+	while t < 6.0:
+		await get_tree().process_frame
+		var dt: float = get_process_delta_time()
+		t += dt
+		click_timer += dt
+		if clicks_left > 0 and click_timer >= 0.18:
+			click_timer = 0.0
+			clicks_left -= 1
+			_player._do_attack()
+		max_step = maxi(max_step, int(_player._combo_step))
+		# Pin Bobba so knockback can't carry him out of the later swings.
+		_bobba.global_position = bp
+		_bobba.velocity = Vector3.ZERO
+		var cur_bhp: float = float(_bobba.health)
+		if cur_bhp < prev_bhp - 0.5:
+			hits += 1
+			print("[CombatTest/COMBO] A hit %d: %.0f dmg (combo step %d)" % [
+				hits, prev_bhp - cur_bhp, int(_player._combo_step)])
+		prev_bhp = cur_bhp
+	var dealt: float = bhp0 - float(_bobba.health)
+	print("[CombatTest/COMBO] A chain: %d hits, %.0f dmg, max_step=%d (expect 3 hits, step 2)" % [
+		hits, dealt, max_step])
+
+	# --- A2: SLOW clicks (0.9s apart) must NOT chain — each is its own
+	# opener swing, combo step stays 0. ---
+	await get_tree().create_timer(1.0).timeout
+	var slow_max_step: int = -1
+	var slow_clicks_left: int = 3
+	click_timer = 0.9  # click immediately, then every 0.9s
+	t = 0.0
+	while t < 4.0:
+		await get_tree().process_frame
+		var dt2: float = get_process_delta_time()
+		t += dt2
+		click_timer += dt2
+		if slow_clicks_left > 0 and click_timer >= 0.9:
+			click_timer = 0.0
+			slow_clicks_left -= 1
+			_player._do_attack()
+		slow_max_step = maxi(slow_max_step, int(_player._combo_step))
+		_bobba.global_position = bp
+		_bobba.velocity = Vector3.ZERO
+	print("[CombatTest/COMBO] A2 slow clicks: max_step=%d (expect 0 — no chain)" % slow_max_step)
+
+	# --- B: Bobba combo chain. Stand in range, immune, and watch his steps. ---
+	await get_tree().create_timer(1.0).timeout
+	_bobba.attack_cooldown = 0.0
+	var bobba_max_step: int = -1
+	var anims_seen: Dictionary = {}
+	t = 0.0
+	while t < 8.0:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		# Keep the player parked inside chain range.
+		_player.global_position = pp
+		_player.velocity = Vector3.ZERO
+		if _bobba.state == 2:  # Proto.BobbaState.ATTACKING
+			bobba_max_step = maxi(bobba_max_step, int(_bobba._combo_step))
+			anims_seen[String(_bobba._current_anim)] = true
+	print("[CombatTest/COMBO] B bobba chain: max_step=%d anims=%s" % [
+		bobba_max_step, str(anims_seen.keys())])
+
+	var a_ok: bool = hits >= 3 and max_step >= 2
+	var a2_ok: bool = slow_max_step == 0
+	var b_ok: bool = bobba_max_step >= 2
+	print("[CombatTest/COMBO] RESULT player_chain=%s slow_no_chain=%s bobba_chain=%s" % [
+		str(a_ok), str(a2_ok), str(b_ok)])
+	_finish("COMBO_DONE")
+
+
+## Backstab verification: the same sword swing deals 2× from Bobba's rear
+## cone and 1× from the front. Bobba is pinned (position + facing reset
+## every frame while we swing) so the geometry stays controlled.
+func _drive_backstab(_delta: float) -> void:
+	if _scripted_test_started:
+		return
+	_scripted_test_started = true
+	_run_backstab_test()
+
+
+## Holds Bobba at `pos` facing +Z while one player swing resolves, then
+## returns how much HP Bobba lost to it.
+func _swing_and_measure(bobba_pos: Vector3) -> float:
+	var bhp0: float = float(_bobba.health)
+	_player._do_attack()
+	for i in range(90):  # ~1.5s at 60fps, pinning Bobba each frame
+		_bobba.global_position = bobba_pos
+		if "_model" in _bobba and _bobba._model:
+			_bobba._model.rotation.y = 0.0  # forward = +Z
+		_bobba.velocity = Vector3.ZERO
+		await get_tree().process_frame
+	return bhp0 - float(_bobba.health)
+
+
+func _run_backstab_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	var bobba_pos := CENTER
+	bobba_pos.y = _bobba.global_position.y
+	_bobba.global_position = bobba_pos
+	await get_tree().create_timer(0.4).timeout
+	bobba_pos.y = _bobba.global_position.y
+	_player._spawn_immunity_timer = 30.0
+
+	# --- A: attack from BEHIND (Bobba faces +Z; stand on -Z side). ---
+	# Camera-yaw convention: to face direction (dx,dz), yaw = atan2(-dx,-dz).
+	var pp := CENTER + Vector3(0.0, 0.0, -1.7)
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = PI  # face +Z (toward Bobba)
+	await get_tree().create_timer(0.35).timeout  # let the model finish turning
+	var back_dmg: float = await _swing_and_measure(bobba_pos)
+	print("[CombatTest/BACKSTAB] A from behind: dealt %.0f (expect ~200)" % back_dmg)
+
+	await get_tree().create_timer(0.6).timeout
+
+	# --- B: attack from the FRONT (+Z side, facing -Z back at Bobba). ---
+	pp = CENTER + Vector3(0.0, 0.0, 1.7)
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	if cam_pivot:
+		cam_pivot.rotation.y = 0.0  # face -Z (toward Bobba)
+	await get_tree().create_timer(0.35).timeout  # let the model finish turning
+	var front_dmg: float = await _swing_and_measure(bobba_pos)
+	print("[CombatTest/BACKSTAB] B from front: dealt %.0f (expect ~100)" % front_dmg)
+
+	var a_ok: bool = back_dmg >= 150.0
+	var b_ok: bool = front_dmg > 1.0 and front_dmg < 150.0
+	print("[CombatTest/BACKSTAB] RESULT backstab_crit=%s front_normal=%s" % [str(a_ok), str(b_ok)])
+	_finish("BACKSTAB_DONE")
+
+
+## Estus verification:
+##   A) drinking heals 45% of max HP and consumes a charge;
+##   B) an unblocked hit mid-drink cancels the heal but the charge stays
+##      spent (healing under pressure is a gamble);
+##   C) charges can run out.
+func _drive_estus(_delta: float) -> void:
+	if _scripted_test_started:
+		return
+	_scripted_test_started = true
+	_run_estus_test()
+
+
+func _run_estus_test() -> void:
+	const CENTER := Vector3(120.0, 0.0, -140.0)
+	# Park Bobba far away so all damage here is scripted.
+	var bp := CENTER + Vector3(50.0, 0.0, 0.0)
+	bp.y = _bobba.global_position.y
+	_bobba.global_position = bp
+	var pp := CENTER
+	pp.y = _player.global_position.y
+	_player.global_position = pp
+	await get_tree().create_timer(0.4).timeout
+
+	var kb := Vector3(0.0, 0.0, 3.0)
+	_player._spawn_immunity_timer = 0.0
+
+	# --- A: full drink heals and spends a charge. ---
+	_player.take_damage(100.0)
+	var hp0: float = float(_player.current_health)
+	var charges0: int = int(_player.estus_charges)
+	_player._try_estus()
+	await get_tree().create_timer(1.4).timeout  # drink takes 1.1s
+	var hp1: float = float(_player.current_health)
+	var charges1: int = int(_player.estus_charges)
+	print("[CombatTest/ESTUS] A drink: hp %.0f -> %.0f charges %d -> %d (expect +%.0f, -1 charge)" % [
+		hp0, hp1, charges0, charges1, float(_player.max_health) * 0.45])
+
+	# --- B: interrupted drink wastes the charge. ---
+	_player._spawn_immunity_timer = 0.0
+	_player.take_damage(50.0)
+	var hp2: float = float(_player.current_health)
+	var charges2: int = int(_player.estus_charges)
+	_player._try_estus()
+	await get_tree().create_timer(0.3).timeout  # mid-channel
+	_player._spawn_immunity_timer = 0.0
+	_player.take_hit(10.0, kb, false, _bobba, false)
+	await get_tree().create_timer(1.2).timeout  # would have finished by now
+	var hp3: float = float(_player.current_health)
+	var charges3: int = int(_player.estus_charges)
+	print("[CombatTest/ESTUS] B interrupt: hp %.0f -> %.0f charges %d -> %d (expect -10 hp, -1 charge, NO heal)" % [
+		hp2, hp3, charges2, charges3])
+
+	var heal_amount: float = hp1 - hp0
+	var a_ok: bool = heal_amount >= float(_player.max_health) * 0.40 and charges1 == charges0 - 1
+	var b_ok: bool = hp3 <= hp2 - 5.0 and charges3 == charges2 - 1
+	print("[CombatTest/ESTUS] RESULT heals=%s interrupt_wastes_charge=%s" % [str(a_ok), str(b_ok)])
+	_finish("ESTUS_DONE")
+
+
+## SOULS — the integration duel. Paladin fights Bobba to the death using
+## the full souls kit against Bobba's REAL attacks (no scripted take_hit),
+## playing the genre's rhythm instead of trading blows:
+##   • bait: hold just inside Bobba's 2 m attack trigger with the sword
+##     DOWN — never swing into a ready Bobba (a swing would gate the parry);
+##   • parry: pressed on reaction as Bobba's swing enters its damage
+##     window, so the punch lands inside the deflect frames;
+##   • riposte: the 3× crit punish while Bobba is parry-staggered;
+##   • estus: drinks while Bobba is staggered/far, kiting backward —
+##     whiffed parries are punished with full damage and healed back here.
+## Outcome line reports how often each verb actually fired.
+const SOULS_BAIT_DIST: float = 1.8  # inside Bobba's 2.0 m attack trigger
+
+func _drive_souls(delta: float) -> void:
+	# ── Kit-usage stat tracking (frame deltas) ──
+	var riposte_now: bool = bool(_bobba.is_riposte_ready()) if _bobba.has_method("is_riposte_ready") else false
+	if riposte_now and not _souls_prev_riposte:
+		_souls_parries += 1
+	_souls_prev_riposte = riposte_now
+
+	var bhp: float = float(_bobba.health)
+	if _souls_prev_bobba_hp >= 0.0:
+		var dealt: float = _souls_prev_bobba_hp - bhp
+		if dealt >= 250.0:
+			_souls_ripostes += 1
+		elif dealt >= 150.0:
+			_souls_backstabs += 1
+	_souls_prev_bobba_hp = bhp
+
+	if _souls_estus_start < 0 and "estus_charges" in _player:
+		_souls_estus_start = int(_player.estus_charges)
+
+	# ── Geometry: always face Bobba (the lock-on equivalent) ──
+	var to_bobba: Vector3 = _bobba.global_position - _player.global_position
+	to_bobba.y = 0.0
+	var dist: float = to_bobba.length()
+	if dist < 0.001:
+		return
+	var dir: Vector3 = to_bobba / dist
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		cam_pivot.rotation.y = atan2(-dir.x, -dir.z)
+
+	# ── Drinking: kite backward until the swig finishes ──
+	if _player.is_drinking:
+		_player.global_position += -dir * 5.5 * delta
+		return
+
+	var bobba_attacking: bool = _bobba.state == 2  # Proto.BobbaState.ATTACKING
+	var bobba_stunned: bool = _bobba.state == 4    # Proto.BobbaState.STUNNED
+
+	# ── Riposte: highest-priority punish while the window is open ──
+	if riposte_now:
+		if dist > MELEE_HOLD_DIST + 0.2:
+			var rstep: float = minf(8.0 * delta, dist - MELEE_HOLD_DIST)
+			_player.global_position += dir * rstep
+		_try_attack()
+		return
+
+	# ── Defense: parry the incoming swing on reaction, holding ground ──
+	if bobba_attacking:
+		if not _player.is_parrying and not _souls_parried_this_attack:
+			# Press off predicted CONTACT, like a player reacting to the
+			# incoming fist — not off the windup. At the 1.8 m bait
+			# distance the fist arc reaches us a measured ~0.5s after the
+			# damage window arms (it needs full arm extension), so aim the
+			# press ~0.15s before that moment, mid-deflect-frames.
+			const CONTACT_AFTER_WINDOW: float = 0.50
+			var t_to_contact: float = _time_to_bobba_hit_window() + CONTACT_AFTER_WINDOW
+			if t_to_contact >= 0.10 and t_to_contact <= 0.20:
+				_player._try_parry()
+				_souls_parried_this_attack = _player.is_parrying
+				print("[CombatTest/SOULS] parry pressed (t_to_contact=%.3f, accepted=%s)" % [
+					t_to_contact, str(_player.is_parrying)])
+		return  # never trade mid-swing
+	_souls_parried_this_attack = false
+
+	# ── Heal: hurt and it's safe (Bobba staggered or far away) ──
+	if float(_player.current_health) <= 100.0 and (bobba_stunned or dist > 4.0):
+		_player._try_estus()
+		if _player.is_drinking:
+			return
+
+	# ── Stagger punish: free hit while Bobba is stunned (post-riposte) ──
+	if bobba_stunned and dist <= MELEE_HOLD_DIST + 0.3:
+		_try_attack()
+		return
+
+	# ── Neutral: bait at 1.8 m with the sword down ──
+	if dist > APPROACH_SNAP_DIST:
+		var snap_pos: Vector3 = _bobba.global_position - dir * SOULS_BAIT_DIST
+		snap_pos.y = _player.global_position.y
+		_player.global_position = snap_pos
+	elif dist > SOULS_BAIT_DIST + 0.2:
+		var step: float = minf(6.0 * delta, dist - SOULS_BAIT_DIST)
+		_player.global_position += dir * step
+
+
+## Seconds until Bobba's current swing enters its damage window (30% of
+## the attack animation — the same threshold bobba.gd uses to arm its
+## hand hitboxes). Negative once inside or past the window.
+func _time_to_bobba_hit_window() -> float:
+	if not ("_anim_player" in _bobba) or _bobba._anim_player == null:
+		return -1.0
+	var ap: AnimationPlayer = _bobba._anim_player
+	var anim_len: float = ap.current_animation_length
+	if anim_len <= 0.0:
+		return -1.0
+	return 0.3 * anim_len - ap.current_animation_position
+
+
+func _finish_souls(outcome: String) -> void:
+	if _outcome_logged:
+		return
+	var estus_used: int = 0
+	if _souls_estus_start >= 0 and "estus_charges" in _player:
+		estus_used = _souls_estus_start - int(_player.estus_charges)
+	print("[CombatTest/SOULS] KIT parries=%d ripostes=%d backstabs=%d estus_used=%d" % [
+		_souls_parries, _souls_ripostes, _souls_backstabs, estus_used])
+	_finish(outcome)
 
 
 func _drive(delta: float) -> void:

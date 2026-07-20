@@ -100,7 +100,9 @@ func _ready() -> void:
 	collision_mask = 1   # Collide with world
 
 	_setup_collision()
-	_setup_name_label()
+	# Name tags above players removed (owner request) — the party/combat
+	# HUD rows carry identity instead.
+	#_setup_name_label()
 	_setup_spell_vfx()
 	# Defer character model setup to avoid initialization issues
 	call_deferred("_setup_character_model")

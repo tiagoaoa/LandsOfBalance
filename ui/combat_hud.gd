@@ -60,6 +60,32 @@ func _refresh() -> void:
 func _collect_targets() -> Array:
 	var out: Array = []
 
+	# PARTY first — the energy of both players lives in this corner.
+	var me := get_tree().get_first_node_in_group("player")
+	if me and is_instance_valid(me):
+		var my_hp: float = float(me.current_health) if "current_health" in me else 0.0
+		var my_mx: float = float(me.max_health) if "max_health" in me else 100.0
+		out.append({
+			"node": me,
+			"name": "You (%s)" % ("Paladin" if int(me.character_class) == 0 else "Archer"),
+			"hp": maxf(my_hp, 0.0),
+			"max_hp": my_mx,
+			"color": Color(0.35, 0.85, 0.45),
+		})
+	var comp := get_tree().get_first_node_in_group("companion")
+	if comp and is_instance_valid(comp):
+		var c_hp: float = float(comp.current_health) if "current_health" in comp else 0.0
+		var c_mx: float = float(comp.max_health) if "max_health" in comp else 100.0
+		if "is_dead" in comp and comp.is_dead:
+			c_hp = 0.0
+		out.append({
+			"node": comp,
+			"name": "Ally (%s)" % ("Paladin" if int(comp.character_class) == 0 else "Archer"),
+			"hp": maxf(c_hp, 0.0),
+			"max_hp": c_mx,
+			"color": Color(0.4, 0.7, 1.0),
+		})
+
 	# NPCs
 	for b in get_tree().get_nodes_in_group("bobba"):
 		if not is_instance_valid(b):

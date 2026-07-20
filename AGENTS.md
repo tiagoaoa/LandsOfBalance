@@ -27,6 +27,21 @@ timeout 60 /home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-
 /home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-projects/3d/platformer -e
 ```
 
+## MCP Workflow
+- Repo-local MCP config lives in `.mcp.json`
+- Expected enabled project MCP servers: `godot`, `blender`
+- Godot MCP entry uses GoPeak at `/home/talves/.local/lib/gopeak/node_modules/gopeak/build/index.js`
+- Godot executable path: `/home/talves/bin/godot`
+- Bridge port: `127.0.0.1:6505`
+- Runtime port: `7777`
+- Godot MCP addons are already present under `addons/godot_mcp_editor/` and `addons/godot_mcp_runtime/`
+- Local smoke test: `bash tools/test_godot_mcp.sh`
+
+### MCP Notes From Claude Context
+- Claude project settings were configured to enable all project MCP servers and explicitly enable `.mcp.json` servers `godot` and `blender`
+- The useful part to preserve is the repo-local `.mcp.json` contract, not Claude-specific permission allowlists
+- If MCP editor tools fail in sandboxed environments, verify again outside the sandbox because loopback binds on ports `6505` and `7777` may be blocked
+
 ## Key Systems
 
 ### Lighting System

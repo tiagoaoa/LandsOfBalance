@@ -12,6 +12,10 @@ const LIFETIME: float = 10.0
 ## Direct-hit damage, expressed as a percentage of the target's max HP.
 ## Fully negated when the target is blocking.
 const DIRECT_HIT_DAMAGE_PCT: float = 0.05
+# A shot loosed mid-air has no planted stance behind it: its flame runs
+# at half brightness and the hit carries only this fraction of the damage.
+const AIRBORNE_SHOT_DAMAGE_MULT: float = 0.5
+var airborne_shot: bool = false
 ## Ground fire DoT: 5% max HP per second to any character inside the radius,
 ## for as long as the fire burns.
 const GROUND_FIRE_DAMAGE_PCT_PER_SEC: float = 0.05
@@ -32,6 +36,7 @@ var _has_hit: bool = false
 
 
 func _ready() -> void:
+	add_to_group("fire_arrows")  # burning tip reveals characters to AI eyes
 	_setup_arrow_mesh()
 	_setup_fire_effect()
 	_setup_collision()
@@ -71,163 +76,126 @@ func launch(direction: Vector3) -> void:
 
 
 func _setup_arrow_mesh() -> void:
-	# Create arrow shaft (straight wooden stick)
+	# Proper fletched war arrow, built procedurally: tapered cedar shaft,
+	# forged bodkin head with a metal collar, horn nock, three swept feather
+	# vanes (two off-white + the traditional single "cock feather" accent).
+	# Forward is -Z (matches look_at in _physics_process).
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.38, 0.27, 0.16)  # oiled cedar
+	wood.roughness = 0.7
+
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = Color(0.62, 0.63, 0.68)
+	metal.metallic = 1.0
+	metal.roughness = 0.35
+
+	# Shaft — slightly tapered toward the nock.
 	_mesh = MeshInstance3D.new()
 	_mesh.name = "ArrowShaft"
-
-	var shaft_mesh = CylinderMesh.new()
-	shaft_mesh.top_radius = 0.015
-	shaft_mesh.bottom_radius = 0.015
-	shaft_mesh.height = 1.0
+	var shaft_mesh := CylinderMesh.new()
+	shaft_mesh.top_radius = 0.010   # nock end (cylinder +Y maps to +Z after rotation)
+	shaft_mesh.bottom_radius = 0.013
+	shaft_mesh.height = 0.92
+	shaft_mesh.radial_segments = 8
 	_mesh.mesh = shaft_mesh
-
-	# Brown wood material
-	var shaft_material = StandardMaterial3D.new()
-	shaft_material.albedo_color = Color(0.5, 0.3, 0.15)  # Brown wood
-	shaft_material.roughness = 0.8
-	_mesh.material_override = shaft_material
-
-	# Rotate to point forward (-Z direction)
-	_mesh.rotation.x = deg_to_rad(90)
-
+	_mesh.material_override = wood
+	_mesh.rotation.x = deg_to_rad(-90)  # -Y (thick end) points forward (-Z)
 	add_child(_mesh)
 
-	# Create V-shaped arrowhead using two angled planes
-	var tip_material = StandardMaterial3D.new()
-	tip_material.albedo_color = Color(0.4, 0.4, 0.45)  # Metal gray
-	tip_material.metallic = 0.9
-	tip_material.roughness = 0.3
+	# Bodkin head — a slim forged spike (cone), far more arrow-like than
+	# the old two-prism "V".
+	var head := MeshInstance3D.new()
+	head.name = "ArrowHead"
+	var head_mesh := CylinderMesh.new()
+	head_mesh.top_radius = 0.0
+	head_mesh.bottom_radius = 0.024
+	head_mesh.height = 0.14
+	head_mesh.radial_segments = 6  # faceted like hammered steel
+	head.mesh = head_mesh
+	head.material_override = metal
+	head.rotation.x = deg_to_rad(-90)
+	head.position = Vector3(0, 0, -0.53)
+	add_child(head)
 
-	# Left blade of V
-	var left_blade = MeshInstance3D.new()
-	left_blade.name = "LeftBlade"
-	var left_mesh = PrismMesh.new()
-	left_mesh.size = Vector3(0.08, 0.15, 0.02)
-	left_blade.mesh = left_mesh
-	left_blade.material_override = tip_material
-	left_blade.position = Vector3(-0.025, 0, -0.55)
-	left_blade.rotation.x = deg_to_rad(90)
-	left_blade.rotation.z = deg_to_rad(-15)
-	add_child(left_blade)
+	# Collar where the head is socketed onto the shaft.
+	var collar := MeshInstance3D.new()
+	collar.name = "HeadCollar"
+	var collar_mesh := CylinderMesh.new()
+	collar_mesh.top_radius = 0.016
+	collar_mesh.bottom_radius = 0.018
+	collar_mesh.height = 0.05
+	collar_mesh.radial_segments = 8
+	collar.mesh = collar_mesh
+	collar.material_override = metal
+	collar.rotation.x = deg_to_rad(-90)
+	collar.position = Vector3(0, 0, -0.44)
+	add_child(collar)
 
-	# Right blade of V
-	var right_blade = MeshInstance3D.new()
-	right_blade.name = "RightBlade"
-	var right_mesh = PrismMesh.new()
-	right_mesh.size = Vector3(0.08, 0.15, 0.02)
-	right_blade.mesh = right_mesh
-	right_blade.material_override = tip_material
-	right_blade.position = Vector3(0.025, 0, -0.55)
-	right_blade.rotation.x = deg_to_rad(90)
-	right_blade.rotation.z = deg_to_rad(15)
-	add_child(right_blade)
+	# Horn nock at the tail.
+	var nock := MeshInstance3D.new()
+	nock.name = "Nock"
+	var nock_mesh := CylinderMesh.new()
+	nock_mesh.top_radius = 0.014
+	nock_mesh.bottom_radius = 0.011
+	nock_mesh.height = 0.035
+	nock_mesh.radial_segments = 8
+	var horn := StandardMaterial3D.new()
+	horn.albedo_color = Color(0.15, 0.13, 0.11)
+	horn.roughness = 0.4
+	nock.mesh = nock_mesh
+	nock.material_override = horn
+	nock.rotation.x = deg_to_rad(-90)
+	nock.position = Vector3(0, 0, 0.465)
+	add_child(nock)
 
-	# Add fletching (feathers) at the back
-	var feather_material = StandardMaterial3D.new()
-	feather_material.albedo_color = Color(0.8, 0.2, 0.1)  # Red feathers
-	feather_material.roughness = 0.9
-
+	# Fletching — three thin vanes with a slight helical cant (real fletch
+	# spin). Goose-grey pair + one red cock feather.
+	var vane_mesh := BoxMesh.new()
+	vane_mesh.size = Vector3(0.003, 0.042, 0.14)  # thin, low, swept back
 	for i in range(3):
-		var feather = MeshInstance3D.new()
-		feather.name = "Feather%d" % i
-		var feather_mesh = BoxMesh.new()
-		feather_mesh.size = Vector3(0.06, 0.12, 0.005)
-		feather.mesh = feather_mesh
-		feather.material_override = feather_material
+		var vane := MeshInstance3D.new()
+		vane.name = "Vane%d" % i
+		vane.mesh = vane_mesh
+		var vane_mat := StandardMaterial3D.new()
+		# Muted parchment — bright white blooms next to the tip flame's light.
+		vane_mat.albedo_color = Color(0.68, 0.18, 0.10) if i == 0 else Color(0.72, 0.69, 0.60)
+		vane_mat.roughness = 0.9
+		vane.material_override = vane_mat
+		var angle: float = (TAU / 3.0) * i
+		# Sit the vane against the shaft, fanned outward, canted 6° for spin.
+		vane.position = Vector3(cos(angle) * 0.013, sin(angle) * 0.013, 0.38)
+		vane.rotation = Vector3(0, deg_to_rad(6.0), angle + PI / 2.0)
+		vane.position += Vector3(cos(angle), sin(angle), 0) * 0.026
+		add_child(vane)
 
-		var angle = (TAU / 3.0) * i
-		feather.position = Vector3(cos(angle) * 0.025, sin(angle) * 0.025, 0.45)
-		feather.rotation.z = angle
-		add_child(feather)
 
+var _fire_trail: SlashTrail = null
 
 func _setup_fire_effect() -> void:
-	# Main fire particles
-	_fire_particles = GPUParticles3D.new()
-	_fire_particles.name = "FireParticles"
-	_fire_particles.amount = 50
-	_fire_particles.lifetime = 0.5
-	_fire_particles.explosiveness = 0.0
-	_fire_particles.randomness = 0.5
+	# Burning tip: small additive flame + drifting embers hugging the head.
+	# The particles emit in world space, so the arrow's speed naturally
+	# stretches them into a comet tail behind the tip.
+	var flame_scale: float = 0.5 if airborne_shot else 1.0
+	_fire_particles = FireFX.add_flames(self, Vector3(0, 0, -0.45),
+			0.35 * (0.7 if airborne_shot else 1.0), int(24 * flame_scale))
+	_trail_particles = FireFX.add_embers(self, Vector3(0, 0, -0.4),
+			0.4 * (0.7 if airborne_shot else 1.0), int(14 * flame_scale))
 
-	var fire_material = ParticleProcessMaterial.new()
-	fire_material.direction = Vector3(0, 1, 0)
-	fire_material.spread = 30.0
-	fire_material.initial_velocity_min = 1.0
-	fire_material.initial_velocity_max = 3.0
-	fire_material.gravity = Vector3(0, 2, 0)
-	fire_material.scale_min = 0.1
-	fire_material.scale_max = 0.3
+	# Ribbon streak along the flight path — the readable "fire arrow" arc.
+	_fire_trail = SlashTrail.attach(self, self,
+			Vector3(0, 0, -0.15), Vector3(0, 0, -0.5), Color(1.0, 0.55, 0.15, 0.85))
+	_fire_trail.lifetime = 0.3
+	_fire_trail.emitting = true
 
-	# Fire color gradient
-	var color_ramp = GradientTexture1D.new()
-	var gradient = Gradient.new()
-	gradient.set_color(0, Color(1.0, 0.8, 0.2, 1.0))  # Yellow
-	gradient.set_color(1, Color(1.0, 0.3, 0.0, 0.0))  # Orange to transparent
-	color_ramp.gradient = gradient
-	fire_material.color_ramp = color_ramp
-
-	# Emission color
-	fire_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	fire_material.emission_sphere_radius = 0.1
-
-	_fire_particles.process_material = fire_material
-
-	# Fire mesh (billboard quad)
-	var fire_mesh = QuadMesh.new()
-	fire_mesh.size = Vector2(0.15, 0.15)
-
-	var fire_mesh_material = StandardMaterial3D.new()
-	fire_mesh_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fire_mesh_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	fire_mesh_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	fire_mesh_material.albedo_color = Color(1.0, 0.6, 0.2, 0.8)
-	fire_mesh_material.emission_enabled = true
-	fire_mesh_material.emission = Color(1.0, 0.4, 0.0)
-	fire_mesh_material.emission_energy_multiplier = 3.0
-	fire_mesh.material = fire_mesh_material
-
-	_fire_particles.draw_pass_1 = fire_mesh
-	_fire_particles.position = Vector3(0, 0, 0.2)  # Behind the arrow
-
-	add_child(_fire_particles)
-
-	# Trail particles
-	_trail_particles = GPUParticles3D.new()
-	_trail_particles.name = "TrailParticles"
-	_trail_particles.amount = 30
-	_trail_particles.lifetime = 0.3
-	_trail_particles.explosiveness = 0.0
-
-	var trail_material = ParticleProcessMaterial.new()
-	trail_material.direction = Vector3(0, 0, 1)
-	trail_material.spread = 5.0
-	trail_material.initial_velocity_min = 0.5
-	trail_material.initial_velocity_max = 1.0
-	trail_material.gravity = Vector3.ZERO
-	trail_material.scale_min = 0.05
-	trail_material.scale_max = 0.1
-
-	var trail_color_ramp = GradientTexture1D.new()
-	var trail_gradient = Gradient.new()
-	trail_gradient.set_color(0, Color(1.0, 0.5, 0.0, 0.8))
-	trail_gradient.set_color(1, Color(1.0, 0.2, 0.0, 0.0))
-	trail_color_ramp.gradient = trail_gradient
-	trail_material.color_ramp = trail_color_ramp
-
-	_trail_particles.process_material = trail_material
-	_trail_particles.draw_pass_1 = fire_mesh.duplicate()
-	_trail_particles.position = Vector3(0, 0, 0.4)
-
-	add_child(_trail_particles)
-
-	# Add point light for fire glow
+	# Warm glow riding the arrow — bright enough to trace the arc through
+	# the dark night and glance off the grass it passes over.
 	var light = OmniLight3D.new()
 	light.name = "FireLight"
-	light.light_color = Color(1.0, 0.5, 0.1)
-	light.light_energy = 2.0
-	light.omni_range = 3.0
-	light.omni_attenuation = 2.0
+	light.light_color = Color(1.0, 0.55, 0.18)
+	light.light_energy = 3.0 * (0.5 if airborne_shot else 1.0)
+	light.omni_range = 6.0
+	light.omni_attenuation = 1.2
+	light.position = Vector3(0, 0, -0.4)
 	add_child(light)
 
 
@@ -265,6 +233,7 @@ func _on_body_entered(body: Node) -> void:
 		return
 
 	_has_hit = true
+	Sfx.play3d("arrow_impact", global_position, -4.0)
 
 	# Stop movement
 	freeze = true
@@ -279,16 +248,21 @@ func _on_body_entered(body: Node) -> void:
 
 	var flat_damage_for_network: float = _compute_flat_arrow_damage(body)
 
+	var shot_mult: float = AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0
 	var is_player: bool = "is_blocking" in body and body.has_method("take_hit")
 	if is_player:
 		# Player hit — honor block state (blocks fully negate arrows).
 		var impulse: Vector3 = linear_velocity.normalized() * 3.0
 		impulse.y = 0.1
 		var blocked: bool = bool(body.is_blocking)
-		body.take_hit(flat_damage_for_network, impulse, blocked, shooter, true)
+		body.take_hit(flat_damage_for_network * shot_mult, impulse, blocked, shooter, true)
 	elif body.has_method("take_damage_pct"):
 		# NPC — percent-based damage, doesn't block.
-		body.take_damage_pct(DIRECT_HIT_DAMAGE_PCT)
+		body.take_damage_pct(DIRECT_HIT_DAMAGE_PCT * shot_mult)
+		# Dry bones catch: a landed fire arrow sets skeletons alight —
+		# a weaker mid-air shot clings for a shorter burn.
+		if body.has_method("ignite"):
+			body.ignite(4.0 * shot_mult if airborne_shot else 4.0)
 
 	# Keep the legacy arrow-retreat reaction for Bobba (runs in addition
 	# to the damage above).
@@ -298,6 +272,8 @@ func _on_body_entered(body: Node) -> void:
 	# Stop fire effect but keep some embers
 	_fire_particles.emitting = false
 	_trail_particles.emitting = false
+	if _fire_trail != null:
+		_fire_trail.emitting = false
 
 	# Broadcast hit event to network (only for local arrows)
 	if is_local and has_node("/root/NetworkManager"):
@@ -316,120 +292,14 @@ func _on_body_entered(body: Node) -> void:
 
 
 func _create_ground_fire() -> void:
-	# Create a persistent fire light at landing position
-	var fire_node = Node3D.new()
-	fire_node.name = "ArrowGroundFire"
-	get_tree().current_scene.add_child(fire_node)
-	fire_node.global_position = global_position
+	# Full fire composition (lights + flames + embers + smoke + scorch,
+	# with burn-down and auto-free) comes from the shared FireFX factory.
+	# Node name must keep "GroundFire" — Bobba's fire avoidance scans for it.
+	var fire_node: Node3D = FireFX.create_ground_fire(
+			get_tree().current_scene, global_position,
+			"ArrowGroundFire", GROUND_FIRE_LIFETIME, true)
 
 	print("Arrow ground fire created at: ", global_position)
-
-	# Main fireplace light - intense warm glow with 5m radius
-	var ground_light = OmniLight3D.new()
-	ground_light.name = "FireplaceLight"
-	ground_light.light_color = Color(1.0, 0.5, 0.1)  # Intense orange-red
-	ground_light.light_energy = 500.0  # Very intense for clear visibility
-	ground_light.omni_range = 5.0
-	ground_light.omni_attenuation = 0.8  # Lower attenuation = more even light spread
-	ground_light.shadow_enabled = true
-	ground_light.position = Vector3(0, 0.5, 0)  # Above ground
-	fire_node.add_child(ground_light)
-
-	# Secondary fill light for broader illumination
-	var fill_light = OmniLight3D.new()
-	fill_light.name = "FillLight"
-	fill_light.light_color = Color(1.0, 0.7, 0.3)
-	fill_light.light_energy = 200.0
-	fill_light.omni_range = 8.0
-	fill_light.omni_attenuation = 1.5
-	fill_light.shadow_enabled = false
-	fill_light.position = Vector3(0, 1.0, 0)
-	fire_node.add_child(fill_light)
-
-	# Large intense fire particles
-	var ground_fire = GPUParticles3D.new()
-	ground_fire.name = "GroundFireParticles"
-	ground_fire.amount = 80
-	ground_fire.lifetime = 0.8
-	ground_fire.explosiveness = 0.1
-	ground_fire.randomness = 0.6
-
-	var fire_mat = ParticleProcessMaterial.new()
-	fire_mat.direction = Vector3(0, 1, 0)
-	fire_mat.spread = 35.0
-	fire_mat.initial_velocity_min = 1.0
-	fire_mat.initial_velocity_max = 4.0
-	fire_mat.gravity = Vector3(0, 3.0, 0)  # Fire rises
-	fire_mat.scale_min = 0.3
-	fire_mat.scale_max = 0.8
-
-	var color_ramp = GradientTexture1D.new()
-	var gradient = Gradient.new()
-	gradient.add_point(0.0, Color(1.0, 1.0, 0.5, 1.0))  # Bright white-yellow core
-	gradient.add_point(0.3, Color(1.0, 0.8, 0.2, 1.0))  # Yellow
-	gradient.add_point(0.6, Color(1.0, 0.4, 0.0, 0.9))  # Orange
-	gradient.add_point(1.0, Color(0.8, 0.1, 0.0, 0.0))  # Red fade out
-	color_ramp.gradient = gradient
-	fire_mat.color_ramp = color_ramp
-	fire_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	fire_mat.emission_sphere_radius = 0.4
-
-	ground_fire.process_material = fire_mat
-
-	var fire_mesh = QuadMesh.new()
-	fire_mesh.size = Vector2(0.5, 0.5)
-	var mesh_mat = StandardMaterial3D.new()
-	mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mesh_mat.albedo_color = Color(1.0, 0.8, 0.3, 1.0)
-	mesh_mat.emission_enabled = true
-	mesh_mat.emission = Color(1.0, 0.6, 0.1)
-	mesh_mat.emission_energy_multiplier = 5.0
-	fire_mesh.material = mesh_mat
-
-	ground_fire.draw_pass_1 = fire_mesh
-	ground_fire.position = Vector3(0, 0.2, 0)
-	fire_node.add_child(ground_fire)
-
-	# Add smoke particles
-	var smoke = GPUParticles3D.new()
-	smoke.name = "SmokeParticles"
-	smoke.amount = 20
-	smoke.lifetime = 2.0
-
-	var smoke_mat = ParticleProcessMaterial.new()
-	smoke_mat.direction = Vector3(0, 1, 0)
-	smoke_mat.spread = 20.0
-	smoke_mat.initial_velocity_min = 0.5
-	smoke_mat.initial_velocity_max = 1.5
-	smoke_mat.gravity = Vector3(0, 0.5, 0)
-	smoke_mat.scale_min = 0.5
-	smoke_mat.scale_max = 1.5
-
-	var smoke_gradient = Gradient.new()
-	smoke_gradient.add_point(0.0, Color(0.3, 0.3, 0.3, 0.0))
-	smoke_gradient.add_point(0.2, Color(0.3, 0.3, 0.3, 0.4))
-	smoke_gradient.add_point(1.0, Color(0.2, 0.2, 0.2, 0.0))
-	var smoke_ramp = GradientTexture1D.new()
-	smoke_ramp.gradient = smoke_gradient
-	smoke_mat.color_ramp = smoke_ramp
-
-	smoke.process_material = smoke_mat
-	var smoke_mesh = QuadMesh.new()
-	smoke_mesh.size = Vector2(1.0, 1.0)
-	var smoke_mesh_mat = StandardMaterial3D.new()
-	smoke_mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	smoke_mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	smoke_mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	smoke_mesh_mat.albedo_color = Color(0.4, 0.4, 0.4, 0.5)
-	smoke_mesh.material = smoke_mesh_mat
-	smoke.draw_pass_1 = smoke_mesh
-	smoke.position = Vector3(0, 0.5, 0)
-	fire_node.add_child(smoke)
-
-	# Add light flickering effect
-	_start_light_flicker(ground_light, fire_node)
 
 	# Damage-over-time aura — anything (Bobba, Dragon, enemy players) that
 	# stands inside the 5m fire takes 5% of max HP per second until the fire
@@ -461,17 +331,4 @@ func _create_ground_fire() -> void:
 					b.name, GROUND_FIRE_DAMAGE_PCT_PER_SEC * 100.0
 				]))
 		fire_node.add_child(aura)
-
-	# Auto-destroy after 30 seconds
-	var destroy_timer = get_tree().create_timer(GROUND_FIRE_LIFETIME)
-	destroy_timer.timeout.connect(fire_node.queue_free)
-
-
-func _start_light_flicker(light: OmniLight3D, parent: Node3D) -> void:
-	# Create a tween for realistic fire flicker
-	var flicker_tween = parent.create_tween()
-	flicker_tween.set_loops()
-	flicker_tween.tween_property(light, "light_energy", 600.0, 0.1)
-	flicker_tween.tween_property(light, "light_energy", 400.0, 0.15)
-	flicker_tween.tween_property(light, "light_energy", 550.0, 0.08)
-	flicker_tween.tween_property(light, "light_energy", 450.0, 0.12)
+	# (FireFX.create_ground_fire owns the burn-down and auto-free.)

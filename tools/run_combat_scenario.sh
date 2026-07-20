@@ -13,12 +13,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SCENARIO="${1:-A}"
-TIMEOUT_SEC="${2:-75}"
+# PLAY, ARCHER and COOP are human-driven: long leash unless the caller overrides.
+if [ "$SCENARIO" = "PLAY" ] || [ "$SCENARIO" = "ARCHER" ] || [ "$SCENARIO" = "COOP" ]; then
+    TIMEOUT_SEC="${2:-3600}"
+else
+    TIMEOUT_SEC="${2:-75}"
+fi
 GODOT="${GODOT:-/home/talves/bin/godot}"
 
 case "$SCENARIO" in
-    A|B|GRASS|PROMO) ;;
-    *) echo "Scenario must be A, B, GRASS, or PROMO (got: $SCENARIO)"; exit 1 ;;
+    A|B|GRASS|PROMO|LOCKON|DODGE|PARRY|BACKSTAB|ESTUS|SOULS|MOVE|COMBO|PLAY|ARROW|ARCHER|RIVER|DRAGON|COOP|SKEL|POSTER|BOWSIM|REVIVE) ;;
+    *) echo "Scenario must be A, B, GRASS, PROMO, LOCKON, DODGE, PARRY, BACKSTAB, ESTUS, SOULS, MOVE, COMBO, PLAY, ARROW, ARCHER, RIVER, DRAGON, COOP, SKEL, POSTER, BOWSIM, or REVIVE (got: $SCENARIO)"; exit 1 ;;
 esac
 
 LOG="/tmp/lob_combat_${SCENARIO}.log"

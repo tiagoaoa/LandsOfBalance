@@ -22,6 +22,42 @@ A 3D medieval fantasy game built with Godot 4. Features real-time multiplayer wi
 ### Single Player
 Open the project in Godot and run `game.tscn`.
 
+### Godot MCP
+
+This repo includes both Godot MCP addons and a repo-local MCP client config in `.mcp.json`.
+
+Use the `godot` MCP server entry from `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "godot": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/home/talves/.local/lib/gopeak/node_modules/gopeak/build/index.js"],
+      "env": {
+        "GODOT_PATH": "/home/talves/bin/godot",
+        "GODOT_BRIDGE_PORT": "6505",
+        "GOPEAK_BRIDGE_HOST": "127.0.0.1",
+        "GOPEAK_TOOL_PROFILE": "compact"
+      }
+    }
+  }
+}
+```
+
+Run the local smoke test:
+
+```bash
+chmod +x tools/test_godot_mcp.sh
+./tools/test_godot_mcp.sh
+```
+
+What it verifies:
+- GoPeak starts and exposes `http://127.0.0.1:6505/health`
+- The Godot editor addon connects to the bridge
+- The runtime addon opens its socket on `127.0.0.1:7777`
+
 ### Multiplayer
 
 1. **Build the server:**

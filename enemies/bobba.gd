@@ -36,8 +36,16 @@ var health: float:
 const ROAM_SPEED: float = 2.0
 const CHASE_SPEED: float = 5.0
 const RETREAT_SPEED: float = 3.0  # Speed when retreating from arrows
-const DETECTION_RADIUS: float = 10.0  # Start following within this radius
-const LOSE_RADIUS: float = 20.0  # Stop following beyond this radius
+# Night perception: Bobba is BLIND in the dark like every AI — he can only
+# SEE a character that fire reveals (Perception.is_lit_by_fire). But he has
+# a sense of SMELL: any character that comes too close is detected no matter
+# how dark it is. Once tracking, he only loses the scent when the target
+# gets 50 m away.
+const DETECTION_RADIUS: float = 10.0   # smell — characters this close are detected
+const LOSE_RADIUS: float = 50.0        # tracked targets escape at this distance
+const FLEE_HP_FRACTION: float = 0.22   # badly wounded → disengage and run
+const REGEN_DELAY: float = 5.0         # seconds without damage before healing starts
+const REGEN_PCT_PER_SEC: float = 0.03  # out-of-combat recovery — fleeing has a payoff
 const ATTACK_DISTANCE: float = 2.0  # Distance to start attack animation
 const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
@@ -99,6 +107,14 @@ signal died()
 
 var state: int = State.ROAMING
 var target: Node3D = null  # Current target player
+# Strategic flight: when badly wounded Bobba disengages and RUNS, along a
+# route scored against every threat, every remembered fire and the map edge.
+var _time_since_damage: float = 999.0
+var _is_fleeing: bool = false
+var _flee_dir: Vector3 = Vector3.ZERO
+var _flee_route_timer: float = 0.0
+var _flee_cornered_timer: float = 0.0
+var _flee_given_up: bool = false  # cornered once → fights to the end
 var _all_players: Array[Node3D] = []  # All players in scene
 var roam_direction: Vector3 = Vector3.ZERO
 var roam_timer: float = 0.0
@@ -117,6 +133,24 @@ var _attack_anim_progress: float = 0.0
 const HAND_HITBOX_START: float = 0.3  # Enable hitbox at 30% of attack animation
 const HAND_HITBOX_END: float = 0.7    # Disable hitbox at 70% of attack animation
 
+# Hack-and-slash combo chain: while the target stays in COMBO_CHAIN_RANGE,
+# a finished swing flows into the next step — swipe, straight punch, then a
+# leaping slam finisher. Each step keeps the orange telegraph flash so the
+# chain reads as three separate decisions to dodge/block/parry, and a parry
+# on any step breaks the whole chain (on_parried → STUNNED). After the chain
+# ends there's a long punish cooldown — that's the player's opening.
+const COMBO_ATTACKS: Array[Dictionary] = [
+	{"anim": &"bobba/Attack", "damage": 65.0, "window": Vector2(0.30, 0.70), "kb_mult": 1.0, "lunge": 1.5},
+	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5},
+	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0},
+]
+const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
+const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
+var _combo_step: int = 0
+var _left_claw_trail: SlashTrail = null
+var _right_claw_trail: SlashTrail = null
+const CLAW_TRAIL_COLOR: Color = Color(1.0, 0.4, 0.15, 0.7)
+
 # Animation
 var _anim_player: AnimationPlayer
 var _model: Node3D
@@ -128,6 +162,7 @@ const ANIM_PATHS: Dictionary = {
 	"walk": "res://assets/bobba/mutant walking.fbx",
 	"run": "res://assets/bobba/mutant run.fbx",
 	"attack": "res://assets/bobba/mutant swiping.fbx",
+	"punch": "res://assets/bobba/mutant punch.fbx",
 	"roar": "res://assets/bobba/mutant roaring.fbx",
 	"dying": "res://assets/bobba/mutant dying.fbx",
 	"jump_attack": "res://assets/bobba/mutant jump attack.fbx",
@@ -153,6 +188,8 @@ func _setup_health_component() -> void:
 	_health = HealthComponentClass.new()
 	_health.name = "HealthComponent"
 	_health.max_hp = MAX_HEALTH
+	_health.damaged.connect(func(_amount: float) -> void:
+		_time_since_damage = 0.0)
 	add_child(_health)
 	_health.health_changed.connect(func(cur: float, mx: float) -> void:
 		health_changed.emit(cur, mx))
@@ -182,6 +219,7 @@ func _on_staggered() -> void:
 	_current_anim = &""
 	if _anim_player and _anim_player.has_animation(&"bobba/Roar"):
 		_play_anim(&"bobba/Roar")
+	Sfx.play3d("bobba_roar", global_position + Vector3(0, 2.0, 0), -2.0)
 	print("Bobba: STAGGERED")
 
 
@@ -271,6 +309,11 @@ func _update_player_list() -> void:
 	if group_player and is_instance_valid(group_player) and group_player not in _all_players:
 		_all_players.append(group_player)
 
+	# Co-op AI companion is huntable exactly like a player
+	for companion in get_tree().get_nodes_in_group("companion"):
+		if is_instance_valid(companion) and companion not in _all_players:
+			_all_players.append(companion)
+
 	# Find remote players - search for RemotePlayer nodes
 	_find_remote_players(get_tree().root)
 
@@ -296,28 +339,47 @@ func _select_target() -> void:
 	# Always update player list to catch new players
 	_update_player_list()
 
-	# Check if current target is still valid
+	# Keep/lose: a tracked target is followed until it BOTH breaks the 50 m
+	# scent range AND can no longer be seen — a fire-lit runner stays marked.
 	if target and is_instance_valid(target):
-		var dist = global_position.distance_to(target.global_position)
-		if dist <= LOSE_RADIUS:
-			return  # Keep current target
-		else:
-			# Target escaped, clear it
+		if "is_dead" in target and target.is_dead:
 			target = null
-			state = State.ROAMING
-			_pick_new_roam_direction()
-			print("Bobba: Target escaped beyond %dm, returning to roaming" % int(LOSE_RADIUS))
+		else:
+			var dist = global_position.distance_to(target.global_position)
+			if dist > LOSE_RADIUS and not Perception.can_see(self, target):
+				target = null
+				state = State.ROAMING
+				_pick_new_roam_direction()
+				print("Bobba: lost track of target (>%dm and out of sight)" % int(LOSE_RADIUS))
 
-	# No valid target, look for a new one within detection radius
+	# Acquire/switch: run at the CLOSEST perceivable character — smelled
+	# (too close in the dark) or visible (moonlight silhouette / fire glow).
+	var best: Node3D = null
+	var best_dist: float = INF
+	for p in _all_players:
+		if not is_instance_valid(p):
+			continue
+		if "is_dead" in p and p.is_dead:
+			continue
+		var dist = global_position.distance_to(p.global_position)
+		var perceivable: bool = dist <= DETECTION_RADIUS or Perception.can_see(self, p)
+		if perceivable and dist < best_dist:
+			best = p
+			best_dist = dist
+	if best == null:
+		return
 	if target == null:
-		for p in _all_players:
-			if is_instance_valid(p):
-				var dist = global_position.distance_to(p.global_position)
-				if dist <= DETECTION_RADIUS:
-					target = p
-					state = State.CHASING
-					print("Bobba: New target acquired at %.1fm - %s" % [dist, p.name])
-					break
+		target = best
+		state = State.CHASING
+		print("Bobba: New target acquired at %.1fm - %s (%s)" % [best_dist, best.name,
+				"smelled" if best_dist <= DETECTION_RADIUS else "seen"])
+	elif best != target:
+		# Switch only with a clear margin — no ping-ponging between two
+		# equally close characters.
+		var cur_dist = global_position.distance_to(target.global_position)
+		if best_dist < cur_dist * 0.72:
+			target = best
+			print("Bobba: switching to closer target %s (%.1fm)" % [best.name, best_dist])
 
 
 func _set_attacker_as_target(attacker: Node3D) -> void:
@@ -387,6 +449,12 @@ func _setup_attack_hitbox() -> void:
 	# Connect signals
 	_left_hand_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
 	_right_hand_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
+
+	# Ember claw streaks — drawn only while the fists are live.
+	_left_claw_trail = SlashTrail.attach(self, _left_hand_hitbox,
+			Vector3(0, -0.2, 0), Vector3(0, 0.25, 0), CLAW_TRAIL_COLOR)
+	_right_claw_trail = SlashTrail.attach(self, _right_hand_hitbox,
+			Vector3(0, -0.2, 0), Vector3(0, 0.25, 0), CLAW_TRAIL_COLOR)
 
 
 func _create_hand_hitbox(hitbox_name: String) -> Area3D:
@@ -557,7 +625,8 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		return
 
 	# Check if this is any player (local or remote)
-	var is_player = body == target or body.is_in_group("player") or body.is_in_group("remote_players")
+	var is_player = body == target or body.is_in_group("player") \
+			or body.is_in_group("companion") or body.is_in_group("remote_players")
 	if is_player and is_instance_valid(body):
 		print("Bobba: Hit player: ", body.name)
 		_has_hit_this_attack = true
@@ -571,22 +640,30 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		if "is_blocking" in body:
 			player_is_blocking = body.is_blocking
 
+		# Per-combo-step numbers: the punch is quick and light, the
+		# jump-slam finisher hits hard and shoves furthest.
+		var step_damage: float = COMBO_ATTACKS[_combo_step]["damage"]
+		var step_kb: float = KNOCKBACK_FORCE * COMBO_ATTACKS[_combo_step]["kb_mult"]
+
 		if player_is_blocking:
-			# Blocked — no damage, but a blocked punch still has weight.
-			# The shield absorbs damage; it does NOT absorb momentum. Push
-			# the player back hard enough to see the stagger.
+			# Blocked — pass the FULL damage and let the player's take_hit
+			# apply the shield's chip reduction (a block softens a hit, it
+			# never erases it; only a timed parry does). The shield also
+			# does NOT absorb momentum: push the player back hard enough
+			# to see the stagger.
 			if body.has_method("take_hit"):
-				body.take_hit(0, knockback_dir * KNOCKBACK_FORCE * 0.65, true, self, false)
+				body.take_hit(step_damage, knockback_dir * step_kb * 0.65, true, self, false)
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.45)  # hitstop + shake weight 0.45
 			print("Bobba: HIT BLOCKED by player (push-back applied)")
 		else:
 			# Not blocked - full damage and knockback
 			if body.has_method("take_hit"):
-				body.take_hit(ATTACK_DAMAGE, knockback_dir * KNOCKBACK_FORCE, false, self, false)
+				body.take_hit(step_damage, knockback_dir * step_kb, false, self, false)
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.8)
-			print("Bobba: HIT LANDED on player")
+			print("Bobba: HIT LANDED on player (combo step %d, %.0f dmg)" % [_combo_step, step_damage])
+		SlashTrail.spawn_hit_spark(self, body.global_position + Vector3(0, 1.3, 0), Color(1.0, 0.45, 0.2))
 
 		attack_landed.emit(body, knockback_dir)
 
@@ -614,6 +691,10 @@ func _update_attack_hitbox_timing() -> void:
 	# Track attack animation progress and set active window for damage dealing
 	if state != State.ATTACKING or _anim_player == null:
 		_hitbox_active_window = false
+		if _left_claw_trail != null:
+			_left_claw_trail.emitting = false
+		if _right_claw_trail != null:
+			_right_claw_trail.emitting = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -624,8 +705,10 @@ func _update_attack_hitbox_timing() -> void:
 	else:
 		_attack_anim_progress = 0.0
 
-	# Active window is when hands are swinging (30% to 70% of animation)
-	var should_be_active: bool = _attack_anim_progress >= HAND_HITBOX_START and _attack_anim_progress <= HAND_HITBOX_END
+	# Active window comes from the current combo step (each clip's swing
+	# lands at a different point in the animation).
+	var window: Vector2 = COMBO_ATTACKS[_combo_step]["window"]
+	var should_be_active: bool = _attack_anim_progress >= window.x and _attack_anim_progress <= window.y
 
 	if should_be_active and not _hitbox_active_window:
 		_hitbox_active_window = true
@@ -633,6 +716,12 @@ func _update_attack_hitbox_timing() -> void:
 	elif not should_be_active and _hitbox_active_window:
 		_hitbox_active_window = false
 		print("Bobba: Attack window ENDED at progress ", _attack_anim_progress)
+
+	# Claw streaks draw exactly while the fists can hurt.
+	if _left_claw_trail != null:
+		_left_claw_trail.emitting = _hitbox_active_window
+	if _right_claw_trail != null:
+		_right_claw_trail.emitting = _hitbox_active_window
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:
@@ -648,6 +737,46 @@ func _update_attack_hitbox_timing() -> void:
 			_on_attack_hitbox_body_entered(body)
 			if _has_hit_this_attack:
 				return
+
+
+## Parry → riposte state. Set when a player deflects one of our punches;
+## while open, the next sword hit crits (multiplier applied player-side,
+## where the damage number is computed and synced to the server).
+var _riposte_ready: bool = false
+const PARRIED_STUN_DURATION: float = 2.5  # how long the riposte window stays open
+
+
+## Called by a player whose parry deflected our punch (their take_hit saw
+## the contact land inside the parry's active frames). We stagger hard —
+## much longer than regular hit-stun — and open the riposte window.
+func on_parried(parrier: Node3D) -> void:
+	if state == State.DEAD:
+		return
+	state = State.STUNNED
+	_stun_timer = PARRIED_STUN_DURATION
+	_riposte_ready = true
+	_combo_step = 0  # a parry breaks the whole chain
+	velocity = Vector3.ZERO
+	disable_attack_hitbox()
+	_has_hit_this_attack = true  # the deflected swing can't also deal damage
+	_flash_hit(Color(1.0, 0.85, 0.2))  # gold, matching the parrier's flash
+	if parrier:
+		_set_attacker_as_target(parrier)
+	# The roar sells "staggered and wide open" — _handle_stunned lets it play out.
+	_current_anim = &""
+	if _anim_player and _anim_player.has_animation(&"bobba/Roar"):
+		_play_anim(&"bobba/Roar")
+	Sfx.play3d("bobba_roar", global_position + Vector3(0, 2.0, 0), -1.0)
+	print("Bobba: PARRIED — staggered, riposte window open for %.1fs" % PARRIED_STUN_DURATION)
+
+
+func is_riposte_ready() -> bool:
+	return _riposte_ready and state == State.STUNNED
+
+
+## One riposte per parry — the attacker consumes the window with the crit.
+func consume_riposte() -> void:
+	_riposte_ready = false
 
 
 func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacker: Node3D = null, _is_fully_blockable: bool = false) -> void:
@@ -714,6 +843,7 @@ func take_damage_pct(pct: float) -> void:
 ## Called when Bobba dies
 func _on_death() -> void:
 	print("Bobba died!")
+	Sfx.play3d("death_thud", global_position, 0.0)
 	died.emit()
 	state = State.DEAD
 	# Play death animation if available
@@ -836,6 +966,12 @@ func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
 
 ## Register a ground fire position to avoid
 func _register_ground_fire(pos: Vector3) -> void:
+	# The periodic scene scan re-reports the same burning fires — refresh
+	# the timestamp of a known fire instead of stacking duplicates.
+	for fire in _ground_fires:
+		if fire.position.distance_to(pos) < 1.5:
+			fire.time = Time.get_ticks_msec()
+			return
 	_ground_fires.append({"position": pos, "time": Time.get_ticks_msec()})
 	print("Bobba: FIRE registered at position %s! Total fires tracked: %d" % [pos, _ground_fires.size()])
 	_cleanup_old_fires()
@@ -1072,6 +1208,7 @@ func _load_animations() -> void:
 		"walk": ["Walk", true],
 		"run": ["Run", true],
 		"attack": ["Attack", false],
+		"punch": ["Punch", false],
 		"roar": ["Roar", false],
 		"dying": ["Dying", false],
 		"jump_attack": ["JumpAttack", false],
@@ -1172,22 +1309,38 @@ func _play_anim(anim_name: StringName) -> void:
 	if _current_anim == anim_name:
 		return  # Already playing this animation
 	if _anim_player.has_animation(anim_name):
-		_anim_player.play(anim_name)
+		# Short cross-blend so state flips (chase→attack→chase) don't pop.
+		_anim_player.play(anim_name, 0.2)
 		_current_anim = anim_name
 
 
 func _on_animation_finished(anim_name: StringName) -> void:
 	print("Bobba: Animation finished: ", anim_name)
-	if anim_name == &"bobba/Attack" or anim_name == &"bobba/JumpAttack":
-		print("Bobba: Attack animation finished, setting cooldown and state=CHASING")
+	if anim_name == &"bobba/Attack" or anim_name == &"bobba/Punch" or anim_name == &"bobba/JumpAttack":
 		disable_attack_hitbox()
-		attack_cooldown = 0.5
-		state = State.CHASING
 		_current_anim = &""  # Clear so attack can replay
 		_attack_state_time = 0.0  # Reset attack timer
+		# Chain the combo: target still in reach, this wasn't the finisher,
+		# and nothing (parry stun, death, fire panic) broke the chain.
+		if state == State.ATTACKING and _combo_step < COMBO_ATTACKS.size() - 1 \
+				and target != null and is_instance_valid(target) \
+				and global_position.distance_to(target.global_position) <= COMBO_CHAIN_RANGE \
+				and not _is_in_fire_panic_zone():
+			print("Bobba: Combo chain → step %d" % (_combo_step + 1))
+			_start_combo_attack(_combo_step + 1)
+			return
+		# Chain over — the deeper the combo went, the longer the punish window.
+		print("Bobba: Attack chain finished at step %d, cooldown and state=CHASING" % _combo_step)
+		attack_cooldown = COMBO_END_COOLDOWN if _combo_step > 0 else 0.7
+		_combo_step = 0
+		if state == State.ATTACKING:
+			state = State.CHASING
 	elif anim_name == &"bobba/Roar":
-		# After roar finishes, start chasing
-		state = State.CHASING
+		# After roar finishes, start chasing — unless we're mid-stun
+		# (poise stagger or parry riposte window): there the stun timer in
+		# _handle_stunned owns the state transition, not the animation.
+		if state != State.STUNNED:
+			state = State.CHASING
 		_current_anim = &""  # Clear so next animation can play
 	# Note: Dying animation should not auto-recover - handled separately when health system is added
 
@@ -1241,6 +1394,30 @@ func _physics_process(delta: float) -> void:
 
 	# Update target selection (handles detection/lose radius logic)
 	_select_target()
+
+	# Natural toughness: whenever he is not swinging and hasn't been hurt
+	# for a few seconds he knits back together — running away is a
+	# STRATEGY (escape, heal in the dark, come back), not a forfeit.
+	_time_since_damage += delta
+	if state != State.ATTACKING and _time_since_damage >= REGEN_DELAY \
+			and health > 0.0 and health < MAX_HEALTH:
+		_health.heal_pct(REGEN_PCT_PER_SEC * delta)
+
+	# Survival intelligence: badly wounded with a threat on him → break off
+	# and run. He re-plots the route continuously and only calms down once
+	# nobody can perceive him any more (melts back into the dark).
+	if _flee_given_up and health > MAX_HEALTH * 0.5:
+		_flee_given_up = false  # recovered — fleeing is an option again
+	if not _is_fleeing and not _flee_given_up and target != null \
+			and health <= MAX_HEALTH * FLEE_HP_FRACTION:
+		_is_fleeing = true
+		_flee_route_timer = 0.0
+		_flee_cornered_timer = 0.0
+		print("Bobba: FLEEING at %.0f hp — plotting escape route" % health)
+	if _is_fleeing:
+		_handle_fleeing(delta)
+		move_and_slide()
+		return
 
 	# Check distance to target
 	var distance_to_target: float = INF
@@ -1371,6 +1548,75 @@ func _update_animation_for_state() -> void:
 			_play_anim(&"bobba/Dying")
 
 
+## Wounded flight: run the scored escape route at full sprint, replanning
+## twice a second. Escape succeeds when no character could still perceive
+## him (beyond scent range and out of sight) — then he melts back into the
+## night and resumes roaming (and, unseen, can ambush again by smell).
+func _handle_fleeing(delta: float) -> void:
+	var nearest: float = INF
+	for p in _all_players:
+		if is_instance_valid(p) and not ("is_dead" in p and p.is_dead):
+			nearest = minf(nearest, global_position.distance_to(p.global_position))
+	if nearest > LOSE_RADIUS + 5.0:
+		_is_fleeing = false
+		_flee_given_up = false
+		target = null
+		state = State.ROAMING
+		_pick_new_roam_direction()
+		print("Bobba: escaped into the dark (nearest character %.0fm)" % nearest)
+		return
+	# Cornered check: a faster pursuer glued to him means flight is
+	# hopeless — the smart move flips to fighting with his back to the wall.
+	if nearest < 5.0:
+		_flee_cornered_timer += delta
+		if _flee_cornered_timer > 3.0:
+			_is_fleeing = false
+			_flee_given_up = true
+			state = State.CHASING
+			print("Bobba: cornered — turning to fight to the end")
+			return
+	else:
+		_flee_cornered_timer = 0.0
+	_flee_route_timer -= delta
+	if _flee_route_timer <= 0.0:
+		_flee_route_timer = 0.5
+		_flee_dir = _plot_escape_route()
+	state = State.CHASING  # closest network state for the sprint anim/sync
+	velocity.x = _flee_dir.x * CHASE_SPEED * 1.2
+	velocity.z = _flee_dir.z * CHASE_SPEED * 1.2
+	if _model and _flee_dir.length() > 0.1:
+		var flee_rot := atan2(_flee_dir.x, _flee_dir.z)
+		_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * delta)
+	_play_anim(&"bobba/Run")
+
+
+## Score 16 headings and pick the best escape route. The route must gain
+## distance from EVERY character, never pass through a remembered fire
+## (arrow fires and spell rings burn — their positions live in
+## _ground_fires), and stay on the map.
+func _plot_escape_route() -> Vector3:
+	var best_dir := Vector3(1, 0, 0)
+	var best_score: float = -INF
+	for i in range(16):
+		var ang := TAU * float(i) / 16.0
+		var dir := Vector3(cos(ang), 0.0, sin(ang))
+		var probe := global_position + dir * 18.0
+		var score: float = 0.0
+		for p in _all_players:
+			if is_instance_valid(p) and not ("is_dead" in p and p.is_dead):
+				score += probe.distance_to(p.global_position)
+		for fire in _ground_fires:
+			for d in [6.0, 12.0, 18.0]:
+				if (global_position + dir * d).distance_to(fire.position) < 7.0:
+					score -= 60.0
+		if absf(probe.x) > 220.0 or absf(probe.z) > 220.0:
+			score -= 150.0
+		if score > best_score:
+			best_score = score
+			best_dir = dir
+	return best_dir
+
+
 func _handle_roaming(delta: float, distance_to_target: float) -> void:
 	# FIRE PANIC CHECK - if too close to fire, flee immediately!
 	if _is_in_fire_panic_zone():
@@ -1453,18 +1699,10 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 			print("Bobba: Won't attack - too close to fire, backing off")
 			return
 
-	# If close enough, attack
+	# If close enough, open the combo chain
 	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
 		print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
-		# Pre-attack telegraph — flash orange on the frame the wind-up
-		# starts so the player can see the swing coming and jump/block.
-		# Per round-4-not-fun feedback ("killed out of nowhere").
-		_flash_hit(Color(1.0, 0.55, 0.10))
-		state = State.ATTACKING
-		_play_anim(&"bobba/Attack")
-		enable_attack_hitbox()  # Enable hitbox when attack starts
-		velocity.x = 0
-		velocity.z = 0
+		_start_combo_attack(0)
 		return
 
 	# Chase the target with fire avoidance
@@ -1493,20 +1731,56 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 
 var _attack_state_time: float = 0.0
 
+
+## Start combo step `step`. Every step keeps the orange telegraph flash —
+## the wind-up must stay readable even mid-chain (fun rule: visible
+## decision → visible consequence).
+func _start_combo_attack(step: int) -> void:
+	_combo_step = step
+	_flash_hit(Color(1.0, 0.55, 0.10))
+	state = State.ATTACKING
+	var attack_anim: StringName = COMBO_ATTACKS[step]["anim"]
+	if _anim_player == null or not _anim_player.has_animation(attack_anim):
+		attack_anim = &"bobba/Attack"  # clip failed to load — fall back to the swipe
+	_current_anim = &""  # force replay even if the same clip
+	_play_anim(attack_anim)
+	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.5, 0),
+			-2.0 if step == COMBO_ATTACKS.size() - 1 else -5.0)
+	enable_attack_hitbox()  # fresh swing — each chain step can land its own hit
+	velocity.x = 0
+	velocity.z = 0
+	_attack_state_time = 0.0
+
+
 func _handle_attacking(delta: float) -> void:
 	# FIRE PANIC - abort attack if too close to fire!
 	if _is_in_fire_panic_zone():
 		print("Bobba: ABORTING ATTACK - fire too close!")
 		disable_attack_hitbox()
+		_combo_step = 0
 		attack_cooldown = 0.2  # Short cooldown after abort
 		state = State.CHASING
 		_current_anim = &""
 		_attack_state_time = 0.0
 		return
 
-	# Stay in attacking state until animation finishes
+	# Stay in attacking state until animation finishes. Early in the swing
+	# the step lunges toward the target — a small drift on swipe/punch, a
+	# real leap on the jump-slam finisher — so the chain tracks a backing-
+	# off player instead of whiffing in place.
 	velocity.x = 0
 	velocity.z = 0
+	if _attack_anim_progress < 0.45 and target != null and is_instance_valid(target):
+		var lunge_speed: float = COMBO_ATTACKS[_combo_step]["lunge"]
+		var lunge_dir: Vector3 = target.global_position - global_position
+		lunge_dir.y = 0.0
+		if lunge_dir.length() > 0.6 and lunge_speed > 0.0:
+			lunge_dir = lunge_dir.normalized()
+			velocity.x = lunge_dir.x * lunge_speed
+			velocity.z = lunge_dir.z * lunge_speed
+			if _model:
+				var lunge_rot: float = atan2(lunge_dir.x, lunge_dir.z)
+				_model.rotation.y = lerp_angle(_model.rotation.y, lunge_rot, ROTATION_SPEED * delta)
 	_attack_state_time += delta
 	# Debug: warn if stuck in attacking state too long
 	if _attack_state_time > 3.0:
@@ -1519,11 +1793,14 @@ func _handle_stunned(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, 0, 20.0 * delta)
 	velocity.z = move_toward(velocity.z, 0, 20.0 * delta)
 
-	# Play idle during stun (no special stun animation available)
-	_play_anim(&"bobba/Idle")
+	# Play idle during stun — but let a stagger Roar run its course so the
+	# "I'm wide open" tell stays visible for the whole riposte window.
+	if _current_anim != &"bobba/Roar":
+		_play_anim(&"bobba/Idle")
 
 	_stun_timer -= delta
 	if _stun_timer <= 0:
+		_riposte_ready = false  # window closed — crits are off again
 		# Return to chasing if we have a target, otherwise roam
 		if target and is_instance_valid(target):
 			state = State.CHASING

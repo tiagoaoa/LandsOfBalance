@@ -14,18 +14,21 @@ var current_class: CharacterClass = CharacterClass.ARCHER
 
 # UI References
 var _joystick: Control
-var _spell_btn: TextureButton
-var _jump_btn: TextureButton
-var _crouch_btn: TextureButton
-var _attack_btn: TextureButton
+var _spell_btn: BaseButton
+var _jump_btn: BaseButton
+var _run_btn: BaseButton
+var _attack_btn: BaseButton
 var _class_btn: Button
 var _class_label: Label
 
-# Icon textures
+# Icon textures (legacy - now using righthud overlay)
 var _icon_spell: Texture2D
 var _icon_jump: Texture2D
-var _icon_crouch: Texture2D
+var _icon_run: Texture2D
 var _icon_attack: Texture2D
+
+# Right HUD overlay texture
+var _righthud_texture: Texture2D
 
 # Action mappings for buttons
 var _button_actions: Dictionary = {}
@@ -63,15 +66,9 @@ func _ready() -> void:
 func _setup_ui() -> void:
 	print("TouchUI: _setup_ui() starting")
 
-	# Load icon textures
-	_icon_spell = load("res://assets/hud_icons/icon_spell.png")
-	_icon_jump = load("res://assets/hud_icons/icon_jump.png")
-	_icon_crouch = load("res://assets/hud_icons/icon_crouch.png")
-	_icon_attack = load("res://assets/hud_icons/icon_attack.png")
-
-	print("TouchUI: Loaded icons - spell=%s, jump=%s, crouch=%s, attack=%s" % [
-		_icon_spell != null, _icon_jump != null, _icon_crouch != null, _icon_attack != null
-	])
+	# Load right HUD overlay texture
+	_righthud_texture = load("res://righthud.png")
+	print("TouchUI: Loaded righthud overlay: %s" % [_righthud_texture != null])
 
 	# Get joystick reference
 	_joystick = get_node_or_null("Virtual Joystick")
@@ -174,43 +171,140 @@ func _setup_action_buttons() -> void:
 	var old_actions = get_node_or_null("ActionButtons")
 	if old_actions:
 		old_actions.queue_free()
+	var old_hud = get_node_or_null("RightHUD")
+	if old_hud:
+		old_hud.queue_free()
 
-	# Create vertical container for action buttons on right side
-	var vbox := VBoxContainer.new()
-	vbox.name = "ActionButtons"
-	vbox.anchors_preset = Control.PRESET_CENTER_RIGHT
-	vbox.anchor_left = 1.0
-	vbox.anchor_right = 1.0
-	vbox.anchor_top = 0.5
-	vbox.anchor_bottom = 0.5
-	vbox.offset_left = -140
-	vbox.offset_top = -280
-	vbox.offset_right = -10
-	vbox.offset_bottom = 280
-	vbox.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	vbox.grow_vertical = Control.GROW_DIRECTION_BOTH
-	vbox.add_theme_constant_override("separation", 10)
-	add_child(vbox)
+	# Create container for the right HUD overlay
+	var container := Control.new()
+	container.name = "RightHUD"
+	container.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	container.anchor_left = 1.0
+	container.anchor_right = 1.0
+	container.anchor_top = 1.0
+	container.anchor_bottom = 1.0
 
-	# Spell button (order: spell, jump, crouch, attack)
-	_spell_btn = _create_icon_button(_icon_spell, "spell_cast")
-	vbox.add_child(_spell_btn)
+	# Use anchors for proper positioning at bottom-right
+	# HUD scale increased by 50% for bigger visual buttons
+	var hud_scale := 0.375
+	var hud_width := 768.0 * hud_scale  # ~288
+	var hud_height := 510.0  # Increased height for bigger HUD
 
-	# Jump button
-	_jump_btn = _create_icon_button(_icon_jump, "jump")
-	vbox.add_child(_jump_btn)
+	# Anchor to bottom-right, moved 30% towards center
+	container.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	container.anchor_left = 1.0
+	container.anchor_right = 1.0
+	container.anchor_top = 1.0
+	container.anchor_bottom = 1.0
+	var center_offset := hud_width * 0.3  # 30% towards center
+	container.offset_left = -hud_width - 10 - center_offset
+	container.offset_top = -hud_height - 10
+	container.offset_right = -10 - center_offset
+	container.offset_bottom = -10
+	add_child(container)
 
-	# Crouch button
-	_crouch_btn = _create_icon_button(_icon_crouch, "crouch")
-	vbox.add_child(_crouch_btn)
+	# Add the HUD image - only show bottom portion with buttons
+	var hud_image := TextureRect.new()
+	hud_image.name = "HUDImage"
+	hud_image.texture = _righthud_texture
+	hud_image.custom_minimum_size = Vector2(hud_width, hud_width * 1.77)  # Keep aspect ratio
+	hud_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hud_image.stretch_mode = TextureRect.STRETCH_SCALE
+	# Shift image - raised 10% from previous position
+	var img_y_offset := 77.0
+	hud_image.position = Vector2(0, img_y_offset)
+	hud_image.modulate = Color(1, 1, 1, 0.9)
+	hud_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(hud_image)
 
-	# Attack button
-	_attack_btn = _create_icon_button(_icon_attack, "attack")
-	vbox.add_child(_attack_btn)
+	# Button touch area size - matches visual button size + 10%
+	# Original button ~200px, scaled by 0.375 = 75px, +10% = ~83px
+	var btn_size := Vector2(83, 83)
+
+	# Button positions based on actual image layout (768x1360 original)
+	# Row 1: spell (wand) center - lowered
+	# Row 2: jump (left), run (right) - running figures (CORRECT)
+	# Row 3: attack (left sword)
+	var spell_pos := Vector2(384 * hud_scale, 400 * hud_scale + img_y_offset)  # Lowered from 270
+	var jump_pos := Vector2(150 * hud_scale, 610 * hud_scale + img_y_offset)   # Row 2 left - CORRECT
+	var run_pos := Vector2(618 * hud_scale, 610 * hud_scale + img_y_offset)    # Row 2 right - running figure
+	var attack_pos := Vector2(269 * hud_scale, 820 * hud_scale + img_y_offset) # Row 3 - sword (centered)
+
+	print("TouchUI: RightHUD anchored bottom-right, size=(%d,%d)" % [int(hud_width), int(hud_height)])
+
+	# Create invisible touch buttons over each icon position
+	_spell_btn = _create_touch_area("spell_cast", spell_pos, btn_size)
+	container.add_child(_spell_btn)
+
+	_jump_btn = _create_touch_area("jump", jump_pos, btn_size)
+	container.add_child(_jump_btn)
+
+	_attack_btn = _create_touch_area("attack", attack_pos, btn_size)
+	container.add_child(_attack_btn)
+
+	_run_btn = _create_touch_area("run", run_pos, btn_size)
+	container.add_child(_run_btn)
 
 
-## Create an icon-based touch button using TextureButton (Control-based)
-func _create_icon_button(icon: Texture2D, action: String) -> TextureButton:
+## Create an invisible touch area button (for use with HUD overlay)
+func _create_touch_area(action: String, center_pos: Vector2, btn_size: Vector2) -> Button:
+	var btn := Button.new()
+	btn.name = action + "_btn"
+
+	# Invisible button - HUD image provides the visual
+	btn.flat = true
+	var transparent_style := StyleBoxFlat.new()
+	transparent_style.bg_color = Color(0, 0, 0, 0)
+	btn.add_theme_stylebox_override("normal", transparent_style)
+	btn.add_theme_stylebox_override("hover", transparent_style)
+	btn.add_theme_stylebox_override("pressed", transparent_style)
+	btn.add_theme_stylebox_override("focus", transparent_style)
+
+	# Size and position
+	btn.custom_minimum_size = btn_size
+	btn.size = btn_size
+	btn.position = center_pos - btn_size / 2
+
+	# Ensure button can receive input
+	btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	btn.focus_mode = Control.FOCUS_ALL
+
+	# Store action mapping
+	_button_actions[btn] = action
+
+	# Connect signals
+	btn.button_down.connect(_on_touch_area_down.bind(btn))
+	btn.button_up.connect(_on_touch_area_up.bind(btn))
+
+	print("TouchUI: Created touch area '%s' at %s size=%s" % [action, center_pos, btn_size])
+
+	return btn
+
+
+## Handle touch area press
+func _on_touch_area_down(btn: Button) -> void:
+	var action: String = _button_actions.get(btn, "")
+	if action != "":
+		print("TouchUI: Touch DOWN - action '%s'" % action)
+		var event := InputEventAction.new()
+		event.action = action
+		event.pressed = true
+		Input.parse_input_event(event)
+
+
+## Handle touch area release
+func _on_touch_area_up(btn: Button) -> void:
+	var action: String = _button_actions.get(btn, "")
+	if action != "":
+		print("TouchUI: Touch UP - action '%s'" % action)
+		var event := InputEventAction.new()
+		event.action = action
+		event.pressed = false
+		Input.parse_input_event(event)
+
+
+## Create an icon-based touch button using TextureButton (legacy - kept for compatibility)
+func _create_icon_button(icon: Texture2D, action: String, btn_size: Vector2 = Vector2(72, 72)) -> TextureButton:
 	var btn := TextureButton.new()
 	btn.name = action + "_btn"
 
@@ -218,10 +312,14 @@ func _create_icon_button(icon: Texture2D, action: String) -> TextureButton:
 	btn.texture_normal = icon
 	btn.texture_pressed = icon
 
-	# Size for mobile (120x120)
-	btn.custom_minimum_size = Vector2(120, 120)
+	# Size for mobile - use provided size
+	btn.custom_minimum_size = btn_size
+	btn.size = btn_size
 	btn.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	btn.ignore_texture_size = true
+
+	# Semi-transparent background for better visibility
+	btn.modulate = Color(1, 1, 1, 0.9)
 
 	# Ensure button can receive input
 	btn.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -234,7 +332,7 @@ func _create_icon_button(icon: Texture2D, action: String) -> TextureButton:
 	btn.button_down.connect(_on_action_button_down.bind(btn))
 	btn.button_up.connect(_on_action_button_up.bind(btn))
 
-	print("TouchUI: Created button for action '%s'" % action)
+	print("TouchUI: Created button '%s' size=%s" % [action, btn_size])
 
 	return btn
 

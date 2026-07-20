@@ -19,13 +19,17 @@
 [ext_resource type="PackedScene" path="res://assets/object28.tscn" id="17_object28"]
 [ext_resource type="Script" uid="uid://c26yvq1wnu2go" path="res://assets/object28_loader.gd" id="18_csoi1"]
 [ext_resource type="Script" path="res://stage/realistic_grass_placer.gd" id="19_grass"]
+[ext_resource type="Script" path="res://stage/river_builder.gd" id="20_river"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_15kie"]
-sky_top_color = Color(0.15, 0.18, 0.25, 1)
-sky_horizon_color = Color(0.3, 0.35, 0.4, 1)
-ground_bottom_color = Color(0.1, 0.12, 0.15, 1)
-ground_horizon_color = Color(0.25, 0.28, 0.32, 1)
-sun_angle_max = 0.0
+sky_top_color = Color(0.42, 0.52, 0.68, 1)
+sky_horizon_color = Color(0.74, 0.79, 0.83, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.46, 0.48, 0.46, 1)
+ground_horizon_color = Color(0.64, 0.68, 0.68, 1)
+ground_curve = 0.04
+sun_angle_max = 18.0
+sun_curve = 0.12
 
 [sub_resource type="Sky" id="Sky_js6ng"]
 sky_material = SubResource("ProceduralSkyMaterial_15kie")
@@ -44,13 +48,18 @@ fog_light_energy = 0.15
 fog_density = 0.001
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0t235"]
+albedo_color = Color(0.74, 0.79, 0.62, 1)
 albedo_texture = ExtResource("4_js6ng")
+roughness = 0.95
 roughness_texture = ExtResource("7_5v762")
 normal_enabled = true
+normal_scale = 1.3
 normal_texture = ExtResource("6_grb1b")
 ao_enabled = true
 ao_texture = ExtResource("5_wdnaj")
-uv1_scale = Vector3(30, 30, 30)
+ao_light_affect = 0.5
+uv1_scale = Vector3(110, 110, 110)
+texture_filter = 5
 
 [sub_resource type="StandardMaterial3D" id="mat_stone_dark"]
 albedo_color = Color(0.35, 0.35, 0.4, 1)
@@ -306,10 +315,9 @@ environment = SubResource("Environment_wdnaj")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.5262583, 0.22008014, -0.8213507, -9.642971e-10, 0.9659258, 0.25881895, 0.8503247, -0.13620561, 0.50832653, 176.20892, 4804.189, 4579.207)
-layers = 0
-light_color = Color(0.5, 0.55, 0.7, 1)
-light_energy = 0.0
-shadow_enabled = false
+light_color = Color(1, 0.96, 0.86, 1)
+light_energy = 1.7
+shadow_enabled = true
 
 [node name="Moon" type="Node3D" parent="."]
 script = ExtResource("16_moon")
@@ -325,6 +333,7 @@ size = Vector3(1070.5386, 1, 1144.983)
 material = SubResource("StandardMaterial3D_0t235")
 
 [node name="River" type="Node3D" parent="."]
+script = ExtResource("20_river")
 
 [node name="RiverBed" type="CSGBox3D" parent="River"]
 transform = Transform3D(0.866, 0, 0.5, 0, 1, 0, -0.5, 0, 0.866, -20, -0.8, 60)

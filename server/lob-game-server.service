@@ -1,0 +1,32 @@
+[Unit]
+Description=Lands of Balance Game Server
+Documentation=https://github.com/tiagoaoa/LandsOfBalance
+After=network.target
+
+[Service]
+Type=simple
+User=tiago
+Group=tiago
+WorkingDirectory=/home/tiago/lob_server
+ExecStart=/home/tiago/lob_server/game_server
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lob-game-server
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/home/tiago/lob_server
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

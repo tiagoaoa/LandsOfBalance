@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://nkgitqhlqrsy"]
+[gd_scene load_steps=8 format=3 uid="uid://nkgitqhlqrsy"]
 
 [ext_resource type="PackedScene" uid="uid://b2lcb4fy8his1" path="res://stage/lands_of_balance.tscn" id="1_lands"]
 [ext_resource type="PackedScene" uid="uid://c0q5hsswj8dqf" path="res://player/player.tscn" id="2_player"]
@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" path="res://ui/minimap.tscn" id="4_minimap"]
 [ext_resource type="PackedScene" path="res://enemies/bobba.tscn" id="5_bobba"]
 [ext_resource type="PackedScene" path="res://multiplayer/join_screen.tscn" id="7_join_screen"]
+[ext_resource type="Script" path="res://enemies/skeleton_crew.gd" id="9_skelcrew"]
 [ext_resource type="PackedScene" path="res://ui/network_debug.tscn" id="8_network_debug"]
 
 [node name="Game" type="Node3D"]
@@ -19,6 +20,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 10)
 [node name="Bobba" parent="." instance=ExtResource("5_bobba")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1, 13)
 
+[node name="SkeletonCrew" type="Node3D" parent="."]
+script = ExtResource("9_skelcrew")
+
 [node name="TouchScreenUI" parent="." instance=ExtResource("3_touch")]
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
@@ -29,6 +33,7 @@ offset_left = 18.0
 offset_top = 120.0
 offset_right = 238.0
 offset_bottom = 370.0
+visible = false
 
 [node name="JoinScreen" parent="." instance=ExtResource("7_join_screen")]
 
