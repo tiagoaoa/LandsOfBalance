@@ -2312,6 +2312,10 @@ func _block_stance_anim(prefix: String, input_dir: Vector2) -> StringName:
 			candidates.append("BlockRun")
 			candidates.append("BlockSprint")
 		candidates.append("BlockWalk")
+	# Standing guard prefers the composed HOLD — the raw Block clip is a
+	# raise-block-lower reaction on two of the three rigs and pumps when
+	# looped.
+	candidates.append("BlockHold")
 	candidates.append("Block")
 	for clip in candidates:
 		var anim := StringName(prefix + "/" + clip)

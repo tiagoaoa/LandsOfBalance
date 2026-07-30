@@ -52,6 +52,18 @@ var _blocksim_phase: String = ""
 var _blocksim_stats: Dictionary = {}
 var _blocksim_prev_knee: Quaternion = Quaternion.IDENTITY
 var _blocksim_prev_knee_valid: bool = false
+var _blocksim_prev_arm: Quaternion = Quaternion.IDENTITY
+var _blocksim_prev_arm_valid: bool = false
+var _blocksim_phase_t: float = 0.0
+# BLOCKSIM defense battery: does the guard come back after each verb?
+var _blocksim_battery: bool = false
+var _blocksim_flags: Dictionary = {}
+var _blocksim_gap: float = 0.0
+var _blocksim_gap_verb: String = ""
+var _blocksim_verb: String = ""
+var _blocksim_worst_gap: float = 0.0
+var _blocksim_worst_verb: String = ""
+var _blocksim_lost: int = 0
 var _blocksim_freeze: int = 0
 # ANIMSIM: locomotion-vs-actions stress detectors.
 var _animsim_step: int = -1
@@ -357,7 +369,7 @@ func _process(delta: float) -> void:
 
 	if scenario == "BLOCKSIM":
 		_drive_blocksim(delta)
-		if _elapsed > 23.0:
+		if _elapsed > 42.0:
 			_blocksim_report()
 			_finish("BLOCKSIM_DONE")
 		return
@@ -1746,9 +1758,20 @@ func _drive_blocksim(delta: float) -> void:
 		ev.action = &"block"
 		ev.pressed = down
 		Input.parse_input_event(ev)
+	var act_action := func(action: StringName) -> void:
+		var ev := InputEventAction.new()
+		ev.action = action
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		var ev2 := InputEventAction.new()
+		ev2.action = action
+		ev2.pressed = false
+		Input.parse_input_event(ev2)
 	var phase := func(name: String) -> void:
 		_blocksim_phase = name
 		_blocksim_prev_knee_valid = false
+		_blocksim_prev_arm_valid = false
+		_blocksim_phase_t = 0.0
 
 	if once.call("setup", 0.0):
 		var start := Vector3(120.0, 0.0, -140.0)
@@ -1822,7 +1845,109 @@ func _drive_blocksim(delta: float) -> void:
 		block.call(false)
 		phase.call("")
 
+	# ---- defense battery: the guard must SURVIVE every interruption ----
+	# Button held down the whole way; each verb steals the body for its
+	# clip, and the guard has to come back on its own afterwards.
+	if once.call("d_setup", 23.0):
+		_player._switch_character_class(_player.CharacterClass.PALADIN)
+		_player.current_health = _player.max_health
+		_player.estus_charges = 3
+		# The parry verb is PALADIN + ARMED only — the earlier phases left
+		# him unarmed, which would have made that step a silent no-op.
+		if _player.combat_mode != _player.CombatMode.ARMED:
+			_player._toggle_combat_mode()
+		block.call(true)
+		Input.action_press(&"move_forward", 1.0)
+		_blocksim_battery = true
+	if once.call("d_attack", 24.2):
+		_blocksim_mark("attack")
+		act_action.call(&"attack")
+	if once.call("d_dodge", 26.4):
+		_blocksim_mark("dodge")
+		act_action.call(&"dodge")
+	if once.call("d_parry", 28.4):
+		_blocksim_mark("parry")
+		act_action.call(&"parry")
+		_blocksim_flags["parry_mode"] = "armed" if _player.combat_mode == _player.CombatMode.ARMED else "unarmed"
+	if once.call("d_parry_fired", 28.55):
+		_blocksim_flags["parry_fired"] = _player.is_parrying
+	if once.call("d_parry_speed", 29.6):
+		var ap_chk: AnimationPlayer = _player._current_anim_player
+		_blocksim_flags["parry_speed"] = ap_chk.get_playing_speed() if ap_chk else -1.0
+		_blocksim_flags["parry_clip"] = String(ap_chk.current_animation) if ap_chk else "nil"
+	if once.call("d_hit", 30.4):
+		_blocksim_mark("hit")
+		_player.take_hit(18.0, Vector3(0, 0, 2.0), true, null, true)
+	if once.call("d_estus", 32.0):
+		_blocksim_mark("estus")
+		_player.current_health = _player.max_health * 0.5
+		act_action.call(&"estus")
+	if once.call("d_toggle", 34.0):
+		_blocksim_mark("sheath")
+		act_action.call(&"toggle_combat")
+	if once.call("d_jump", 36.0):
+		_blocksim_mark("jump")
+		act_action.call(&"jump")
+	# Rapid mashing: 8 press/release pairs — the guard must end UP,
+	# matching the final press, with no state left flickering.
+	for i in range(8):
+		if once.call("d_mash%d" % i, 38.0 + 0.12 * i):
+			block.call(i % 2 == 0)
+	if once.call("d_mash_end", 39.1):
+		block.call(true)
+	if once.call("d_mash_check", 39.9):
+		_blocksim_flags["mash_guard"] = _player.is_blocking
+		_blocksim_flags["mash_clip"] = String(_player._current_anim_player.current_animation) \
+				if _player._current_anim_player else "nil"
+	# Release: the guard must disappear promptly.
+	if once.call("d_release", 40.4):
+		block.call(false)
+	if once.call("d_release_check", 41.2):
+		var ap_rel: AnimationPlayer = _player._current_anim_player
+		var clip_rel := String(ap_rel.current_animation) if ap_rel else ""
+		_blocksim_flags["release_clear"] = not _player.is_blocking and not clip_rel.contains("Block")
+		_blocksim_flags["release_clip"] = clip_rel
+		Input.action_release(&"move_forward")
+		_blocksim_battery = false
+
 	_blocksim_sample(delta)
+	_blocksim_battery_detect(delta)
+
+
+## While the guard button is HELD and no action owns the body, a Block*
+## clip must be playing. Measures the longest such gap per verb — "the
+## guard did not come back" — and flags any that never recovered.
+func _blocksim_battery_detect(delta: float) -> void:
+	if not _blocksim_battery:
+		return
+	if not Input.is_action_pressed(&"block"):
+		return
+	var ap: AnimationPlayer = _player._current_anim_player
+	if ap == null:
+		return
+	var busy: bool = _player.is_attacking or _player.is_rolling or _player.is_parrying \
+			or _player.is_drinking or _player.is_casting or _player.is_sheathing \
+			or _player.is_transitioning or not _player.is_on_floor()
+	var guard_up: bool = String(ap.current_animation).contains("Block") and _player.is_blocking
+	if busy or guard_up:
+		if _blocksim_gap > _blocksim_worst_gap:
+			_blocksim_worst_gap = _blocksim_gap
+			_blocksim_worst_verb = _blocksim_gap_verb
+		_blocksim_gap = 0.0
+		return
+	if _blocksim_gap == 0.0:
+		_blocksim_gap_verb = _blocksim_verb
+	_blocksim_gap += delta
+	if _blocksim_gap > 1.5 and not _blocksim_flags.has("lost_" + _blocksim_verb):
+		_blocksim_flags["lost_" + _blocksim_verb] = true
+		_blocksim_lost += 1
+		print("[CombatTest] BLOCKSIM GUARD LOST after '%s' t=%.1f — %.1fs with the button held and no guard (clip=%s blocking=%s)" % [
+				_blocksim_verb, _elapsed, _blocksim_gap,
+				String(ap.current_animation), str(_player.is_blocking)])
+
+
+func _blocksim_mark(verb: String) -> void:
+	_blocksim_verb = verb
 
 
 ## Per-frame measurement of the phase in progress.
@@ -1837,10 +1962,33 @@ func _blocksim_sample(delta: float) -> void:
 	if knee < 0 or arm < 0:
 		return
 
+	# Ignore the first moments of a phase: the 0.25s cross-blend into the
+	# guard is real motion, but it is a TRANSITION, not the steady state
+	# this test is about.
+	_blocksim_phase_t += delta
+	if _blocksim_phase_t < 0.6:
+		_blocksim_prev_arm_valid = false
+		_blocksim_prev_knee_valid = false
+		return
+
 	var stat: Dictionary = _blocksim_stats.get(_blocksim_phase, {
 		"time": 0.0, "knee_deg": 0.0, "speed": 0.0, "frames": 0,
 		"freeze": 0, "anim": "", "arm": Quaternion.IDENTITY,
+		"arm_deg": 0.0, "speed_scale": 1.0,
 	})
+	# Guard steadiness: a held guard barely moves. A looping block MOTION
+	# (raise-block-lower) shows up here as a huge arm travel rate — that
+	# is the "defense animation is bugged" pumping.
+	var arm_q: Quaternion = skel.get_bone_pose_rotation(arm)
+	if _blocksim_prev_arm_valid:
+		stat["arm_deg"] = float(stat.get("arm_deg", 0.0)) \
+				+ rad_to_deg(_blocksim_prev_arm.angle_to(arm_q))
+	_blocksim_prev_arm = arm_q
+	_blocksim_prev_arm_valid = true
+	var ap_speed: AnimationPlayer = _player._current_anim_player
+	if ap_speed != null:
+		stat["speed_scale"] = ap_speed.get_playing_speed()
+
 	var knee_q: Quaternion = skel.get_bone_pose_rotation(knee)
 	if _blocksim_prev_knee_valid:
 		stat["knee_deg"] = float(stat["knee_deg"]) \
@@ -1881,8 +2029,10 @@ func _blocksim_report() -> void:
 	for phase_name in _blocksim_stats:
 		var s: Dictionary = _blocksim_stats[phase_name]
 		var t: float = maxf(float(s["time"]), 0.001)
-		print("[CombatTest]   %-26s knee=%6.1f deg/s speed=%4.1f blocking=%s anim=%s freeze=%d" % [
-				phase_name, float(s["knee_deg"]) / t, float(s["speed"]) / maxf(float(s["frames"]), 1.0),
+		print("[CombatTest]   %-26s knee=%6.1f deg/s guard_arm=%6.1f deg/s playspeed=%.2f speed=%4.1f blocking=%s anim=%s freeze=%d" % [
+				phase_name, float(s["knee_deg"]) / t, float(s.get("arm_deg", 0.0)) / t,
+				float(s.get("speed_scale", 1.0)),
+				float(s["speed"]) / maxf(float(s["frames"]), 1.0),
 				str(s.get("blocking", false)), s["anim"], int(s["freeze"])])
 
 	var verdict := true
@@ -1905,8 +2055,27 @@ func _blocksim_report() -> void:
 		verdict = verdict and ok
 		print("[CombatTest] BLOCKSIM %-22s stride_kept=%.2f (walk %.1f -> guard %.1f deg/s) guard_drift=%.1f deg -> %s" % [
 				pair[1], ratio, base_rate, block_rate, guard_drift, "OK" if ok else "FAIL"])
-	print("[CombatTest] BLOCKSIM summary: freeze_frames=%d verdict=%s" % [
-			_blocksim_freeze, "PASS" if verdict else "FAIL"])
+	if _blocksim_worst_gap < _blocksim_gap:
+		_blocksim_worst_gap = _blocksim_gap
+		_blocksim_worst_verb = _blocksim_gap_verb
+	var battery_ok: bool = _blocksim_lost == 0 and _blocksim_worst_gap < 1.5 \
+			and bool(_blocksim_flags.get("parry_fired", false)) \
+			and bool(_blocksim_flags.get("mash_guard", false)) \
+			and bool(_blocksim_flags.get("release_clear", false)) \
+			and absf(float(_blocksim_flags.get("parry_speed", -1.0)) - 1.0) < 0.01
+	print("[CombatTest] BLOCKSIM battery: guard_lost=%d worst_gap=%.2fs after '%s' | parry_fired=%s (%s) parry_speed=%.2f (clip %s) mash_guard=%s (clip %s) release_clear=%s (clip %s)" % [
+			_blocksim_lost, _blocksim_worst_gap, _blocksim_worst_verb,
+			str(_blocksim_flags.get("parry_fired", false)),
+			str(_blocksim_flags.get("parry_mode", "?")),
+			float(_blocksim_flags.get("parry_speed", -1.0)),
+			str(_blocksim_flags.get("parry_clip", "?")),
+			str(_blocksim_flags.get("mash_guard", false)),
+			str(_blocksim_flags.get("mash_clip", "?")),
+			str(_blocksim_flags.get("release_clear", false)),
+			str(_blocksim_flags.get("release_clip", "?"))])
+	print("[CombatTest] BLOCKSIM summary: freeze_frames=%d battery_ok=%s verdict=%s" % [
+			_blocksim_freeze, str(battery_ok),
+			"PASS" if verdict and battery_ok else "FAIL"])
 
 
 func _blocksim_knee_rate(phase: String) -> float:
