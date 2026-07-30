@@ -25,6 +25,11 @@ func _ready() -> void:
 	# Scripted combat scenarios (SOULS/COMBO/PARRY...) measure exact duel
 	# numbers — a wandering pack 30 m away would crash every assertion.
 	# The crew rises only in real play modes and its own test scenario.
+	# MOBILE: the pack is disabled for now (five skinned rigs + crowd AI
+	# + fire scans are part of the phone frame-drop). Perf pass later.
+	if OS.get_name() in ["Android", "iOS"]:
+		print("SkeletonCrew: disabled on mobile (performance)")
+		return
 	var gs := get_node_or_null("/root/GameSettings")
 	if gs and "combat_scenario" in gs:
 		var sc := String(gs.combat_scenario)

@@ -290,8 +290,13 @@ func _strike() -> void:
 		var kb: Vector3 = to_t.normalized() * 4.0
 		kb.y = 0.2
 		# Rusty blade: fully blockable — a raised shield chips, a parry cancels.
-		_target.take_hit(ATTACK_DAMAGE, kb, false, self, true)
-		Sfx.play3d("hit_flesh", _target.global_position + Vector3(0, 1.2, 0), -6.0)
+		# The defender is the authority on whether the contact counted:
+		# take_hit returns false when the hit was negated outright (spawn
+		# immunity, roll i-frames, timed parry) — no impact SFX then.
+		# Legacy targets whose take_hit returns void report null → landed.
+		var hit_applied: Variant = _target.take_hit(ATTACK_DAMAGE, kb, false, self, true)
+		if hit_applied != false:
+			Sfx.play3d("hit_flesh", _target.global_position + Vector3(0, 1.2, 0), -6.0)
 
 
 ## An arrow's flame catches on the dry bones: burn for `duration`

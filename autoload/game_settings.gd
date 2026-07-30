@@ -94,7 +94,8 @@ func _ready() -> void:
 				coop_mode = true
 			if combat_scenario == "COOP":
 				pass  # menu picks the class
-			elif combat_scenario == "ARCHER" or combat_scenario == "BOWSIM":
+			elif combat_scenario == "ARCHER" or combat_scenario == "BOWSIM" \
+					or combat_scenario == "MOBSIM":
 				selected_character_class = CharacterClass.ARCHER
 				character_selected_from_menu = true
 				class_forced_by_cli = true

@@ -139,10 +139,15 @@ const HAND_HITBOX_END: float = 0.7    # Disable hitbox at 70% of attack animatio
 # chain reads as three separate decisions to dodge/block/parry, and a parry
 # on any step breaks the whole chain (on_parried → STUNNED). After the chain
 # ends there's a long punish cooldown — that's the player's opening.
+## "speed" is the playback rate for the step's clip. The raw mixamo
+## jump-attack clip is 3.7 s — far longer than its useful attack portion —
+## so the finisher plays at 1.5x (2.47 s total): the slam still reads, the
+## recovery tail shrinks to ~0.5 s, and the step ends well inside the 3 s
+## stuck-state watchdog. Progress-based windows are playback-rate agnostic.
 const COMBO_ATTACKS: Array[Dictionary] = [
-	{"anim": &"bobba/Attack", "damage": 65.0, "window": Vector2(0.30, 0.70), "kb_mult": 1.0, "lunge": 1.5},
-	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5},
-	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0},
+	{"anim": &"bobba/Attack", "damage": 65.0, "window": Vector2(0.30, 0.70), "kb_mult": 1.0, "lunge": 1.5, "speed": 1.0},
+	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
+	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0, "speed": 1.5},
 ]
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
 const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
@@ -645,21 +650,34 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		var step_damage: float = COMBO_ATTACKS[_combo_step]["damage"]
 		var step_kb: float = KNOCKBACK_FORCE * COMBO_ATTACKS[_combo_step]["kb_mult"]
 
+		# The defender is the authority on whether the contact counted:
+		# take_hit returns false when the hit was negated outright (spawn
+		# immunity, roll i-frames, timed parry). Legacy targets whose
+		# take_hit returns void report null — treated as landed.
+		var hit_applied: Variant = true
+		if body.has_method("take_hit"):
+			if player_is_blocking:
+				# Blocked — pass the FULL damage and let the player's take_hit
+				# apply the shield's chip reduction (a block softens a hit, it
+				# never erases it; only a timed parry does). The shield also
+				# does NOT absorb momentum: push the player back hard enough
+				# to see the stagger.
+				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb * 0.65, true, self, false)
+			else:
+				# Not blocked - full damage and knockback
+				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb, false, self, false)
+
+		if hit_applied == false:
+			# Contact was negated by the defender — no hit confirmation, no
+			# impact FX. The swing is still spent (_has_hit_this_attack).
+			print("Bobba: hit NEGATED by defender (immunity/i-frames/parry) — combo step %d" % _combo_step)
+			return
+
 		if player_is_blocking:
-			# Blocked — pass the FULL damage and let the player's take_hit
-			# apply the shield's chip reduction (a block softens a hit, it
-			# never erases it; only a timed parry does). The shield also
-			# does NOT absorb momentum: push the player back hard enough
-			# to see the stagger.
-			if body.has_method("take_hit"):
-				body.take_hit(step_damage, knockback_dir * step_kb * 0.65, true, self, false)
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.45)  # hitstop + shake weight 0.45
 			print("Bobba: HIT BLOCKED by player (push-back applied)")
 		else:
-			# Not blocked - full damage and knockback
-			if body.has_method("take_hit"):
-				body.take_hit(step_damage, knockback_dir * step_kb, false, self, false)
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.8)
 			print("Bobba: HIT LANDED on player (combo step %d, %.0f dmg)" % [_combo_step, step_damage])
@@ -1303,14 +1321,14 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 		anim.remove_track(track_idx)
 
 
-func _play_anim(anim_name: StringName) -> void:
+func _play_anim(anim_name: StringName, speed: float = 1.0) -> void:
 	if _anim_player == null:
 		return
 	if _current_anim == anim_name:
 		return  # Already playing this animation
 	if _anim_player.has_animation(anim_name):
 		# Short cross-blend so state flips (chase→attack→chase) don't pop.
-		_anim_player.play(anim_name, 0.2)
+		_anim_player.play(anim_name, 0.2, speed)
 		_current_anim = anim_name
 
 
@@ -1743,7 +1761,7 @@ func _start_combo_attack(step: int) -> void:
 	if _anim_player == null or not _anim_player.has_animation(attack_anim):
 		attack_anim = &"bobba/Attack"  # clip failed to load — fall back to the swipe
 	_current_anim = &""  # force replay even if the same clip
-	_play_anim(attack_anim)
+	_play_anim(attack_anim, COMBO_ATTACKS[step].get("speed", 1.0))
 	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.5, 0),
 			-2.0 if step == COMBO_ATTACKS.size() - 1 else -5.0)
 	enable_attack_hitbox()  # fresh swing — each chain step can land its own hit
@@ -1782,10 +1800,18 @@ func _handle_attacking(delta: float) -> void:
 				var lunge_rot: float = atan2(lunge_dir.x, lunge_dir.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, lunge_rot, ROTATION_SPEED * delta)
 	_attack_state_time += delta
-	# Debug: warn if stuck in attacking state too long
+	# Watchdog: no attack step should ever take 3 s. If one does (clip
+	# failed to finish, animation_finished lost to a blend, etc.), RECOVER —
+	# end the chain exactly like _on_animation_finished's chain-over branch —
+	# instead of printing forever while Bobba stands frozen.
 	if _attack_state_time > 3.0:
-		print("Bobba: WARNING - Stuck in ATTACKING state for %.1f seconds! Animation: %s" % [_attack_state_time, _current_anim])
-		_attack_state_time = 0.0  # Reset to avoid spam
+		print("Bobba: WARNING - Stuck in ATTACKING state for %.1f seconds! Animation: %s — force-ending attack" % [_attack_state_time, _current_anim])
+		disable_attack_hitbox()
+		attack_cooldown = COMBO_END_COOLDOWN if _combo_step > 0 else 0.7
+		_combo_step = 0
+		_attack_state_time = 0.0
+		_current_anim = &""
+		state = State.CHASING
 
 
 func _handle_stunned(delta: float) -> void:

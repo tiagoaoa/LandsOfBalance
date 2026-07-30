@@ -16,6 +16,9 @@ const DIRECT_HIT_DAMAGE_PCT: float = 0.05
 # at half brightness and the hit carries only this fraction of the damage.
 const AIRBORNE_SHOT_DAMAGE_MULT: float = 0.5
 var airborne_shot: bool = false
+# Launch force multiplier: 1.0 for a planted loose, 0.5 when shot on the
+# move (half force → ~quarter ballistic range; damage scales with it).
+var shot_power: float = 1.0
 ## Ground fire DoT: 5% max HP per second to any character inside the radius,
 ## for as long as the fire burns.
 const GROUND_FIRE_DAMAGE_PCT_PER_SEC: float = 0.05
@@ -71,8 +74,10 @@ func _physics_process(delta: float) -> void:
 
 
 func launch(direction: Vector3) -> void:
-	# Apply initial velocity
-	linear_velocity = direction.normalized() * ARROW_SPEED
+	# Apply initial velocity (a moving loose leaves the string at half force)
+	linear_velocity = direction.normalized() * ARROW_SPEED * shot_power
+	# No gravity tricks needed: ballistic range goes with v², so half the
+	# launch force by itself caps the MAXIMUM (arced) flight at one quarter.
 
 
 func _setup_arrow_mesh() -> void:
@@ -248,7 +253,7 @@ func _on_body_entered(body: Node) -> void:
 
 	var flat_damage_for_network: float = _compute_flat_arrow_damage(body)
 
-	var shot_mult: float = AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0
+	var shot_mult: float = (AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0) * shot_power
 	var is_player: bool = "is_blocking" in body and body.has_method("take_hit")
 	if is_player:
 		# Player hit — honor block state (blocks fully negate arrows).

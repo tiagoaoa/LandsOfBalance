@@ -18,13 +18,13 @@
 ## Running the Game
 ```bash
 # Run game
-/home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-projects/3d/platformer
+/home/talves/bin/godot --path /home/talves/mthings/LandsOfBalance
 
 # Import resources (headless)
-timeout 60 /home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-projects/3d/platformer --headless --import
+timeout 60 /home/talves/bin/godot --path /home/talves/mthings/LandsOfBalance --headless --import
 
 # Open editor
-/home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-projects/3d/platformer -e
+/home/talves/bin/godot --path /home/talves/mthings/LandsOfBalance -e
 ```
 
 ## MCP Workflow
@@ -34,8 +34,13 @@ timeout 60 /home/talves/bin/godot --path /home/talves/mthings/tpgame/godot-demo-
 - Godot executable path: `/home/talves/bin/godot`
 - Bridge port: `127.0.0.1:6505`
 - Runtime port: `7777`
+- GoPeak compact mode exposes dynamic tool groups; keep `GOPEAK_TOOL_PROFILE=compact` unless debugging tool discovery itself
 - Godot MCP addons are already present under `addons/godot_mcp_editor/` and `addons/godot_mcp_runtime/`
 - Local smoke test: `bash tools/test_godot_mcp.sh`
+- Headless runtime for MCP runtime tools: `bash tools/run_mcp_runtime.sh`
+- Headless combat scenario: `bash tools/run_combat_scenario.sh A`
+- Headless multiplayer profile: `LOB_RUN_SECONDS=18 bash tools/profile_full_multiplayer.sh`
+- Disable runtime socket for ordinary headless tests with `GODOT_MCP_RUNTIME_ENABLED=0`; override runtime port with `GODOT_MCP_RUNTIME_PORT=<port>`
 
 ### MCP Notes From Claude Context
 - Claude project settings were configured to enable all project MCP servers and explicitly enable `.mcp.json` servers `godot` and `blender`

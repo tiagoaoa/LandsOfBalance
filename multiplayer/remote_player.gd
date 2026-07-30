@@ -450,6 +450,11 @@ func _load_animations(skeleton: Skeleton3D) -> void:
 
 		anim_instance.queue_free()
 
+	# Same guard-up locomotion clips the local player composes, so a remote
+	# peer walking with their shield up doesn't look frozen mid-stride
+	# (their client sends the clip name, e.g. "armed/BlockWalk").
+	BlockStanceAnim.compose(_anim_player, str(anim_prefix))
+
 	print("RemotePlayer: Animation library has: ", _anim_player.get_animation_list())
 
 

@@ -47,7 +47,24 @@ var _skel_arrow_shot: bool = false
 var _poster_marks: Dictionary = {}  # actor → staged x/z mark (movie-set pinning)
 var _bowsim_flags: Dictionary = {}
 var _bowsim_freeze: int = 0
+# BLOCKSIM: per-phase skeleton measurements (guard up while moving).
+var _blocksim_phase: String = ""
+var _blocksim_stats: Dictionary = {}
+var _blocksim_prev_knee: Quaternion = Quaternion.IDENTITY
+var _blocksim_prev_knee_valid: bool = false
+var _blocksim_freeze: int = 0
+# ANIMSIM: locomotion-vs-actions stress detectors.
+var _animsim_step: int = -1
+var _animsim_dir_idx: int = 0
+var _animsim_blocking: bool = false
+var _animsim_stall: float = 0.0
+var _animsim_max_stall: float = 0.0
+var _animsim_stalls: int = 0
+var _animsim_hard: int = 0
+var _animsim_reported: bool = false
+var _animsim_hard_reported: bool = false
 var _bowsim_noaim: int = 0
+var _screenshots_enabled: bool = true
 
 
 # SOULS scenario state — full live duel using the whole kit.
@@ -67,13 +84,24 @@ func _ready() -> void:
 	if scenario == "":
 		queue_free()
 		return
-	DirAccess.make_dir_recursive_absolute(SCREENSHOT_DIR)
+	_screenshots_enabled = not _has_cmdline_flag("--combat-no-screenshots")
+	if _screenshots_enabled:
+		DirAccess.make_dir_recursive_absolute(SCREENSHOT_DIR)
 	print("[CombatTest] Scenario %s armed — waiting for player and Bobba" % scenario)
 	# The GRASS showcase forces DAY lighting so the grass field is visually
 	# verifiable. Night mode stays on for normal gameplay / combat scenarios.
 	if scenario == "GRASS" or scenario == "MOVE" or scenario == "DRAGON" \
-			or scenario == "SKEL" or scenario == "BOWSIM":
-		get_tree().create_timer(0.5).timeout.connect(_force_day_lighting)
+			or scenario == "SKEL" or scenario == "BOWSIM" or scenario == "MOBSIM" \
+			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
+			or scenario == "ANIMSIM":
+			get_tree().create_timer(0.5).timeout.connect(_force_day_lighting)
+
+
+func _has_cmdline_flag(flag: String) -> bool:
+	var all_args := []
+	all_args.append_array(OS.get_cmdline_args())
+	all_args.append_array(OS.get_cmdline_user_args())
+	return flag in all_args
 
 
 func _force_day_lighting() -> void:
@@ -105,10 +133,12 @@ func _process(delta: float) -> void:
 		# alongside the script and corrupt the measurements. PLAY and the
 		# ARCHER playtest are the exceptions — there the human IS the driver.
 		if _player != null and scenario != "PLAY" and scenario != "ARCHER" \
-				and scenario != "COOP":
+				and scenario != "COOP" and scenario != "MOBSIM" and scenario != "PALSIM" \
+				and scenario != "BLOCKSIM" and scenario != "ANIMSIM":
 			_player.set_process_input(false)
 	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
-			or scenario == "DRAGON" or scenario == "BOWSIM"
+			or scenario == "DRAGON" or scenario == "BOWSIM" or scenario == "MOBSIM" \
+			or scenario == "PALSIM" or scenario == "BLOCKSIM"
 	if not solo and (_bobba == null or not is_instance_valid(_bobba)):
 		_bobba = _find_in_group("bobba")
 
@@ -272,6 +302,55 @@ func _process(delta: float) -> void:
 					str(_bowsim_flags.get("revived_ok", false)),
 					str(_bowsim_flags.get("crouch_ok", false))])
 			_finish("REVIVE_DONE")
+		return
+
+	if scenario == "PALSIM":
+		_drive_palsim(delta)
+		if _elapsed > 16.0:
+			print("[CombatTest] PALSIM summary: taps=%d swings=%d dropped=%d max_latency=%.2fs combo_max=%d freeze=%d move_recover=%.2fs" % [
+					int(_bowsim_flags.get("taps", 0)),
+					int(_bowsim_flags.get("swings", 0)),
+					int(_bowsim_flags.get("taps", 0)) - int(_bowsim_flags.get("swings", 0)),
+					float(_bowsim_flags.get("max_latency", 0.0)),
+					int(_bowsim_flags.get("combo_max", 0)),
+					_bowsim_freeze,
+					float(_bowsim_flags.get("move_recover", -1.0))])
+			_finish("PALSIM_DONE")
+		return
+
+	if scenario == "MOBSIM":
+		_drive_mobsim(delta)
+		if _elapsed > 22.0:
+			var stand_d: float = float(_bowsim_flags.get("stand_dist", 0.0))
+			var move_d: float = float(_bowsim_flags.get("move_dist", 0.0))
+			print("[CombatTest] MOBSIM summary: freeze=%d stuck_frames=%d shots=%d tap_recover=%s lostrelease_recover=%s walk_speed=%.1f run_speed=%.1f" % [
+					_bowsim_freeze, int(_bowsim_flags.get("stuck_frames", 0)),
+					int(_bowsim_flags.get("shots", 0)),
+					str(_bowsim_flags.get("tap_recover", false)),
+					str(_bowsim_flags.get("lostrelease_recover", false)),
+					float(_bowsim_flags.get("walk_speed", 0.0)),
+					float(_bowsim_flags.get("run_speed", 0.0))])
+			print("[CombatTest] MOBSIM ranged: crouch_toggle=%s zoom_stand=%.2f zoom_move=%.2f stand_dist=%.1f move_dist=%.1f ratio=%.2f" % [
+					str(_bowsim_flags.get("crouch_toggle", false)),
+					float(_bowsim_flags.get("zoom_stand", 0.0)),
+					float(_bowsim_flags.get("zoom_move", 0.0)),
+					stand_d, move_d,
+					(move_d / stand_d) if stand_d > 0.0 else -1.0])
+			_finish("MOBSIM_DONE")
+		return
+
+	if scenario == "ANIMSIM":
+		_drive_animsim(delta)
+		if _elapsed > 46.0:
+			_animsim_report()
+			_finish("ANIMSIM_DONE")
+		return
+
+	if scenario == "BLOCKSIM":
+		_drive_blocksim(delta)
+		if _elapsed > 23.0:
+			_blocksim_report()
+			_finish("BLOCKSIM_DONE")
 		return
 
 	if scenario == "BOWSIM":
@@ -1085,6 +1164,662 @@ func _drive_revive(_delta: float) -> void:
 		Input.action_release(&"crouch")
 
 
+## PALSIM: MOBILE input-path simulation for the PALADIN. Touch taps on
+## the attack button arrive as InputEventAction press/release pairs; the
+## joystick as analog move actions. Measures what "unresponsive" means in
+## numbers: tap→swing latency, TAPS THAT PRODUCE NO SWING AT ALL (taps
+## landing in the recovery tail / cooldown are silently eaten), combo
+## chains from fast taps, locomotion freezes, and how long movement takes
+## to come back after a chain.
+func _drive_palsim(_delta: float) -> void:
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+	var tap := func() -> void:
+		var ev := InputEventAction.new()
+		ev.action = "attack"
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		var ev2 := InputEventAction.new()
+		ev2.action = "attack"
+		ev2.pressed = false
+		Input.parse_input_event(ev2)
+		_bowsim_flags["taps"] = int(_bowsim_flags.get("taps", 0)) + 1
+		_bowsim_flags["last_tap_t"] = _elapsed
+
+	if once.call("setup", 0.0):
+		var start := Vector3(120.0, 0.0, -140.0)
+		var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+		var query := PhysicsRayQueryParameters3D.create(
+				start + Vector3(0, 60, 0), start + Vector3(0, -60, 0), 1)
+		var hit: Dictionary = space.intersect_ray(query)
+		start.y = (hit.position.y + 0.3) if hit.has("position") else _player.global_position.y
+		_player.global_position = start
+		_player.velocity = Vector3.ZERO
+		_player._spawn_immunity_timer = 120.0
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		var bobba := _find_in_group("bobba")
+		if bobba:
+			bobba.global_position = Vector3(200.0, bobba.global_position.y, 200.0)
+		_add_key_light()
+
+	# A: plain walk baseline.
+	if once.call("walk_on", 0.5):
+		Input.action_press(&"move_forward", 1.0)
+		_bowsim_flags["input_held"] = true
+	if once.call("walk_off", 2.2):
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+
+	# B: single tap — latency probe.
+	if once.call("tap1", 2.6):
+		tap.call()
+
+	# C: fast triple-tap combo (0.25s apart, inside the 0.5s click window).
+	if once.call("c1", 4.4):
+		tap.call()
+	if once.call("c2", 4.65):
+		tap.call()
+	if once.call("c3", 4.9):
+		tap.call()
+
+	# D: the "eaten tap": swing, then tap in the recovery tail (~0.9s in),
+	# then tap during the post-chain cooldown.
+	if once.call("d1", 8.0):
+		tap.call()
+	if once.call("d2", 8.9):
+		tap.call()
+	if once.call("d3", 9.65):
+		tap.call()
+
+	# E: tap-spam while moving (real thumb behaviour), then movement
+	# recovery measurement after the last swing.
+	if once.call("e_move", 10.6):
+		Input.action_press(&"move_forward", 1.0)
+		_bowsim_flags["input_held"] = true
+	for i in range(6):
+		if once.call("spam%d" % i, 10.8 + 0.22 * i):
+			tap.call()
+	if once.call("e_done", 13.4):
+		_bowsim_flags["watch_recover"] = true
+
+	# ---- per-frame detectors ------------------------------------------
+	# Swing rising edge + latency from the most recent tap.
+	var attacking: bool = _player.is_attacking
+	if attacking and not bool(_bowsim_flags.get("prev_attacking", false)):
+		_bowsim_flags["swings"] = int(_bowsim_flags.get("swings", 0)) + 1
+		if _bowsim_flags.has("last_tap_t"):
+			var lat: float = _elapsed - float(_bowsim_flags["last_tap_t"])
+			_bowsim_flags["max_latency"] = maxf(float(_bowsim_flags.get("max_latency", 0.0)), lat)
+	_bowsim_flags["prev_attacking"] = attacking
+	_bowsim_flags["combo_max"] = maxi(int(_bowsim_flags.get("combo_max", 0)), int(_player._combo_step))
+
+	if bool(_bowsim_flags.get("watch_recover", false)) and _elapsed >= 15.2:
+		_bowsim_flags["move_recover"] = Vector2(_player.velocity.x, _player.velocity.z).length()
+		_bowsim_flags["watch_recover"] = false
+		var app: AnimationPlayer = _player._current_anim_player
+		print("[CombatTest] PALSIM: speed 1.8s after last tap = %.1f (attacking=%s anim=%s playing=%s pos=%.2f step=%d cd=%.2f bank=%d stam=%.0f)" % [
+				float(_bowsim_flags["move_recover"]), str(_player.is_attacking),
+				String(app.current_animation) if app else "nil",
+				str(app.is_playing()) if app else "nil",
+				app.current_animation_position if (app and app.current_animation != "") else -1.0,
+				int(_player._combo_step), float(_player._attack_cooldown),
+				int(_player._combo_clicks_buffered),
+				float(_player._stamina.current) if ("current" in _player._stamina) else -1.0])
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+
+	var ap2: AnimationPlayer = _player._current_anim_player
+	if ap2 != null and _player.is_on_floor() \
+			and Vector2(_player.velocity.x, _player.velocity.z).length() > 2.0 \
+			and bool(_bowsim_flags.get("input_held", false)) and not attacking:
+		var anim := String(ap2.current_animation)
+		var loco: bool = ("Walk" in anim or "Run" in anim or "Strafe" in anim) and ap2.is_playing()
+		if not loco:
+			_bowsim_freeze += 1
+			if _bowsim_freeze <= 5:
+				print("[CombatTest] PALSIM FREEZE t=%.2f anim=%s" % [_elapsed, anim])
+
+
+## MOBSIM: MOBILE input-path simulation for the archer. The touch UI
+## drives the game exclusively through InputEventAction press/release
+## pairs ("attack" button, joystick move actions with analog strength) —
+## this scenario replays that exact stream through the player's real
+## _input pipeline, including the failure mode phones produce: a LOST
+## RELEASE (finger slides off the button / touch cancelled → the action
+## resets but the release EVENT never arrives). Detectors: frozen-legs
+## frames, stuck-draw frames (drawing/holding while the action is up),
+## shots fired, and analog walk vs full-tilt run speeds.
+func _drive_mobsim(_delta: float) -> void:
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+	var touch := func(pressed: bool) -> void:
+		var ev := InputEventAction.new()
+		ev.action = "attack"
+		ev.pressed = pressed
+		Input.parse_input_event(ev)
+
+	if once.call("setup", 0.0):
+		# Snap to the actual ground so no phase starts mid-fall (a falling
+		# player reads as zero speed / non-locomotion and pollutes detectors).
+		var start := Vector3(120.0, 0.0, -140.0)
+		var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+		var query := PhysicsRayQueryParameters3D.create(
+				start + Vector3(0, 60, 0), start + Vector3(0, -60, 0), 1)
+		var hit: Dictionary = space.intersect_ray(query)
+		start.y = (hit.position.y + 0.3) if hit.has("position") else _player.global_position.y
+		_player.global_position = start
+		_player.velocity = Vector3.ZERO
+		_player._spawn_immunity_timer = 120.0
+		var bobba := _find_in_group("bobba")
+		if bobba:
+			bobba.global_position = Vector3(200.0, bobba.global_position.y, 200.0)
+		var pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if pivot:
+			pivot.rotation.x = 0.0
+		_add_key_light()
+
+	# A: analog walk (joystick half-tilt), then full tilt.
+	if once.call("walk_half", 0.3):
+		Input.action_press(&"move_forward", 0.5)
+		_bowsim_flags["input_held"] = true
+	if once.call("walk_half_meas", 1.5):
+		_bowsim_flags["walk_speed"] = Vector2(_player.velocity.x, _player.velocity.z).length()
+		print("[CombatTest] MOBSIM probe: strength=%.2f vec=%s crouch=%s reviving=%s anim=%s" % [
+				Input.get_action_strength(&"move_forward"),
+				str(Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)),
+				str(_player.is_crouching), str(_player.is_reviving),
+				String(_player._archer_anim_player.current_animation) if _player._archer_anim_player else "nil"])
+	if once.call("walk_full", 1.6):
+		Input.action_press(&"move_forward", 1.0)
+	if once.call("walk_full_meas", 2.8):
+		_bowsim_flags["run_speed"] = Vector2(_player.velocity.x, _player.velocity.z).length()
+	if once.call("walk_stop", 3.0):
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+
+	# B: touch hold-shot.
+	if once.call("hold1", 3.4):
+		touch.call(true)
+	if once.call("shot1", 4.4):
+		touch.call(false)
+
+	# C: five rapid taps (cancel path), then a clean hold-shot.
+	for i in range(5):
+		if once.call("tapd%d" % i, 5.0 + 0.24 * i):
+			touch.call(true)
+		if once.call("tapu%d" % i, 5.12 + 0.24 * i):
+			touch.call(false)
+	if once.call("hold2", 6.6):
+		touch.call(true)
+	if once.call("shot2", 7.6):
+		touch.call(false)
+	if once.call("tapcheck", 7.9):
+		_bowsim_flags["tap_recover"] = int(_bowsim_flags.get("shots", 0)) >= 2
+		print("[CombatTest] MOBSIM: hold-shot after tap burst -> %s" % str(_bowsim_flags["tap_recover"]))
+
+	# D: LOST RELEASE — the phone killer. Press arrives, release never does.
+	if once.call("lost_press", 8.4):
+		touch.call(true)
+	if once.call("lost_silent", 8.8):
+		Input.action_release(&"attack")  # action resets, NO event delivered
+		print("[CombatTest] MOBSIM: simulated lost touch-release")
+	if once.call("lost_retry_press", 10.0):
+		touch.call(true)
+	if once.call("lost_retry_release", 11.0):
+		touch.call(false)
+	if once.call("lost_check", 11.3):
+		_bowsim_flags["lostrelease_recover"] = int(_bowsim_flags.get("shots", 0)) >= 3
+		print("[CombatTest] MOBSIM: shot after lost release -> %s (shots=%d)" % [
+				str(_bowsim_flags["lostrelease_recover"]), int(_bowsim_flags.get("shots", 0))])
+
+	# E: aim-walking on touch — measure zoom (must NOT engage while
+	# moving) and the moving shot's flight distance.
+	if once.call("walkaim_on", 12.0):
+		Input.action_press(&"move_forward", 1.0)
+		_bowsim_flags["input_held"] = true
+	if once.call("walkaim_draw", 12.3):
+		var pv: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if pv:
+			pv.rotation.x = deg_to_rad(30.0)  # max-range lob for the measurement
+		touch.call(true)
+	if once.call("walkaim_zoom_meas", 13.1):
+		_bowsim_flags["zoom_move"] = _player._spring_arm.spring_length
+	if once.call("walkaim_shot", 13.3):
+		touch.call(false)
+		_bowsim_flags["watch_move_shot"] = true
+	if once.call("walkaim_off", 14.2):
+		Input.action_release(&"move_forward")
+		_bowsim_flags["input_held"] = false
+
+	# F: standing zoom + standing shot distance (comparison baseline).
+	if once.call("standaim_draw", 15.0):
+		var pv2: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+		if pv2:
+			pv2.rotation.x = deg_to_rad(30.0)
+		touch.call(true)
+	if once.call("standaim_zoom_meas", 16.2):
+		_bowsim_flags["zoom_stand"] = _player._spring_arm.spring_length
+	if once.call("standaim_shot", 16.4):
+		touch.call(false)
+		_bowsim_flags["watch_stand_shot"] = true
+
+	# G: mobile crouch toggle (tap semantics — action persists).
+	if once.call("crouch_tap", 19.5):
+		var ev := InputEventAction.new()
+		ev.action = "crouch"
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	if once.call("crouch_check", 20.0):
+		var on: bool = _player.is_crouching
+		var ev2 := InputEventAction.new()
+		ev2.action = "crouch"
+		ev2.pressed = false
+		Input.parse_input_event(ev2)
+		_bowsim_flags["crouch_toggle"] = on
+		print("[CombatTest] MOBSIM: crouch after toggle-tap -> %s" % str(on))
+
+	# ---- arrow flight tracking (standing vs moving loose) -------------
+	for arrow in get_tree().get_nodes_in_group("fire_arrows"):
+		if not (arrow is RigidBody3D) or not is_instance_valid(arrow):
+			continue
+		if not _bowsim_flags.has("origin_%d" % arrow.get_instance_id()):
+			_bowsim_flags["origin_%d" % arrow.get_instance_id()] = (arrow as Node3D).global_position
+			if _bowsim_flags.get("watch_move_shot", false):
+				_bowsim_flags["move_arrow"] = arrow.get_instance_id()
+				_bowsim_flags["watch_move_shot"] = false
+				print("[CombatTest] MOBSIM: moving-shot arrow speed=%.1f" % (arrow as RigidBody3D).linear_velocity.length())
+			elif _bowsim_flags.get("watch_stand_shot", false):
+				_bowsim_flags["stand_arrow"] = arrow.get_instance_id()
+				_bowsim_flags["watch_stand_shot"] = false
+				print("[CombatTest] MOBSIM: standing-shot arrow speed=%.1f" % (arrow as RigidBody3D).linear_velocity.length())
+		if (arrow as RigidBody3D).freeze:
+			var oid := arrow.get_instance_id()
+			var dist: float = (arrow as Node3D).global_position.distance_to(
+					_bowsim_flags["origin_%d" % oid])
+			if int(_bowsim_flags.get("move_arrow", -1)) == oid and not _bowsim_flags.has("move_dist"):
+				_bowsim_flags["move_dist"] = dist
+				print("[CombatTest] MOBSIM: moving-shot landed at %.1fm" % dist)
+			elif int(_bowsim_flags.get("stand_arrow", -1)) == oid and not _bowsim_flags.has("stand_dist"):
+				_bowsim_flags["stand_dist"] = dist
+				print("[CombatTest] MOBSIM: standing-shot landed at %.1fm" % dist)
+
+	# ---- per-frame detectors ------------------------------------------
+	var new_arrows := get_tree().get_nodes_in_group("fire_arrows").size()
+	var prev := int(_bowsim_flags.get("arrow_count", 0))
+	if new_arrows > prev:
+		_bowsim_flags["shots"] = int(_bowsim_flags.get("shots", 0)) + (new_arrows - prev)
+	_bowsim_flags["arrow_count"] = new_arrows
+
+	if (_player.is_drawing_bow or _player.is_holding_bow) \
+			and not Input.is_action_pressed(&"attack"):
+		_bowsim_flags["stuck_frames"] = int(_bowsim_flags.get("stuck_frames", 0)) + 1
+
+	var ap: AnimationPlayer = _player._archer_anim_player
+	if ap != null and _player.is_on_floor() \
+			and Vector2(_player.velocity.x, _player.velocity.z).length() > 1.2 \
+			and bool(_bowsim_flags.get("input_held", false)):
+		var anim := String(ap.current_animation)
+		var loco: bool = anim in ["archer/Walk", "archer/Run", "archer/StrafeLeft", "archer/StrafeRight"] \
+				and ap.is_playing()
+		var aim_burst: bool = anim == "archer/Attack" \
+				and (_player.is_attacking or _player.is_drawing_bow or _player.is_holding_bow)
+		if not loco and not aim_burst:
+			_bowsim_freeze += 1
+			if _bowsim_freeze <= 5:
+				print("[CombatTest] MOBSIM FREEZE t=%.2f anim=%s playing=%s" % [
+						_elapsed, anim, str(ap.is_playing())])
+
+
+## ANIMSIM: locomotion-vs-actions STRESS test, with Bobba live so real
+## hits land mid-action. Holds a movement direction at all times and fires
+## the whole action vocabulary through the real _input pipeline (attack,
+## block hold/release, parry, dodge, estus, spell, combat-mode toggle,
+## jump) on a fast cadence, for both classes. Detector: while moving on
+## the ground with input held, the AnimationPlayer must be RUNNING a
+## locomotion clip; anything else accumulates stall time. A stall past
+## STALL_WARN gets a full state dump (which gate flag holds the body,
+## which clip is loaded, whether the player is even playing) and past
+## STALL_HARD counts as a stuck-forever freeze.
+const ANIMSIM_STALL_WARN: float = 1.2
+const ANIMSIM_STALL_HARD: float = 3.0
+const ANIMSIM_ACTIONS: Array[String] = [
+	"attack", "attack", "block_on", "attack", "parry", "block_off",
+	"dodge", "attack", "spell", "attack", "toggle", "attack",
+	"block_on", "dodge", "attack", "block_off", "estus", "jump",
+	"attack", "attack", "parry", "toggle", "attack", "block_on",
+	"attack", "attack", "block_off", "dodge",
+]
+const ANIMSIM_DIRS: Array[StringName] = [&"move_forward", &"move_right",
+		&"move_back", &"move_left"]
+
+
+func _drive_animsim(delta: float) -> void:
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+	var act := func(action: StringName, down: bool) -> void:
+		var ev := InputEventAction.new()
+		ev.action = action
+		ev.pressed = down
+		Input.parse_input_event(ev)
+
+	if once.call("setup", 0.0):
+		var start: Vector3 = _bobba.global_position + Vector3(3.5, 0.0, 0.0)
+		var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+		var query := PhysicsRayQueryParameters3D.create(
+				start + Vector3(0, 60, 0), start + Vector3(0, -60, 0), 1)
+		var hit: Dictionary = space.intersect_ray(query)
+		start.y = (hit.position.y + 0.3) if hit.has("position") else _player.global_position.y
+		_player.global_position = start
+		_player.velocity = Vector3.ZERO
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		_add_key_light()
+		_player._switch_character_class(_player.CharacterClass.PALADIN)
+		Input.action_press(ANIMSIM_DIRS[0], 1.0)
+
+	# Halfway: same battery as the archer.
+	if once.call("archer", 24.0):
+		_animsim_note("--- switching to ARCHER ---")
+		_player._switch_character_class(_player.CharacterClass.ARCHER)
+
+	# Keep the tester alive — we want hit-reactions landing mid-action for
+	# 45 seconds, not a death/respawn that resets every flag under test.
+	if _player.current_health < _player.max_health * 0.6:
+		_player.current_health = _player.max_health
+
+	# Circle around: a new heading every 2.5s so we stay near Bobba.
+	var dir_idx: int = int(_elapsed / 2.5) % ANIMSIM_DIRS.size()
+	if dir_idx != _animsim_dir_idx:
+		Input.action_release(ANIMSIM_DIRS[_animsim_dir_idx])
+		Input.action_press(ANIMSIM_DIRS[dir_idx], 1.0)
+		_animsim_dir_idx = dir_idx
+
+	# Action battery on a 0.4s cadence.
+	var step: int = int((_elapsed - 0.5) / 0.4)
+	if step >= 0 and step > _animsim_step:
+		_animsim_step = step
+		match ANIMSIM_ACTIONS[step % ANIMSIM_ACTIONS.size()]:
+			"attack":
+				act.call(&"attack", true)
+				act.call(&"attack", false)
+			"block_on":
+				act.call(&"block", true)
+				_animsim_blocking = true
+			"block_off":
+				act.call(&"block", false)
+				_animsim_blocking = false
+			"parry":
+				act.call(&"parry", true)
+				act.call(&"parry", false)
+			"dodge":
+				act.call(&"dodge", true)
+				act.call(&"dodge", false)
+			"estus":
+				act.call(&"estus", true)
+				act.call(&"estus", false)
+			"spell":
+				act.call(&"spell_cast", true)
+				act.call(&"spell_cast", false)
+			"toggle":
+				act.call(&"toggle_combat", true)
+				act.call(&"toggle_combat", false)
+			"jump":
+				act.call(&"jump", true)
+				act.call(&"jump", false)
+
+	_animsim_detect(delta)
+
+
+## Per-frame stall detection with a full diagnosis on the way in/out.
+func _animsim_detect(delta: float) -> void:
+	var ap: AnimationPlayer = _player._current_anim_player
+	if ap == null:
+		return
+	var hspeed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
+	var moving: bool = _player.is_on_floor() and hspeed > 1.5
+	var clip := String(ap.current_animation)
+	var loco: bool = ap.is_playing() and (clip.ends_with("Walk") or clip.ends_with("Run") \
+			or clip.ends_with("Sprint") or clip.ends_with("StrafeLeft") \
+			or clip.ends_with("StrafeRight"))
+
+	if moving and not loco:
+		_animsim_stall += delta
+		if _animsim_stall >= ANIMSIM_STALL_WARN and not _animsim_reported:
+			_animsim_reported = true
+			_animsim_stalls += 1
+			if _animsim_stalls <= 10:
+				_animsim_note("STALL t=%.1f dur=%.1fs clip=%s playing=%s | attack=%s sheath=%s trans=%s cast=%s roll=%s parry=%s drink=%s draw=%s hold=%s stun=%s block=%s cur=%s" % [
+						_elapsed, _animsim_stall, clip, str(ap.is_playing()),
+						str(_player.is_attacking), str(_player.is_sheathing),
+						str(_player.is_transitioning), str(_player.is_casting),
+						str(_player.is_rolling), str(_player.is_parrying),
+						str(_player.is_drinking), str(_player.is_drawing_bow),
+						str(_player.is_holding_bow), str(_player._is_stunned),
+						str(_player.is_blocking), String(_player._current_anim)])
+		if _animsim_stall >= ANIMSIM_STALL_HARD and not _animsim_hard_reported:
+			_animsim_hard_reported = true
+			_animsim_hard += 1
+			_animsim_note("HARD FREEZE t=%.1f — body has been non-locomotive for %.1fs while moving" % [
+					_elapsed, _animsim_stall])
+		_animsim_max_stall = maxf(_animsim_max_stall, _animsim_stall)
+	else:
+		_animsim_stall = 0.0
+		_animsim_reported = false
+		_animsim_hard_reported = false
+
+
+func _animsim_note(msg: String) -> void:
+	print("[CombatTest] ANIMSIM %s" % msg)
+
+
+func _animsim_report() -> void:
+	var ap: AnimationPlayer = _player._current_anim_player
+	print("[CombatTest] ANIMSIM final: clip=%s playing=%s attack=%s sheath=%s trans=%s cast=%s" % [
+			String(ap.current_animation) if ap else "nil",
+			str(ap.is_playing()) if ap else "nil",
+			str(_player.is_attacking), str(_player.is_sheathing),
+			str(_player.is_transitioning), str(_player.is_casting)])
+	print("[CombatTest] ANIMSIM summary: stalls=%d hard_freezes=%d max_stall=%.1fs verdict=%s" % [
+			_animsim_stalls, _animsim_hard, _animsim_max_stall,
+			"PASS" if _animsim_hard == 0 and _animsim_max_stall < ANIMSIM_STALL_WARN else "FAIL"])
+
+
+## BLOCKSIM: guard-up locomotion simulation for BOTH classes. Holds the
+## real `block` action (dispatched as an InputEventAction, the same path a
+## mouse/R2 press takes) while driving real movement input, and measures
+## what actually happens to the SKELETON — not just which clip is named:
+##   knee travel  — summed rotation of the knee bone per second. A frozen
+##                  stride reads ~0 no matter what clip is playing.
+##   guard drift  — angle between the forearm pose while walking-blocking
+##                  and while standing-blocking. Large = the guard dropped.
+##   freeze       — moving on the ground with guard up but no clip running.
+func _drive_blocksim(delta: float) -> void:
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+	var block := func(down: bool) -> void:
+		var ev := InputEventAction.new()
+		ev.action = &"block"
+		ev.pressed = down
+		Input.parse_input_event(ev)
+	var phase := func(name: String) -> void:
+		_blocksim_phase = name
+		_blocksim_prev_knee_valid = false
+
+	if once.call("setup", 0.0):
+		var start := Vector3(120.0, 0.0, -140.0)
+		var space: PhysicsDirectSpaceState3D = _player.get_world_3d().direct_space_state
+		var query := PhysicsRayQueryParameters3D.create(
+				start + Vector3(0, 60, 0), start + Vector3(0, -60, 0), 1)
+		var hit: Dictionary = space.intersect_ray(query)
+		start.y = (hit.position.y + 0.3) if hit.has("position") else _player.global_position.y
+		_player.global_position = start
+		_player.velocity = Vector3.ZERO
+		_player._spawn_immunity_timer = 300.0
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		_add_key_light()
+		_player._switch_character_class(_player.CharacterClass.PALADIN)
+
+	# ---- Paladin, sword + shield ---------------------------------------
+	if once.call("p_walk", 0.6):
+		Input.action_press(&"move_forward", 1.0)
+		phase.call("paladin-armed/walk")
+	if once.call("p_blockwalk", 2.6):
+		block.call(true)
+		phase.call("paladin-armed/block-walk")
+	if once.call("p_blockstand", 4.6):
+		Input.action_release(&"move_forward")
+		phase.call("paladin-armed/block-stand")
+	if once.call("p_blockrun", 6.0):
+		Input.action_press(&"move_forward", 1.0)
+		Input.action_press(&"run")
+		phase.call("paladin-armed/block-run")
+	if once.call("p_blockstrafe", 7.6):
+		Input.action_release(&"move_forward")
+		Input.action_release(&"run")
+		Input.action_press(&"move_right", 1.0)
+		phase.call("paladin-armed/block-strafe")
+	if once.call("p_end", 9.0):
+		Input.action_release(&"move_right")
+		block.call(false)
+		phase.call("")
+		_player._toggle_combat_mode()  # sheath -> unarmed guard
+
+	# ---- Paladin, unarmed ----------------------------------------------
+	if once.call("u_walk", 10.6):
+		Input.action_press(&"move_forward", 1.0)
+		phase.call("paladin-unarmed/walk")
+	if once.call("u_blockwalk", 12.2):
+		block.call(true)
+		phase.call("paladin-unarmed/block-walk")
+	if once.call("u_end", 14.0):
+		Input.action_release(&"move_forward")
+		block.call(false)
+		phase.call("")
+		_player._switch_character_class(_player.CharacterClass.ARCHER)
+
+	# ---- Archer ---------------------------------------------------------
+	if once.call("a_walk", 15.0):
+		Input.action_press(&"move_forward", 1.0)
+		phase.call("archer/walk")
+	if once.call("a_blockwalk", 17.0):
+		block.call(true)
+		phase.call("archer/block-walk")
+	if once.call("a_blockstand", 19.0):
+		Input.action_release(&"move_forward")
+		phase.call("archer/block-stand")
+	if once.call("a_blockrun", 20.5):
+		Input.action_press(&"move_forward", 1.0)
+		Input.action_press(&"run")
+		phase.call("archer/block-run")
+	if once.call("a_end", 22.2):
+		Input.action_release(&"move_forward")
+		Input.action_release(&"run")
+		block.call(false)
+		phase.call("")
+
+	_blocksim_sample(delta)
+
+
+## Per-frame measurement of the phase in progress.
+func _blocksim_sample(delta: float) -> void:
+	if _blocksim_phase == "":
+		return
+	var skel: Skeleton3D = _blocksim_skeleton()
+	if skel == null:
+		return
+	var knee: int = skel.find_bone("mixamorig_LeftLeg")
+	var arm: int = skel.find_bone("mixamorig_LeftForeArm")
+	if knee < 0 or arm < 0:
+		return
+
+	var stat: Dictionary = _blocksim_stats.get(_blocksim_phase, {
+		"time": 0.0, "knee_deg": 0.0, "speed": 0.0, "frames": 0,
+		"freeze": 0, "anim": "", "arm": Quaternion.IDENTITY,
+	})
+	var knee_q: Quaternion = skel.get_bone_pose_rotation(knee)
+	if _blocksim_prev_knee_valid:
+		stat["knee_deg"] = float(stat["knee_deg"]) \
+				+ rad_to_deg(_blocksim_prev_knee.angle_to(knee_q))
+	_blocksim_prev_knee = knee_q
+	_blocksim_prev_knee_valid = true
+
+	var hspeed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
+	stat["time"] = float(stat["time"]) + delta
+	stat["frames"] = int(stat["frames"]) + 1
+	stat["speed"] = float(stat["speed"]) + hspeed
+	stat["arm"] = skel.get_bone_pose_rotation(arm)
+	stat["blocking"] = _player.is_blocking
+
+	var ap: AnimationPlayer = _player._current_anim_player
+	if ap != null:
+		stat["anim"] = String(ap.current_animation)
+		# Guard up and actually moving: SOME clip has to be running.
+		if _blocksim_phase.contains("block-") and not _blocksim_phase.ends_with("stand") \
+				and _player.is_on_floor() and hspeed > 1.5 and not ap.is_playing():
+			stat["freeze"] = int(stat["freeze"]) + 1
+			_blocksim_freeze += 1
+	_blocksim_stats[_blocksim_phase] = stat
+
+
+## The skeleton of whichever character model is currently shown.
+func _blocksim_skeleton() -> Skeleton3D:
+	for model in [_player._armed_character, _player._unarmed_character,
+			_player._archer_character]:
+		if model != null and is_instance_valid(model) and model.visible:
+			return _player._find_skeleton(model)
+	return null
+
+
+## Compares every guard phase against its plain-locomotion baseline.
+func _blocksim_report() -> void:
+	print("[CombatTest] BLOCKSIM per-phase measurements:")
+	for phase_name in _blocksim_stats:
+		var s: Dictionary = _blocksim_stats[phase_name]
+		var t: float = maxf(float(s["time"]), 0.001)
+		print("[CombatTest]   %-26s knee=%6.1f deg/s speed=%4.1f blocking=%s anim=%s freeze=%d" % [
+				phase_name, float(s["knee_deg"]) / t, float(s["speed"]) / maxf(float(s["frames"]), 1.0),
+				str(s.get("blocking", false)), s["anim"], int(s["freeze"])])
+
+	var verdict := true
+	for pair in [["paladin-armed/walk", "paladin-armed/block-walk", "paladin-armed/block-stand"],
+			["paladin-unarmed/walk", "paladin-unarmed/block-walk", ""],
+			["archer/walk", "archer/block-walk", "archer/block-stand"]]:
+		if not _blocksim_stats.has(pair[0]) or not _blocksim_stats.has(pair[1]):
+			print("[CombatTest] BLOCKSIM %s: MISSING SAMPLES" % pair[1])
+			verdict = false
+			continue
+		var base_rate: float = _blocksim_knee_rate(pair[0])
+		var block_rate: float = _blocksim_knee_rate(pair[1])
+		var ratio: float = (block_rate / base_rate) if base_rate > 1.0 else -1.0
+		var guard_drift: float = -1.0
+		if pair[2] != "" and _blocksim_stats.has(pair[2]):
+			var a: Quaternion = _blocksim_stats[pair[1]]["arm"]
+			var b: Quaternion = _blocksim_stats[pair[2]]["arm"]
+			guard_drift = rad_to_deg(a.angle_to(b))
+		var ok: bool = ratio >= 0.5 and (guard_drift < 0.0 or guard_drift <= 35.0)
+		verdict = verdict and ok
+		print("[CombatTest] BLOCKSIM %-22s stride_kept=%.2f (walk %.1f -> guard %.1f deg/s) guard_drift=%.1f deg -> %s" % [
+				pair[1], ratio, base_rate, block_rate, guard_drift, "OK" if ok else "FAIL"])
+	print("[CombatTest] BLOCKSIM summary: freeze_frames=%d verdict=%s" % [
+			_blocksim_freeze, "PASS" if verdict else "FAIL"])
+
+
+func _blocksim_knee_rate(phase: String) -> float:
+	var s: Dictionary = _blocksim_stats[phase]
+	return float(s["knee_deg"]) / maxf(float(s["time"]), 0.001)
+
+
 ## BOWSIM: archer bow/locomotion state-machine simulation. Drives REAL
 ## movement input plus the actual draw/release methods through every
 ## combination — walk, standing shot, aim-walking shot, quick-cancel,
@@ -1729,7 +2464,13 @@ func _try_attack() -> void:
 		return
 	if _player.has_method("_do_attack"):
 		_player._do_attack()
-		_attack_count += 1
+		# _do_attack refuses silently in several states (winded stamina,
+		# airborne from Bobba's knockback, hit-stun roll, ...). Only count
+		# presses that actually started a swing — the `attacks=` figure in
+		# the outcome line must equal real swings with armed hitboxes, not
+		# raw input presses.
+		if _player.is_attacking:
+			_attack_count += 1
 
 
 func _find_in_group(gname: String) -> Node:
@@ -1743,6 +2484,8 @@ func _find_in_group(gname: String) -> Node:
 
 
 func _capture() -> void:
+	if not _screenshots_enabled:
+		return
 	var tree := get_tree()
 	if tree == null:
 		return
@@ -1773,5 +2516,32 @@ func _finish(outcome: String) -> void:
 		scenario, outcome, paladin_hp, bobba_hp, _attack_count, _elapsed,
 	])
 	_capture()
+	# Silence every audio player (rain bed, river loop emitters, one-shots)
+	# so the AudioServer releases their stream playbacks during the grace
+	# second below. Loops still playing at quit() show up as "ObjectDB
+	# instances leaked at exit" + "resources still in use" in every headless
+	# run. Gate the Sfx autoload too — gameplay keeps running through the
+	# grace second and any one-shot it starts (footstep, whoosh) would leak
+	# its playback at quit. The FINAL sweep must be the last thing before
+	# quit(): with frames between sweep and quit, a sound started in those
+	# frames re-arms the leak (that race made the leak flaky, not fixed).
+	var sfx := get_node_or_null("/root/Sfx")
+	if sfx != null and "muted" in sfx:
+		sfx.muted = true
+	_stop_all_audio(get_tree().root)
 	var t := get_tree().create_timer(1.0)
-	t.timeout.connect(func(): get_tree().quit())
+	t.timeout.connect(func():
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_stop_all_audio(get_tree().root)
+		get_tree().quit())
+
+
+## Recursively stop every AudioStreamPlayer/2D/3D under `node` and drop the
+## stream reference so nothing holds the WAV resources at exit.
+func _stop_all_audio(node: Node) -> void:
+	if node is AudioStreamPlayer or node is AudioStreamPlayer2D or node is AudioStreamPlayer3D:
+		node.stop()
+		node.stream = null
+	for child in node.get_children():
+		_stop_all_audio(child)

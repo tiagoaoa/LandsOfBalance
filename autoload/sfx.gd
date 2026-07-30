@@ -14,6 +14,12 @@ const POOL_SIZE := 16
 var _streams: Dictionary = {}
 var _pool: Array[AudioStreamPlayer3D] = []
 var _pool_idx: int = 0
+## Shutdown gate: once true, no new playback may start. Set by the combat
+## test harness right before quitting — any stream still playing (or started
+## in the quit grace frames) keeps its AudioStreamPlayback alive inside the
+## AudioServer and shows up as "ObjectDB instances leaked at exit" in every
+## headless run. The harness sweeps existing players; this stops new ones.
+var muted: bool = false
 
 
 func _ready() -> void:
@@ -47,6 +53,8 @@ func _get_stream(sfx_name: String, looped: bool = false) -> AudioStream:
 ## Positional one-shot. Pitch jitter keeps repeats organic.
 func play3d(sfx_name: String, pos: Vector3, volume_db: float = 0.0,
 		pitch_jitter: float = 0.08) -> void:
+	if muted:
+		return
 	var stream := _get_stream(sfx_name)
 	if stream == null:
 		return
@@ -64,6 +72,8 @@ func play3d(sfx_name: String, pos: Vector3, volume_db: float = 0.0,
 ## Freed with its parent; returns the player for volume control.
 func loop3d(sfx_name: String, parent: Node, offset: Vector3 = Vector3.ZERO,
 		volume_db: float = 0.0, max_dist: float = 30.0) -> AudioStreamPlayer3D:
+	if muted:
+		return null
 	var stream := _get_stream(sfx_name, true)
 	if stream == null:
 		return null
@@ -82,6 +92,8 @@ func loop3d(sfx_name: String, parent: Node, offset: Vector3 = Vector3.ZERO,
 
 ## Non-positional loop (ambience beds). Returns the player.
 func loop2d(sfx_name: String, volume_db: float = -18.0) -> AudioStreamPlayer:
+	if muted:
+		return null
 	var stream := _get_stream(sfx_name, true)
 	if stream == null:
 		return null

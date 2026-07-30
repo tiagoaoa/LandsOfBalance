@@ -17,11 +17,16 @@ var _joystick: Control
 var _spell_btn: BaseButton
 var _jump_btn: BaseButton
 var _run_btn: BaseButton
+var _crouch_btn: Button
+var _crouch_icon: TextureRect
+var _crouch_on: bool = false
 var _attack_btn: BaseButton
 var _class_btn: Button
 var _class_label: Label
 
 # Icon textures (legacy - now using righthud overlay)
+var _revive_btn: Button = null
+var _revive_draw: Control = null
 var _icon_spell: Texture2D
 var _icon_jump: Texture2D
 var _icon_run: Texture2D
@@ -82,6 +87,9 @@ func _setup_ui() -> void:
 
 	# Setup character selection
 	_setup_class_selector()
+
+	# Co-op revive button (hidden until the player stands by a fallen ally)
+	_setup_revive_button()
 
 	print("TouchUI: _setup_ui() complete")
 
@@ -245,6 +253,36 @@ func _setup_action_buttons() -> void:
 	_run_btn = _create_touch_area("run", run_pos, btn_size)
 	container.add_child(_run_btn)
 
+	# CROUCH: was never wired on mobile at all. Tap-to-TOGGLE (holding a
+	# crouch button while also steering and aiming is impossible on touch).
+	# The action state persists between taps, so player.gd's normal
+	# Input.is_action_pressed("crouch") polling just works.
+	var crouch_pos := Vector2(560 * hud_scale, 820 * hud_scale + img_y_offset)
+	_crouch_icon = TextureRect.new()
+	_crouch_icon.name = "CrouchIcon"
+	_crouch_icon.texture = load("res://assets/hud_icons/icon_crouch_new.png")
+	_crouch_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_crouch_icon.custom_minimum_size = Vector2(64, 64)
+	_crouch_icon.size = Vector2(64, 64)
+	_crouch_icon.position = crouch_pos - Vector2(32, 32)
+	_crouch_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crouch_icon.modulate = Color(1, 1, 1, 0.55)
+	container.add_child(_crouch_icon)
+	_crouch_btn = Button.new()
+	_crouch_btn.name = "crouch_btn"
+	_crouch_btn.flat = true
+	var t_style := StyleBoxFlat.new()
+	t_style.bg_color = Color(0, 0, 0, 0)
+	for st in ["normal", "hover", "pressed", "focus"]:
+		_crouch_btn.add_theme_stylebox_override(st, t_style)
+	_crouch_btn.custom_minimum_size = btn_size
+	_crouch_btn.size = btn_size
+	_crouch_btn.position = crouch_pos - btn_size / 2
+	_crouch_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	_crouch_btn.pressed.connect(_on_crouch_toggled)
+	container.add_child(_crouch_btn)
+	print("TouchUI: Created crouch toggle at %s" % crouch_pos)
+
 
 ## Create an invisible touch area button (for use with HUD overlay)
 func _create_touch_area(action: String, center_pos: Vector2, btn_size: Vector2) -> Button:
@@ -357,6 +395,104 @@ func _on_action_button_up(btn: TextureButton) -> void:
 		event.action = action
 		event.pressed = false
 		Input.parse_input_event(event)
+
+
+## ------------------------------------------------------------------
+## CO-OP REVIVE BUTTON (mobile): a round hospital-cross button that only
+## appears when the player is standing close enough to a fallen ally to
+## revive them. Holding it channels the revive; the channel's progress is
+## drawn as a bright arc lighting up the button's circular edge, sweeping
+## CLOCKWISE from 12 o'clock.
+## ------------------------------------------------------------------
+const REVIVE_BTN_SIZE := 116.0
+
+func _setup_revive_button() -> void:
+	# Invisible touch button drives the "revive" action (hold-to-channel).
+	_revive_btn = _create_touch_area("revive",
+			Vector2.ZERO, Vector2(REVIVE_BTN_SIZE, REVIVE_BTN_SIZE))
+	_revive_btn.name = "ReviveButton"
+	# Anchor to the right edge, above the action cluster.
+	_revive_btn.anchor_left = 1.0
+	_revive_btn.anchor_right = 1.0
+	_revive_btn.anchor_top = 0.5
+	_revive_btn.anchor_bottom = 0.5
+	_revive_btn.position = Vector2.ZERO
+	_revive_btn.offset_left = -REVIVE_BTN_SIZE - 34.0
+	_revive_btn.offset_right = -34.0
+	_revive_btn.offset_top = -REVIVE_BTN_SIZE * 0.5
+	_revive_btn.offset_bottom = REVIVE_BTN_SIZE * 0.5
+	add_child(_revive_btn)
+
+	# The visual rides on top and never eats input.
+	_revive_draw = Control.new()
+	_revive_draw.name = "ReviveButtonArt"
+	_revive_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_revive_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_revive_draw.draw.connect(_draw_revive_button)
+	_revive_btn.add_child(_revive_draw)
+
+	_revive_btn.visible = false
+
+
+func _draw_revive_button() -> void:
+	var c := Vector2(REVIVE_BTN_SIZE, REVIVE_BTN_SIZE) * 0.5
+	var r := REVIVE_BTN_SIZE * 0.5 - 6.0
+	# Disc + rim
+	_revive_draw.draw_circle(c, r, Color(0.04, 0.10, 0.20, 0.82))
+	_revive_draw.draw_arc(c, r, 0.0, TAU, 48, Color(0.25, 0.45, 0.7, 0.9), 3.0)
+	# Hospital cross
+	var arm := r * 0.62
+	var thick := r * 0.42
+	var cross_col := Color(0.95, 0.98, 1.0, 0.95)
+	_revive_draw.draw_rect(Rect2(c.x - thick * 0.5, c.y - arm, thick, arm * 2.0), cross_col)
+	_revive_draw.draw_rect(Rect2(c.x - arm, c.y - thick * 0.5, arm * 2.0, thick), cross_col)
+	# Channel progress: bright blue edge arc, CLOCKWISE from the top.
+	var progress := _revive_progress_frac()
+	if progress > 0.0:
+		_revive_draw.draw_arc(c, r + 1.0, -PI / 2.0, -PI / 2.0 + TAU * progress,
+				64, Color(0.35, 0.85, 1.0, 1.0), 7.0)
+
+
+func _revive_progress_frac() -> float:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null or not ("_revive_progress" in player):
+		return 0.0
+	return clampf(float(player._revive_progress) / float(player.REVIVE_TIME), 0.0, 1.0)
+
+
+func _process(_delta: float) -> void:
+	if _revive_btn == null:
+		return
+	var player := get_tree().get_first_node_in_group("player")
+	var other := get_tree().get_first_node_in_group("companion")
+	var can_revive := false
+	if player != null and is_instance_valid(player) and other != null \
+			and is_instance_valid(other) and "is_dead" in other and other.is_dead \
+			and not ("is_dead" in player and player.is_dead):
+		var dist: float = player.global_position.distance_to(other.global_position)
+		can_revive = dist <= float(player.REVIVE_RANGE)
+	if _revive_btn.visible != can_revive:
+		_revive_btn.visible = can_revive
+		if not can_revive:
+			# Walking away mid-hold must also release the action.
+			var ev := InputEventAction.new()
+			ev.action = "revive"
+			ev.pressed = false
+			Input.parse_input_event(ev)
+	if can_revive:
+		_revive_draw.queue_redraw()
+
+
+func _on_crouch_toggled() -> void:
+	_crouch_on = not _crouch_on
+	var ev := InputEventAction.new()
+	ev.action = "crouch"
+	ev.pressed = _crouch_on
+	Input.parse_input_event(ev)
+	if _crouch_icon:
+		_crouch_icon.modulate = Color(0.5, 0.9, 1.0, 1.0) if _crouch_on \
+				else Color(1, 1, 1, 0.55)
+	print("TouchUI: crouch toggled %s" % ("ON" if _crouch_on else "OFF"))
 
 
 func _setup_class_selector() -> void:

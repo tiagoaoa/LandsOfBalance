@@ -295,6 +295,9 @@ func _setup_dragon() -> void:
 
 
 func _get_capture_output_dir() -> String:
+	var env_dir := OS.get_environment("DRAGON_CAPTURE_DIR").strip_edges()
+	if not env_dir.is_empty():
+		return env_dir
 	var all_args := []
 	all_args.append_array(OS.get_cmdline_args())
 	all_args.append_array(OS.get_cmdline_user_args())
@@ -334,17 +337,32 @@ func _run_capture_sequence() -> void:
 	}
 
 	DirAccess.make_dir_recursive_absolute(_capture_output_dir)
+	var captured := 0
+	var headless := DisplayServer.get_name().to_lower() == "headless"
 	for name in phases.keys():
 		_anim_player.play(&"WingFlap")
 		_anim_player.seek(phases[name] * _anim_player.current_animation_length, true)
-		await RenderingServer.frame_post_draw
-		await RenderingServer.frame_post_draw
-		var image := get_viewport().get_texture().get_image()
+		if headless:
+			await get_tree().process_frame
+			await get_tree().process_frame
+		else:
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+		var viewport_texture := get_viewport().get_texture()
+		if viewport_texture == null:
+			print("Capture %s skipped: no viewport texture" % name)
+			continue
+		var image := viewport_texture.get_image()
+		if image == null:
+			print("Capture %s skipped: no viewport image" % name)
+			continue
 		var path := _capture_output_dir.path_join("dragon_%s.png" % name)
 		var err := image.save_png(path)
 		print("Capture %s -> %s (%s)" % [name, path, err])
+		if err == OK:
+			captured += 1
 
-	get_tree().quit()
+	get_tree().quit(0 if captured > 0 else 1)
 
 
 func _find_skeleton(node: Node) -> Skeleton3D:

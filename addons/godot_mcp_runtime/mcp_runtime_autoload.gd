@@ -5,11 +5,17 @@ extends Node
 ## It starts a TCP server that the MCP server can connect to.
 
 const DEFAULT_PORT = 7777
+const DEFAULT_HOST = "127.0.0.1"
 const PROTOCOL_VERSION = "1.0"
+const PORT_ENV_KEYS := ["GODOT_MCP_RUNTIME_PORT", "GODOT_RUNTIME_PORT", "MCP_RUNTIME_PORT"]
+const HOST_ENV_KEYS := ["GODOT_MCP_RUNTIME_HOST", "GODOT_RUNTIME_HOST", "MCP_RUNTIME_HOST"]
+const ENABLE_ENV_KEYS := ["GODOT_MCP_RUNTIME_ENABLED", "MCP_RUNTIME_ENABLED"]
+const DISABLE_ENV_KEYS := ["GODOT_MCP_RUNTIME_DISABLED", "GODOT_RUNTIME_DISABLED", "MCP_RUNTIME_DISABLED"]
 
 var _server: TCPServer
 var _clients: Array[StreamPeerTCP] = []
 var _port: int = DEFAULT_PORT
+var _host: String = DEFAULT_HOST
 var _enabled: bool = true
 var _watched_signals: Dictionary = {}  # { "node_path:signal_name": callable }
 
@@ -20,8 +26,16 @@ signal command_received(command: String, params: Dictionary)
 
 func _ready() -> void:
 	name = "MCPRuntime"
+	_enabled = _resolve_enabled()
+	if not _enabled:
+		print("[MCP Runtime] Disabled by environment or command line")
+		set_process(false)
+		return
+
+	_port = _resolve_port()
+	_host = _resolve_host()
 	_start_server()
-	print("[MCP Runtime] Autoload ready, server starting on port %d" % _port)
+	print("[MCP Runtime] Autoload ready, server starting on %s:%d" % [_host, _port])
 
 
 func _process(_delta: float) -> void:
@@ -59,12 +73,79 @@ func _process(_delta: float) -> void:
 
 func _start_server() -> void:
 	_server = TCPServer.new()
-	var error = _server.listen(_port)
+	var error = _server.listen(_port, _host)
 	if error != OK:
-		push_error("[MCP Runtime] Failed to start server on port %d: %s" % [_port, error])
+		push_error("[MCP Runtime] Failed to start server on %s:%d: %s" % [_host, _port, error])
 		_enabled = false
 	else:
-		print("[MCP Runtime] Server listening on port %d" % _port)
+		print("[MCP Runtime] Server listening on %s:%d" % [_host, _port])
+
+
+func _resolve_enabled() -> bool:
+	for arg in _all_cmdline_args():
+		if arg == "--no-mcp-runtime" or arg == "--disable-mcp-runtime":
+			return false
+		if arg.begins_with("--mcp-runtime="):
+			var value: String = arg.trim_prefix("--mcp-runtime=").strip_edges().to_lower()
+			if value in ["0", "false", "no", "off", "disabled"]:
+				return false
+			if value in ["1", "true", "yes", "on", "enabled"]:
+				return true
+	for key in DISABLE_ENV_KEYS:
+		var disabled_raw := OS.get_environment(key).strip_edges().to_lower()
+		if disabled_raw in ["1", "true", "yes", "on", "enabled"]:
+			return false
+	for key in ENABLE_ENV_KEYS:
+		var raw := OS.get_environment(key).strip_edges().to_lower()
+		if raw.is_empty():
+			continue
+		if raw in ["0", "false", "no", "off", "disabled"]:
+			return false
+		if raw in ["1", "true", "yes", "on", "enabled"]:
+			return true
+		push_warning("[MCP Runtime] Ignoring invalid %s value '%s'" % [key, raw])
+	return true
+
+
+func _resolve_port() -> int:
+	for arg in _all_cmdline_args():
+		if arg.begins_with("--mcp-runtime-port="):
+			var port_arg: String = arg.trim_prefix("--mcp-runtime-port=")
+			if port_arg.is_valid_int():
+				var cli_port := int(port_arg)
+				if cli_port >= 1 and cli_port <= 65535:
+					return cli_port
+			push_warning("[MCP Runtime] Ignoring invalid --mcp-runtime-port value '%s'" % port_arg)
+	for key in PORT_ENV_KEYS:
+		var raw := OS.get_environment(key).strip_edges()
+		if raw.is_empty():
+			continue
+		if raw.is_valid_int():
+			var port := int(raw)
+			if port >= 1 and port <= 65535:
+				return port
+			push_warning("[MCP Runtime] Ignoring invalid %s value '%s'" % [key, raw])
+	return DEFAULT_PORT
+
+
+func _resolve_host() -> String:
+	for arg in _all_cmdline_args():
+		if arg.begins_with("--mcp-runtime-host="):
+			var host_arg: String = arg.trim_prefix("--mcp-runtime-host=").strip_edges()
+			if not host_arg.is_empty():
+				return host_arg
+	for key in HOST_ENV_KEYS:
+		var raw := OS.get_environment(key).strip_edges()
+		if not raw.is_empty():
+			return raw
+	return DEFAULT_HOST
+
+
+func _all_cmdline_args() -> Array:
+	var args := []
+	args.append_array(OS.get_cmdline_args())
+	args.append_array(OS.get_cmdline_user_args())
+	return args
 
 
 func _send_welcome(client: StreamPeerTCP) -> void:

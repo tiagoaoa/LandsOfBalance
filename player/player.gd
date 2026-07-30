@@ -107,6 +107,12 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	# Estus drink — the Mixamo "sword and shield power up" flourish (raise
 	# off-hand to the face) doubles convincingly as swigging a flask.
 	"estus": "res://player/character/armed/PowerUp.fbx",
+	# Lock-on strafes: armed has no authored strafe clips, so lock-on
+	# strafing used to fall back to forward Walk (foot-sliding sideways).
+	# Reuse the unarmed Paladin's strafes — same mixamorig skeleton,
+	# retargeted by bone name exactly like the dodge clips below.
+	"strafe_left": "res://player/character/unarmed/StrafeLeft.fbx",
+	"strafe_right": "res://player/character/unarmed/StrafeRight.fbx",
 	# Directional dodge-roll clips. Authored on the Archer's Mixamo rig but
 	# retargeted onto the Paladin skeleton by bone name (same mixamorig).
 	"dodge_f": "res://player/character/archer/standing dodge forward.fbx",
@@ -204,6 +210,12 @@ const COMBO_TRAIL_COLOR_FINISHER: Color = Color(1.0, 0.75, 0.35, 1.0)
 var _combo_step: int = 0
 var _combo_clicks_buffered: int = 0     # chain steps banked by fast clicks (0..2)
 var _time_since_attack_click: float = 999.0
+# Attack input buffer: a tap that lands during the recovery tail or the
+# post-swing cooldown is QUEUED for this long and fires the moment the
+# next swing is legal — instead of being silently eaten (the single
+# biggest "controls feel dead" cause on touch).
+const ATTACK_BUFFER_TIME: float = 0.35
+var _attack_input_buffer: float = 0.0
 var _attack_lunge_dir: Vector3 = Vector3.ZERO
 var _sword_trail: SlashTrail = null
 
@@ -287,6 +299,7 @@ var is_drawing_bow: bool = false  # True while holding left-click to draw
 var is_holding_bow: bool = false  # True when fully drawn (0.3s) and ready to shoot
 var _bow_draw_time: float = 0.0   # How long bow has been drawn
 var _bow_loose_lock: float = 0.0  # seconds locomotion yields to the loose anim
+var _lost_release_grace: float = 0.0  # heals dropped touch-release events
 const BOW_DRAW_TIME_REQUIRED: float = 0.3  # Seconds to hold before arrow is ready
 # The archer/Attack source clip is ~3.77s (full draw + loose). Gameplay is
 # much faster than the mocap, so the clip is played in pieces:
@@ -615,6 +628,10 @@ func _cancel_revive(reason: String) -> void:
 ## Bottom-centre loading bar, human instance only. value < 0 hides it.
 func _update_revive_bar(value: float) -> void:
 	if is_ai_companion:
+		return
+	# Mobile shows revive progress as the arc around the touch button's
+	# circular edge (touch_screen_ui.gd) — no bottom bar there.
+	if DisplayServer.is_touchscreen_available() or OS.get_name() in ["Android", "iOS"]:
 		return
 	if _revive_bar_layer == null:
 		_revive_bar_layer = CanvasLayer.new()
@@ -1910,6 +1927,8 @@ func _get_armed_config() -> Dictionary:
 		"idle": ["Idle", true],
 		"walk": ["Walk", true],
 		"run": ["Run", true],
+		"strafe_left": ["StrafeLeft", true],
+		"strafe_right": ["StrafeRight", true],
 		"jump": ["Jump", false],
 		"attack1": ["Attack1", false],
 		"attack2": ["Attack2", false],
@@ -2058,6 +2077,11 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 
 		instance.queue_free()
 
+	# No rig ships a block-walk clip, so build one: guard on the arms,
+	# stride on the legs. Without this, raising the shield froze the legs
+	# mid-step while the character kept sliding forward.
+	BlockStanceAnim.compose(anim_player, library_prefix)
+
 
 func _find_animation_player(node: Node) -> AnimationPlayer:
 	if node is AnimationPlayer:
@@ -2175,13 +2199,107 @@ func _on_animation_finished(anim_name: StringName) -> void:
 func _play_anim(anim_name: StringName) -> void:
 	if _current_anim_player == null:
 		return
+	# `_current_anim` is only trustworthy while that clip is genuinely the
+	# one running. A direct play() elsewhere (parry, bow pose, hit react,
+	# class switch) or a finished one-shot leaves the cache stale, and a
+	# stale match here silently refuses to restart locomotion — the body
+	# then slides around in whatever pose it was left in.
 	if _current_anim == anim_name:
-		return
+		if _current_anim_player.is_playing() \
+				and _current_anim_player.current_animation == anim_name:
+			return
+		# Cache is stale. Re-firing a ONE-SHOT (jump, dodge) would loop it
+		# forever, so only the looping clips — locomotion, idle, guard —
+		# are restarted from here.
+		var current: Animation = _current_anim_player.get_animation(anim_name)
+		if current == null or current.loop_mode == Animation.LOOP_NONE:
+			return
 	if _current_anim_player.has_animation(anim_name):
 		# Cross-blend locomotion changes — pose pops read as cheap; a short
 		# blend is most of what makes movement look "weighted".
 		_current_anim_player.play(anim_name, 0.25)
 		_current_anim = anim_name
+
+
+## Clips that _update_animation itself owns — if one of these is running,
+## no action clip is in charge of the body any more.
+const FREE_BODY_ANIMS: Array[String] = ["Idle", "Walk", "Run", "Sprint",
+		"StrafeLeft", "StrafeRight", "Jump", "Block", "BlockWalk", "BlockRun",
+		"BlockSprint", "BlockStrafeLeft", "BlockStrafeRight"]
+
+## How long a contradictory state must hold before it is cleared. Long
+## enough to ride out a cross-blend frame, short enough to be invisible.
+const ANIM_GATE_STALE_TIME: float = 0.15
+
+var _anim_gate_stale: float = 0.0
+
+
+func _is_free_body_anim(clip: String) -> bool:
+	var leaf: String = clip.substr(clip.rfind("/") + 1) if "/" in clip else clip
+	return leaf in FREE_BODY_ANIMS
+
+
+## Drops action state that no clip backs any more (see the call site).
+func _clear_stale_anim_gates() -> void:
+	if not (is_attacking or is_sheathing or is_transitioning or is_casting):
+		_anim_gate_stale = 0.0
+		return
+
+	var body_free: bool = true
+	if _current_anim_player != null:
+		var clip := String(_current_anim_player.current_animation)
+		if clip != "" and not _is_free_body_anim(clip):
+			# An action clip still owns the body. A PAUSED player normally
+			# means the clip is over and forgotten — except for the
+			# archer's aim hold, which parks its clip on purpose.
+			body_free = not _current_anim_player.is_playing() \
+					and not (is_drawing_bow or is_holding_bow)
+	if not body_free:
+		_anim_gate_stale = 0.0
+		return
+
+	_anim_gate_stale += get_physics_process_delta_time()
+	if _anim_gate_stale < ANIM_GATE_STALE_TIME:
+		return
+
+	var held := "attack=%s sheath=%s transition=%s cast=%s" % [
+			str(is_attacking), str(is_sheathing), str(is_transitioning), str(is_casting)]
+	if is_attacking:
+		is_attacking = false
+		disable_attack_hitbox()
+		_combo_step = 0
+		_combo_clicks_buffered = 0
+	if is_casting:
+		is_casting = false
+		_stop_spell_effects()
+	is_sheathing = false
+	is_transitioning = false
+	_anim_gate_stale = 0.0
+	# Forget the cached clip name too, so the locomotion request right
+	# below this always reaches the AnimationPlayer.
+	_current_anim = &""
+	print("Player: cleared stale animation state (%s) while '%s' was playing" % [
+			held, String(_current_anim_player.current_animation) if _current_anim_player else "nil"])
+
+
+## Picks the guard-up clip matching how the character is moving. Falls
+## back down the list (strafe -> run -> walk -> planted Block) so a rig
+## missing a composed twin still gets a sensible guard.
+func _block_stance_anim(prefix: String, input_dir: Vector2) -> StringName:
+	var candidates: Array[String] = []
+	if input_dir.length() > 0.1:
+		if abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
+			candidates.append("BlockStrafeLeft" if input_dir.x < 0 else "BlockStrafeRight")
+		if is_running:
+			candidates.append("BlockRun")
+			candidates.append("BlockSprint")
+		candidates.append("BlockWalk")
+	candidates.append("Block")
+	for clip in candidates:
+		var anim := StringName(prefix + "/" + clip)
+		if _current_anim_player.has_animation(anim):
+			return anim
+	return &""
 
 
 func _get_current_mode_prefix() -> String:
@@ -2202,6 +2320,25 @@ func _update_animation(input_dir: Vector2) -> void:
 			and _archer_anim_player \
 			and _archer_anim_player.current_animation != "archer/Attack":
 		is_attacking = false
+
+	# Watchdog BEFORE the gate: is_attacking / is_sheathing /
+	# is_transitioning / is_casting are each cleared by the
+	# animation_finished callback of the clip that set them. Whenever that
+	# clip gets REPLACED instead of finishing (hit react, dodge, class
+	# switch, another action, a mode toggle) the callback never arrives
+	# with that name and the flag sticks TRUE for the rest of the life —
+	# which freezes every locomotion update below it. Rather than patch
+	# each path, detect the contradiction: a gate is held while the body
+	# is visibly free. (is_rolling / is_parrying / is_drinking are timer
+	# driven and clear themselves, so they are not watched.)
+	_clear_stale_anim_gates()
+
+	# The unarmed fight-stance -> idle transition is pure cosmetics and
+	# runs for over two seconds. It must never hold the legs hostage while
+	# the player is asking to move (same principle as the paladin's
+	# attack-recovery cancel).
+	if is_transitioning and input_dir.length() > 0.1:
+		is_transitioning = false
 
 	if is_attacking or is_sheathing or is_transitioning or is_casting or is_rolling or is_parrying or is_drinking:
 		return
@@ -2225,11 +2362,12 @@ func _update_animation(input_dir: Vector2) -> void:
 		if desired_anim == &"":
 			return
 
-	# Blocking (both modes - shield in armed, center block in unarmed)
+	# Blocking (both modes - shield in armed, center block in unarmed).
+	# Guard up does NOT stop the feet: while there is movement input the
+	# composed BlockWalk/BlockRun/BlockStrafe* clips keep the stride and
+	# only the upper body holds the guard.
 	elif is_blocking:
-		var block_anim: StringName = StringName(prefix + "/Block")
-		if _current_anim_player.has_animation(block_anim):
-			desired_anim = block_anim
+		desired_anim = _block_stance_anim(prefix, input_dir)
 
 	# Strafe
 	elif abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
@@ -2376,6 +2514,10 @@ func _shoot_arrow() -> void:
 	arrow.is_local = true
 	# A mid-air loose is weaker: half-bright flame, reduced damage.
 	arrow.airborne_shot = not is_on_floor()
+	# A MOVING loose has no planted stance behind it: half the launch force
+	# (≈ quarter of the ballistic range) and damage cut proportionally.
+	if Vector2(velocity.x, velocity.z).length() > 1.0:
+		arrow.shot_power = 0.5
 
 	# Get camera direction for aiming
 	var camera = _camera
@@ -2471,6 +2613,24 @@ func _update_bow_draw(delta: float) -> void:
 	if (is_drawing_bow or is_holding_bow) and not is_on_floor():
 		_cancel_bow_draw()
 		return
+	# LOST-RELEASE HEALING (the mobile killer): a finger sliding off the
+	# touch button (or a cancelled touch) resets the "attack" action
+	# without ever delivering the release EVENT — the draw would stay
+	# stuck forever and every following press would be refused. If the
+	# action has been up for a grace period while we still think the bow
+	# is drawn, perform the release that never arrived. All bindings
+	# (touch button, mouse, F key, gamepad) live inside the "attack"
+	# action, so the action state is authoritative for every input path.
+	if (is_drawing_bow or is_holding_bow) and not is_ai_companion:
+		if not Input.is_action_pressed(&"attack"):
+			_lost_release_grace += delta
+			if _lost_release_grace > 0.25:
+				_lost_release_grace = 0.0
+				print("Player: lost touch-release healed — releasing bow")
+				_release_bow()
+				return
+		else:
+			_lost_release_grace = 0.0
 	# Update bow draw progress based on time
 	if not is_drawing_bow:
 		# Hide progress bar when not drawing
@@ -2577,9 +2737,15 @@ func _do_attack() -> void:
 				and click_gap <= COMBO_CLICK_WINDOW \
 				and _combo_step + _combo_clicks_buffered < COMBO_ANIMS.size() - 1:
 			_combo_clicks_buffered += 1
+		else:
+			# Tap in the recovery tail (past the chain window) — buffer it
+			# so the next swing starts the instant this one ends.
+			_attack_input_buffer = ATTACK_BUFFER_TIME
 		return
 
 	if _attack_cooldown > 0:
+		# Tap during cooldown — buffer instead of eating it.
+		_attack_input_buffer = ATTACK_BUFFER_TIME
 		return
 
 	if character_class == CharacterClass.PALADIN and combat_mode == CombatMode.ARMED:
@@ -2746,8 +2912,12 @@ func _do_spell_cast() -> void:
 ## The HP label is emitted automatically by the HealthComponent.damaged
 ## signal (see _on_damage_taken) — take_hit only applies the flash,
 ## knockback and stun.
+## Returns true when the hit actually connected (damage/knockback applied,
+## even if chip-reduced by a block) and false when the defender negated it
+## outright (roll i-frames, spawn immunity, timed parry) — so the attacker
+## can confirm its hit honestly instead of assuming contact always counts.
 func take_hit(damage: float, knockback: Vector3, blocked: bool,
-		attacker: Node3D = null, is_fully_blockable: bool = false) -> void:
+		attacker: Node3D = null, is_fully_blockable: bool = false) -> bool:
 	# Dodge-roll i-frames: a hit that lands during the roll's invulnerable
 	# window passes clean through — no damage, no knockback. This is the
 	# souls payoff for timing a roll into the swing. Startup and recovery
@@ -2756,12 +2926,12 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		var roll_elapsed: float = ROLL_DURATION - _roll_timer
 		if roll_elapsed >= ROLL_IFRAME_START and roll_elapsed <= ROLL_IFRAME_END:
 			print("Player: Hit dodged - roll i-frames (t=%.2f)" % roll_elapsed)
-			return
+			return false
 
 	# Check spawn immunity
 	if is_spawn_immune():
 		print("Player: Hit ignored - spawn immunity active (%.1fs remaining)" % _spawn_immunity_timer)
-		return
+		return false
 
 	# Parry deflect: the enemy's hit visually connected with us while the
 	# shield flick was in its active frames, and the attacker is something
@@ -2777,7 +2947,7 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		attacker.on_parried(self)
 		print("Player: PARRY! deflected %.1f damage from %s (t=%.2f)" % [
 			damage, attacker.name, _parry_timer])
-		return
+		return false
 
 	# Airborne mitigation: jumping over a swing halves the damage. The
 	# player "sells" the dodge visually by being off the floor when the
@@ -2850,6 +3020,7 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 	if has_node("/root/CombatFX") and actual_damage > 0.0:
 		var weight: float = 0.35 if blocked else 0.75
 		CombatFX.on_hit(weight)
+	return true
 
 
 ## Take damage from any source
@@ -3872,6 +4043,25 @@ func _update_attack_hitbox_timing() -> void:
 		_hitbox_active_window = false
 		print("Player: Attack window ENDED at progress ", _attack_anim_progress)
 
+	# RECOVERY CANCEL (souls rule): once the blade's active frames are done
+	# and no chain is banked, MOVING ends the swing early. The slow heavy
+	# finisher keeps its damage timing but stops imprisoning the player for
+	# its whole ~2.7s tail — the single biggest paladin-controls complaint.
+	# Cancel point = the chain point: if a new swing may take over at 0.6,
+	# a walk-away may too. (win_end is nominally 0.9 of the clip — way too
+	# late to matter on the 2.7s finisher.)
+	if _attack_anim_progress > COMBO_CHAIN_POINT and _combo_clicks_buffered == 0 \
+			and character_class == CharacterClass.PALADIN:
+		var move_in: Vector2 = _ai_move_vec if is_ai_companion \
+				else Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
+		if move_in.length() > 0.4:
+			is_attacking = false
+			disable_attack_hitbox()
+			_attack_cooldown = COMBO_FINISHER_COOLDOWN if _combo_step >= COMBO_ANIMS.size() - 1 else 0.2
+			_combo_step = 0
+			_combo_clicks_buffered = 0
+			return
+
 	# The slash ribbon draws exactly while the blade can hurt — the visible
 	# arc IS the hit volume's path (golden rule made legible).
 	if _sword_trail != null:
@@ -4289,6 +4479,13 @@ func _physics_process(delta: float) -> void:
 
 	# Update bow draw state (time-based progress)
 	_update_bow_draw(delta)
+	# Fire a buffered attack tap the moment a swing becomes legal.
+	if _attack_input_buffer > 0.0:
+		_attack_input_buffer -= delta
+		if _attack_input_buffer > 0.0 and not is_attacking and _attack_cooldown <= 0.0 \
+				and not (is_rolling or is_parrying or is_drinking or is_reviving or is_dead):
+			_attack_input_buffer = 0.0
+			_do_attack()
 	# Crouch: held stance — slower, braced (25% less damage), body lowered.
 	is_crouching = _ai_crouch if is_ai_companion \
 			else Input.is_action_pressed(&"crouch")
@@ -4345,8 +4542,11 @@ func _physics_process(delta: float) -> void:
 	# the shoulder and narrows the FOV — still third person, but the aim
 	# point reads far better. Eases back out the moment the string is off.
 	if _spring_arm != null and _camera != null:
+		# Zoom only for a PLANTED archer: moving cancels it (this asset has
+		# no aim-walk animation, so a moving draw is an unsighted hip shot).
 		var aiming: bool = character_class == CharacterClass.ARCHER \
-				and (is_drawing_bow or is_holding_bow) and is_on_floor()
+				and (is_drawing_bow or is_holding_bow) and is_on_floor() \
+				and Vector2(velocity.x, velocity.z).length() < 0.8
 		var want_len: float = AIM_ZOOM_SPRING if aiming else DEFAULT_SPRING_LENGTH
 		var want_fov: float = AIM_ZOOM_FOV if aiming else DEFAULT_CAMERA_FOV
 		_spring_arm.spring_length = lerpf(_spring_arm.spring_length, want_len, 10.0 * delta)
@@ -4399,8 +4599,14 @@ func _physics_process(delta: float) -> void:
 	# - Shift key for keyboard
 	# - Stick intensity > 60% for gamepad
 	# - Touch joystick intensity > 80% (COD Mobile style - max forward = run)
+	# Keyboard sprint only counts while the game window owns the mouse — but
+	# the headless display server can't capture at all (set_mouse_mode is a
+	# no-op there), which would permanently veto sprint in automated
+	# scenarios. Treat headless as "captured".
+	var mouse_owned := Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED \
+			or DisplayServer.get_name() == "headless"
 	var keyboard_run := _ai_run if is_ai_companion \
-			else (Input.is_action_pressed(&"run") if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false)
+			else (Input.is_action_pressed(&"run") if mouse_owned else false)
 
 	# Check if using gamepad (joy axis)
 	var joy_input := Vector2(

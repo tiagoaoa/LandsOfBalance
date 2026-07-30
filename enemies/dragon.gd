@@ -189,6 +189,13 @@ var anim_takeoff: StringName = &""
 
 
 func _ready() -> void:
+	# MOBILE: the dragon is disabled for now — the 35x model, its
+	# procedural animation stack and the breath VFX are too heavy for
+	# phones. Revisit with a perf pass (LOD model / baked anims).
+	if OS.get_name() in ["Android", "iOS"]:
+		print("Dragon: disabled on mobile (performance)")
+		queue_free()
+		return
 	add_to_group("dragon")  # For combat HUD / NPC discovery
 	_setup_health_component()
 	_setup_hit_label()
