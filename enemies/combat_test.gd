@@ -63,6 +63,15 @@ var _animsim_stalls: int = 0
 var _animsim_hard: int = 0
 var _animsim_reported: bool = false
 var _animsim_hard_reported: bool = false
+var _animsim_guard_phantom: float = 0.0
+var _animsim_guard_reported: bool = false
+var _animsim_guard_stuck: int = 0
+var _animsim_guard_dropped_t: float = 0.0
+var _animsim_guard_drop_reported: bool = false
+var _animsim_guard_dropped: int = 0
+var _animsim_guard_anim_t: float = 0.0
+var _animsim_guard_anim_reported: bool = false
+var _animsim_guard_anim: int = 0
 var _bowsim_noaim: int = 0
 var _screenshots_enabled: bool = true
 
@@ -1542,9 +1551,39 @@ func _drive_animsim(delta: float) -> void:
 		Input.action_press(ANIMSIM_DIRS[dir_idx], 1.0)
 		_animsim_dir_idx = dir_idx
 
+	# ---- injected guard failures --------------------------------------
+	# (1) LOST RELEASE: the press event arrives, then the action state is
+	# reset with NO release event — what a phone/controller produces on a
+	# focus change, app pause, touch cancel or a trigger snapping back.
+	if once.call("guard_lost_press", 9.6):
+		act.call(&"block", true)
+	if once.call("guard_lost_drop", 9.9):
+		Input.action_release(&"block")
+		_animsim_note("injected LOST RELEASE of block (state cleared, no event)")
+	if once.call("guard_lost_check", 11.2):
+		_bowsim_flags["guard_lost_ok"] = not _player.is_blocking
+		_animsim_note("after lost release: is_blocking=%s (want false)" % str(_player.is_blocking))
+		act.call(&"block", false)
+	# (2) PARRY WHILE HOLDING GUARD: _do_parry drops is_blocking, but the
+	# button is still down and only an EDGE would ever set it back.
+	if once.call("guard_parry_press", 12.6):
+		act.call(&"block", true)
+	if once.call("guard_parry_fire", 13.0):
+		act.call(&"parry", true)
+		act.call(&"parry", false)
+	if once.call("guard_parry_check", 14.4):
+		_bowsim_flags["guard_parry_ok"] = _player.is_blocking
+		_animsim_note("after parry recovery, button still held: is_blocking=%s (want true)" % str(_player.is_blocking))
+		act.call(&"block", false)
+
 	# Action battery on a 0.4s cadence.
 	var step: int = int((_elapsed - 0.5) / 0.4)
-	if step >= 0 and step > _animsim_step:
+	# The battery owns the block button too, so it stands down inside the
+	# injected-guard-failure windows — otherwise its own block_off would
+	# "heal" the injection and the measurement would be meaningless.
+	var guard_test: bool = (_elapsed >= 9.5 and _elapsed <= 11.4) \
+			or (_elapsed >= 12.5 and _elapsed <= 14.6)
+	if step >= 0 and step > _animsim_step and not guard_test:
 		_animsim_step = step
 		match ANIMSIM_ACTIONS[step % ANIMSIM_ACTIONS.size()]:
 			"attack":
@@ -1615,6 +1654,53 @@ func _animsim_detect(delta: float) -> void:
 		_animsim_reported = false
 		_animsim_hard_reported = false
 
+	_animsim_guard_detect(delta, clip)
+
+
+## Guard-state detectors. is_blocking is the flag every mitigation reads
+## and the guard animation follows, so it must track the real button:
+##   phantom — guard held while the action is UP (stuck defending),
+##   dropped — action DOWN but no guard (silently undefended),
+##   anim    — a Block* clip on the body while not blocking at all.
+func _animsim_guard_detect(delta: float, clip: String) -> void:
+	var held: bool = Input.is_action_pressed(&"block")
+	var alive: bool = not _player.is_dead and not _player.is_reviving
+
+	if _player.is_blocking and not held:
+		_animsim_guard_phantom += delta
+		if _animsim_guard_phantom > 0.3 and not _animsim_guard_reported:
+			_animsim_guard_reported = true
+			_animsim_guard_stuck += 1
+			_animsim_note("PHANTOM GUARD t=%.1f — is_blocking with the button UP (clip=%s parry=%s)" % [
+					_elapsed, clip, str(_player.is_parrying)])
+	else:
+		_animsim_guard_phantom = 0.0
+		_animsim_guard_reported = false
+
+	if held and not _player.is_blocking and not _player.is_parrying and alive:
+		_animsim_guard_dropped_t += delta
+		if _animsim_guard_dropped_t > 0.8 and not _animsim_guard_drop_reported:
+			_animsim_guard_drop_reported = true
+			_animsim_guard_dropped += 1
+			_animsim_note("DROPPED GUARD t=%.1f — button held but not blocking (clip=%s)" % [
+					_elapsed, clip])
+	else:
+		_animsim_guard_dropped_t = 0.0
+		_animsim_guard_drop_reported = false
+
+	if not _player.is_blocking and not _player.is_parrying \
+			and clip.contains("Block") and not clip.contains("BlockWalk") \
+			and not clip.contains("BlockRun") and not clip.contains("BlockStrafe") \
+			and not clip.contains("BlockSprint"):
+		_animsim_guard_anim_t += delta
+		if _animsim_guard_anim_t > 0.5 and not _animsim_guard_anim_reported:
+			_animsim_guard_anim_reported = true
+			_animsim_guard_anim += 1
+			_animsim_note("STUCK GUARD ANIM t=%.1f — %s playing while not blocking" % [_elapsed, clip])
+	else:
+		_animsim_guard_anim_t = 0.0
+		_animsim_guard_anim_reported = false
+
 
 func _animsim_note(msg: String) -> void:
 	print("[CombatTest] ANIMSIM %s" % msg)
@@ -1627,9 +1713,17 @@ func _animsim_report() -> void:
 			str(ap.is_playing()) if ap else "nil",
 			str(_player.is_attacking), str(_player.is_sheathing),
 			str(_player.is_transitioning), str(_player.is_casting)])
-	print("[CombatTest] ANIMSIM summary: stalls=%d hard_freezes=%d max_stall=%.1fs verdict=%s" % [
-			_animsim_stalls, _animsim_hard, _animsim_max_stall,
-			"PASS" if _animsim_hard == 0 and _animsim_max_stall < ANIMSIM_STALL_WARN else "FAIL"])
+	print("[CombatTest] ANIMSIM guard: phantom=%d dropped=%d stuck_anim=%d lost_release_ok=%s parry_hold_ok=%s" % [
+			_animsim_guard_stuck, _animsim_guard_dropped, _animsim_guard_anim,
+			str(_bowsim_flags.get("guard_lost_ok", false)),
+			str(_bowsim_flags.get("guard_parry_ok", false))])
+	var guard_ok: bool = _animsim_guard_stuck == 0 and _animsim_guard_dropped == 0 \
+			and _animsim_guard_anim == 0 \
+			and bool(_bowsim_flags.get("guard_lost_ok", false)) \
+			and bool(_bowsim_flags.get("guard_parry_ok", false))
+	print("[CombatTest] ANIMSIM summary: stalls=%d hard_freezes=%d max_stall=%.1fs guard_ok=%s verdict=%s" % [
+			_animsim_stalls, _animsim_hard, _animsim_max_stall, str(guard_ok),
+			"PASS" if _animsim_hard == 0 and _animsim_max_stall < ANIMSIM_STALL_WARN and guard_ok else "FAIL"])
 
 
 ## BLOCKSIM: guard-up locomotion simulation for BOTH classes. Holds the
@@ -2439,7 +2533,12 @@ func _scenario_a() -> void:
 	var cur_hp: float = float(_player.current_health)
 	var damage_taken: float = max_hp - cur_hp
 	var should_block: bool = bobba_attacking and damage_taken >= 30.0
-	_player.is_blocking = should_block
+	# Drive the real guard button — the player reconciles is_blocking with
+	# the action every frame, so poking the flag directly no longer sticks.
+	if should_block:
+		Input.action_press(&"block", 1.0)
+	else:
+		Input.action_release(&"block")
 	if not bobba_attacking:
 		_try_attack()
 
@@ -2448,7 +2547,7 @@ func _scenario_b(dist: float) -> void:
 	# Paladin never blocks and backs off every third swing so the hit
 	# whiffs, giving Bobba the tempo to kill the 150-HP knight before
 	# Bobba's 1000 HP pool runs out.
-	_player.is_blocking = false
+	Input.action_release(&"block")
 	if _player.is_attacking and (_attack_count % 3 == 2):
 		var retreat_dir: Vector3 = (_player.global_position - _bobba.global_position).normalized()
 		retreat_dir.y = 0

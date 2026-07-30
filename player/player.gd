@@ -2221,6 +2221,24 @@ func _play_anim(anim_name: StringName) -> void:
 		_current_anim = anim_name
 
 
+## Guard = "the block button is down right now", re-derived every physics
+## frame rather than remembered from input edges. A held button that never
+## reported its release (app pause, focus loss, touch cancel, analog
+## trigger snap-back) can no longer strand the shield up, and a guard that
+## an action cancelled comes back on its own the moment that action ends
+## — the button is still held, and only an edge would ever have restored
+## it. The AI companion keeps its own state; human input must not leak in.
+func _update_block_state() -> void:
+	if is_ai_companion:
+		return
+	# A parry REPLACES the guard for its duration; death, the downed state
+	# and a revive channel all drop it entirely.
+	if is_parrying or is_dead or is_reviving:
+		is_blocking = false
+		return
+	is_blocking = Input.is_action_pressed(&"block")
+
+
 ## Clips that _update_animation itself owns — if one of these is running,
 ## no action clip is in charge of the body any more.
 const FREE_BODY_ANIMS: Array[String] = ["Idle", "Walk", "Run", "Sprint",
@@ -4401,14 +4419,11 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventKey and event.pressed and event.keycode == KEY_F:
 			_do_attack()
 
-	# Block with right mouse button or gamepad LB
-	if event.is_action_pressed(&"block"):
-		is_blocking = true
-	elif event.is_action_released(&"block"):
-		is_blocking = false
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
-		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-			is_blocking = event.pressed
+	# Blocking is NOT handled here. It used to be edge-driven (press sets,
+	# release clears) and any missed release — app pause, focus change,
+	# touch cancel, an analog trigger snapping back past the deadzone —
+	# pinned the shield up for good. It is reconciled against the real
+	# button state every physics frame instead: see _update_block_state().
 
 	# Spell cast with C key, gamepad B button, or RB (armed mode only)
 	if event.is_action_pressed(&"spell_cast") or event.is_action_pressed(&"cast_spell_rb"):
@@ -4456,6 +4471,9 @@ func _physics_process(delta: float) -> void:
 		_drink_timer -= delta
 		if _drink_timer <= 0.0:
 			_finish_estus()
+
+	# Guard state, reconciled with the actual button (see _input).
+	_update_block_state()
 
 	# Feed blocking state to the stamina component so regen halves.
 	if _stamina != null:
