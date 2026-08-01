@@ -26,6 +26,8 @@ var _class_label: Label
 
 # Icon textures (legacy - now using righthud overlay)
 var _revive_btn: Button = null
+var _guard_btn: Button = null
+var _guard_draw: Control = null
 var _revive_draw: Control = null
 var _icon_spell: Texture2D
 var _icon_jump: Texture2D
@@ -90,6 +92,7 @@ func _setup_ui() -> void:
 
 	# Co-op revive button (hidden until the player stands by a fallen ally)
 	_setup_revive_button()
+	_setup_guard_button()
 
 	print("TouchUI: _setup_ui() complete")
 
@@ -434,6 +437,65 @@ func _setup_revive_button() -> void:
 	_revive_btn.visible = false
 
 
+## ------------------------------------------------------------------
+## GUARD BUTTON (mobile): hold to defend, release to drop the guard.
+## Touch had NO defend control at all — only a controller could block.
+## Strict hold semantics: the action is pressed exactly while the finger
+## is down, and _process force-releases it if the button ever reports
+## "up" while the action is still latched (a finger sliding off a touch
+## button does not always deliver button_up).
+## ------------------------------------------------------------------
+const GUARD_BTN_SIZE := 104.0
+
+func _setup_guard_button() -> void:
+	_guard_btn = _create_touch_area("block",
+			Vector2.ZERO, Vector2(GUARD_BTN_SIZE, GUARD_BTN_SIZE))
+	_guard_btn.name = "GuardButton"
+	# Left of the action cluster, above the attack button — reachable with
+	# the right thumb without covering the crouch/attack row.
+	_guard_btn.anchor_left = 1.0
+	_guard_btn.anchor_right = 1.0
+	_guard_btn.anchor_top = 1.0
+	_guard_btn.anchor_bottom = 1.0
+	# Just LEFT of the right-hand action cluster (that overlay ends about
+	# 384px in from the right edge), at attack-row height — right thumb
+	# reach, clear of the joystick, the HUD art and the revive button.
+	_guard_btn.offset_left = -500.0
+	_guard_btn.offset_right = -500.0 + GUARD_BTN_SIZE
+	_guard_btn.offset_top = -244.0
+	_guard_btn.offset_bottom = -244.0 + GUARD_BTN_SIZE
+	add_child(_guard_btn)
+
+	_guard_draw = Control.new()
+	_guard_draw.name = "GuardButtonArt"
+	_guard_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_guard_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_guard_draw.draw.connect(_draw_guard_button)
+	_guard_btn.add_child(_guard_draw)
+
+
+## A heater shield, filled while the guard is actually up.
+func _draw_guard_button() -> void:
+	var s := GUARD_BTN_SIZE
+	var up: bool = _guard_btn != null and _guard_btn.button_pressed
+	var body := Color(0.75, 0.80, 0.90, 0.95) if up else Color(0.55, 0.60, 0.68, 0.55)
+	var edge := Color(0.95, 0.98, 1.0, 0.95) if up else Color(0.80, 0.85, 0.92, 0.6)
+	var pts := PackedVector2Array([
+		Vector2(s * 0.5, s * 0.14),
+		Vector2(s * 0.86, s * 0.28),
+		Vector2(s * 0.80, s * 0.60),
+		Vector2(s * 0.5, s * 0.88),
+		Vector2(s * 0.20, s * 0.60),
+		Vector2(s * 0.14, s * 0.28),
+	])
+	_guard_draw.draw_colored_polygon(pts, body)
+	for i in range(pts.size()):
+		_guard_draw.draw_line(pts[i], pts[(i + 1) % pts.size()], edge, 3.0)
+	# Boss + cross band so it reads as a shield at thumb size.
+	_guard_draw.draw_line(Vector2(s * 0.5, s * 0.18), Vector2(s * 0.5, s * 0.82), edge, 2.5)
+	_guard_draw.draw_line(Vector2(s * 0.18, s * 0.40), Vector2(s * 0.82, s * 0.40), edge, 2.5)
+
+
 func _draw_revive_button() -> void:
 	var c := Vector2(REVIVE_BTN_SIZE, REVIVE_BTN_SIZE) * 0.5
 	var r := REVIVE_BTN_SIZE * 0.5 - 6.0
@@ -461,6 +523,18 @@ func _revive_progress_frac() -> float:
 
 
 func _process(_delta: float) -> void:
+	# GUARD: strict hold semantics. If the button is not held but the
+	# action is still latched (finger slid off, touch cancelled, scene
+	# change mid-hold), release it — a stuck guard is exactly the bug
+	# this button must never reproduce.
+	if _guard_btn != null:
+		if not _guard_btn.button_pressed and Input.is_action_pressed(&"block"):
+			var gev := InputEventAction.new()
+			gev.action = "block"
+			gev.pressed = false
+			Input.parse_input_event(gev)
+		_guard_draw.queue_redraw()
+
 	if _revive_btn == null:
 		return
 	var player := get_tree().get_first_node_in_group("player")

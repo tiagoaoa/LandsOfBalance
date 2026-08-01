@@ -35,6 +35,9 @@ var _heartbeat_timer := 0.0
 var _mic_ok := false
 
 
+var _diag_prev: String = ""
+
+
 func _ready() -> void:
 	var mobile := OS.get_name() in ["Android", "iOS"]
 	var forced := "--debug-record" in OS.get_cmdline_user_args() \
@@ -42,6 +45,13 @@ func _ready() -> void:
 	if not mobile and not forced:
 		return
 	_active = true
+	Input.joy_connection_changed.connect(func(dev: int, connected: bool) -> void:
+		print("INPUTDIAG pad %d %s: %s" % [dev,
+				"connected" if connected else "disconnected",
+				Input.get_joy_name(dev) if connected else ""])
+		_log_line("INPUTDIAG pad %d %s %s" % [dev,
+				"connected" if connected else "disconnected",
+				Input.get_joy_name(dev) if connected else ""]))
 	if OS.get_name() == "Android":
 		OS.request_permissions()  # RECORD_AUDIO prompt on first run
 	var stamp := Time.get_datetime_string_from_system().replace(":", "-")
@@ -87,6 +97,36 @@ func _process(delta: float) -> void:
 	if _heartbeat_timer >= HEARTBEAT_SECONDS:
 		_heartbeat_timer = 0.0
 		_write_heartbeat()
+
+	_input_diag()
+
+
+## Raw controller truth, logged ONLY when something changes: every axis
+## above noise, every button down, and the resulting state of the guard
+## action. This is what tells us whether a released trigger actually
+## reports its release — a stuck action state and a stuck axis value are
+## different bugs with different fixes.
+func _input_diag() -> void:
+	var parts := PackedStringArray()
+	for dev in Input.get_connected_joypads():
+		var axes := PackedStringArray()
+		for a in range(10):
+			var v: float = Input.get_joy_axis(dev, a)
+			if absf(v) > 0.08:
+				axes.append("ax%d=%.2f" % [a, v])
+		var buttons := PackedStringArray()
+		for b in range(20):
+			if Input.is_joy_button_pressed(dev, b):
+				buttons.append("b%d" % b)
+		parts.append("pad%d[%s][%s]" % [dev, ",".join(axes), ",".join(buttons)])
+	parts.append("block=%s(%.2f)" % [str(Input.is_action_pressed(&"block")),
+			Input.get_action_strength(&"block")])
+	var line: String = " ".join(parts)
+	if line == _diag_prev:
+		return
+	_diag_prev = line
+	print("INPUTDIAG ", line)
+	_log_line("INPUTDIAG " + line)
 
 
 func _flush_mic_chunk() -> void:

@@ -25,3 +25,13 @@ screenshots/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Web export bundle (huge, regenerate with the HTML5 preset)
+lands-of-balance-web/
+
+# FBX embedded-texture folders extracted by the importer (regenerated on import)
+*.fbm/
+
+# Local tooling scratch
+.codex/
+adblog.txt
