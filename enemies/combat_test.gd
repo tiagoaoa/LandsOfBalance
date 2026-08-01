@@ -68,6 +68,8 @@ var _blocksim_freeze: int = 0
 # ANIMSIM: locomotion-vs-actions stress detectors.
 var _animsim_step: int = -1
 var _animsim_dir_idx: int = 0
+# GEARSIM: which loadout the turntable is currently showing.
+var _gearsim_slot: int = -1
 var _animsim_blocking: bool = false
 var _animsim_stall: float = 0.0
 var _animsim_max_stall: float = 0.0
@@ -114,7 +116,7 @@ func _ready() -> void:
 	if scenario == "GRASS" or scenario == "MOVE" or scenario == "DRAGON" \
 			or scenario == "SKEL" or scenario == "BOWSIM" or scenario == "MOBSIM" \
 			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
-			or scenario == "ANIMSIM":
+			or scenario == "ANIMSIM" or scenario == "GEARSIM":
 			get_tree().create_timer(0.5).timeout.connect(_force_day_lighting)
 
 
@@ -159,7 +161,7 @@ func _process(delta: float) -> void:
 			_player.set_process_input(false)
 	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
 			or scenario == "DRAGON" or scenario == "BOWSIM" or scenario == "MOBSIM" \
-			or scenario == "PALSIM" or scenario == "BLOCKSIM"
+			or scenario == "PALSIM" or scenario == "BLOCKSIM" or scenario == "GEARSIM"
 	if not solo and (_bobba == null or not is_instance_valid(_bobba)):
 		_bobba = _find_in_group("bobba")
 
@@ -179,6 +181,17 @@ func _process(delta: float) -> void:
 		_elapsed += delta
 		_screenshot_timer += delta
 		if _screenshot_timer >= 0.12:
+			_screenshot_timer = 0.0
+			_capture()
+		return
+
+	if scenario == "GEARSIM":
+		_drive_gearsim(delta)
+		if _elapsed > GEARSIM_PER_CLASS * 3.0:
+			_finish("GEARSIM_DONE")
+		_elapsed += delta
+		_screenshot_timer += delta
+		if _screenshot_timer >= 0.25:
 			_screenshot_timer = 0.0
 			_capture()
 		return
@@ -1520,6 +1533,147 @@ const ANIMSIM_DIRS: Array[StringName] = [&"move_forward", &"move_right",
 		&"move_back", &"move_left"]
 
 
+## GEARSIM: turntable rig for the bone-attached gear. Parks the character in
+## flat daylight, pulls the camera in to a bust shot and orbits it, cycling
+## armed -> unarmed -> archer so every loadout gets a full revolution. The
+## gear offsets are hand-tuned against these frames — the mixamorig bone axes
+## are not consistent limb to limb, so eyes beat arithmetic here.
+const GEARSIM_ORBIT: float = 4.6      # camera distance, metres (full body)
+const GEARSIM_HEIGHT: float = 1.05    # aim mid-torso for a full figure
+const GEARSIM_PER_CLASS: float = 6.0  # seconds per loadout
+
+func _drive_gearsim(delta: float) -> void:
+	const P := Vector3(120.0, 0.0, -140.0)
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		var pp := P
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		_player.velocity = Vector3.ZERO
+		print("[CombatTest/GEARSIM] turntable start")
+
+	# The camera rig eases spring_length back to DEFAULT_SPRING_LENGTH every
+	# physics frame, so a one-shot assignment is undone before the next
+	# capture. Hold the framing here instead, every frame.
+	var arm: SpringArm3D = _player.get_node_or_null(
+			"CameraPivot/SpringArm3D") as SpringArm3D
+	if arm:
+		arm.spring_length = GEARSIM_ORBIT
+		# The arm shortens on collision, and orbiting this close it kept
+		# collapsing into the character — every frame came out as a
+		# close-up of the inside of the helmet.
+		arm.collision_mask = 0
+		arm.margin = 0.0
+	var cam: Camera3D = _player.get_node_or_null(
+			"CameraPivot/SpringArm3D/Camera3D") as Camera3D
+	if cam:
+		# SpringArm3D owns the camera's Z — it is what pushes the camera out
+		# to spring_length. Only clear the over-the-shoulder X/Y offset;
+		# zeroing all three pinned the camera onto the pivot and every frame
+		# came back as a close-up of the character's shoulder.
+		cam.position.x = 0.0
+		cam.position.y = 0.0
+		cam.fov = 45.0
+
+	# One revolution per loadout, then switch class.
+	var slot: int = int(_elapsed / GEARSIM_PER_CLASS)
+	if slot != _gearsim_slot:
+		_gearsim_slot = slot
+		match slot:
+			1:
+				if _player.has_method("_toggle_combat_mode"):
+					_player._toggle_combat_mode()  # armed -> unarmed
+			2:
+				if _player.has_method("_switch_character_class"):
+					_player._switch_character_class(1)  # CharacterClass.ARCHER
+		_gearsim_report()
+
+	var pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if pivot:
+		pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
+		pivot.rotation.x = 0.0
+		pivot.position.y = GEARSIM_HEIGHT
+
+
+## Logs where every attached piece actually ended up in world space, so a
+## piece that is off by a metre is obvious in the log without squinting at
+## a screenshot.
+func _gearsim_report() -> void:
+	# All three characters live under the player at once (only one visible),
+	# so report every skeleton and say which body each piece hangs on —
+	# reading just the first one silently showed the unarmed loadout forever.
+	var origin: Vector3 = (_player as Node3D).global_position
+	var found := 0
+	for skel in _gearsim_skeletons(_player):
+		var owner_name: String = _gearsim_owner(skel)
+		var shown: bool = (skel as Node3D).is_visible_in_tree()
+		print("[CombatTest/GEARSIM] %s skeleton world_scale=%s" % [
+				owner_name, str(skel.global_transform.basis.get_scale())])
+		# What each attach bone's own axes point at in world space, at REST.
+		# Without this the correct euler for a piece is pure trial and error.
+		for bone_name in ["mixamorig_Head", "mixamorig_Sword_joint",
+				"mixamorig_Shield_joint", "mixamorig_Hips", "mixamorig_Spine2",
+				"mixamorig_Left_arch1"]:
+			var bi: int = skel.find_bone(bone_name)
+			if bi == -1:
+				continue
+			var b: Basis = (skel.global_transform
+					* skel.get_bone_global_rest(bi)).basis.orthonormalized()
+			print("[CombatTest/GEARSIM]   %-24s X=%s Y=%s Z=%s" % [bone_name,
+					_v3(b.x), _v3(b.y), _v3(b.z)])
+
+
+		for child in skel.get_children():
+			if not (child is BoneAttachment3D):
+				continue
+			for piece in child.get_children():
+				if not (piece is Node3D):
+					continue
+				found += 1
+				var rel: Vector3 = (piece as Node3D).global_position - origin
+				print("[CombatTest/GEARSIM] %-9s %-12s %-24s at +(%5.2f,%5.2f,%5.2f) shown=%s" % [
+						owner_name, piece.name,
+						(child as BoneAttachment3D).bone_name,
+						rel.x, rel.y, rel.z, str(shown)])
+	print("[CombatTest/GEARSIM] slot=%d pieces=%d" % [_gearsim_slot, found])
+	_gearsim_meshes(_player, "")
+
+
+func _v3(v: Vector3) -> String:
+	return "(%5.2f,%5.2f,%5.2f)" % [v.x, v.y, v.z]
+
+
+## Every MeshInstance3D under the player with its visibility, so "the body
+## vanished" can be traced to the exact node instead of guessed at.
+func _gearsim_meshes(node: Node, path: String) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		print("[CombatTest/GEARSIM] mesh %-42s visible=%s in_tree=%s" % [
+				path + String(node.name), str(mi.visible),
+				str(mi.is_visible_in_tree())])
+	for child in node.get_children():
+		_gearsim_meshes(child, path)
+
+
+func _gearsim_skeletons(node: Node) -> Array[Skeleton3D]:
+	var out: Array[Skeleton3D] = []
+	if node is Skeleton3D:
+		out.append(node as Skeleton3D)
+	for child in node.get_children():
+		out.append_array(_gearsim_skeletons(child))
+	return out
+
+
+func _gearsim_owner(skel: Node) -> String:
+	var n: Node = skel
+	while n != null:
+		var nm := String(n.name)
+		if nm.ends_with("Character"):
+			return nm.replace("Character", "")
+		n = n.get_parent()
+	return "?"
+
+
 func _drive_animsim(delta: float) -> void:
 	var once := func(key: String, t: float) -> bool:
 		if _elapsed >= t and not _bowsim_flags.has(key):
@@ -1630,6 +1784,25 @@ func _drive_animsim(delta: float) -> void:
 
 
 ## Per-frame stall detection with a full diagnosis on the way in/out.
+## Every clip that legitimately carries the character's weight. Matched on
+## the whole leaf name, not a suffix: "WalkBack" and "BlockWalkBack" are
+## real strides but do not END with "Walk", so a suffix test read every
+## backpedal as a frozen body.
+const ANIMSIM_LOCO_BASES: Array[String] = ["Walk", "Run", "Sprint",
+		"StrafeLeft", "StrafeRight", "RunStrafeLeft", "RunStrafeRight",
+		"WalkBack", "RunBack"]
+
+
+func _animsim_is_locomotion(clip: String) -> bool:
+	var leaf: String = clip.get_slice("/", 1) if clip.contains("/") else clip
+	for base in ANIMSIM_LOCO_BASES:
+		# Bare stride, guard-up twin, and the archer's aim-locomotion.
+		if leaf == base or leaf == "Block" + base or leaf == "Aim" + base:
+			return true
+	# Aim strafes are named AimStrafeLeft/Right rather than Aim + a base.
+	return leaf.begins_with("AimStrafe")
+
+
 func _animsim_detect(delta: float) -> void:
 	var ap: AnimationPlayer = _player._current_anim_player
 	if ap == null:
@@ -1637,9 +1810,7 @@ func _animsim_detect(delta: float) -> void:
 	var hspeed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
 	var moving: bool = _player.is_on_floor() and hspeed > 1.5
 	var clip := String(ap.current_animation)
-	var loco: bool = ap.is_playing() and (clip.ends_with("Walk") or clip.ends_with("Run") \
-			or clip.ends_with("Sprint") or clip.ends_with("StrafeLeft") \
-			or clip.ends_with("StrafeRight"))
+	var loco: bool = ap.is_playing() and _animsim_is_locomotion(clip)
 
 	if moving and not loco:
 		_animsim_stall += delta

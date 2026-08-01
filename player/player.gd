@@ -90,6 +90,14 @@ const UNARMED_ANIM_PATHS: Dictionary = {
 	"block": "res://player/character/unarmed/Block.fbx",
 	"action_to_idle": "res://player/character/unarmed/ActionIdleToIdle.fbx",
 	"idle_to_fight": "res://player/character/unarmed/IdleToFight.fbx",
+	# Flinch and collapse: the Paladin packs ship neither. Both are authored
+	# on the Archer's Mixamo rig and retarget by bone name (same mixamorig),
+	# exactly like the dodge clips the armed set already borrows.
+	"react_hit": "res://player/character/archer/standing react small from front.fbx",
+	"death": "res://player/character/archer/standing death backward 01.fbx",
+	"estus": "res://player/character/armed/PowerUp.fbx",
+	"walk_back": "res://player/character/archer/standing walk back.fbx",
+	"run_back": "res://player/character/archer/standing run back.fbx",
 }
 
 # Armed animations (Paladin with sword & shield)
@@ -119,6 +127,14 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	"dodge_b": "res://player/character/archer/standing dodge backward.fbx",
 	"dodge_l": "res://player/character/archer/standing dodge left.fbx",
 	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
+	# Generic (non-bow) Mixamo clips from the Archer folder, same rig, same
+	# bone-name retarget as the dodges above.
+	"react_hit": "res://player/character/archer/standing react small from front.fbx",
+	"death": "res://player/character/archer/standing death backward 01.fbx",
+	"walk_back": "res://player/character/archer/standing walk back.fbx",
+	"run_back": "res://player/character/archer/standing run back.fbx",
+	"turn_left": "res://player/character/unarmed/TurnLeft.fbx",
+	"turn_right": "res://player/character/unarmed/TurnRight.fbx",
 }
 
 # Archer animations
@@ -136,6 +152,27 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 	"dodge_b": "res://player/character/archer/standing dodge backward.fbx",
 	"dodge_l": "res://player/character/archer/standing dodge left.fbx",
 	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
+	# Lock-on strafes. These shipped in the pack but were never wired, so
+	# strafing sideways played the FORWARD walk and the archer skated.
+	"strafe_left": "res://player/character/archer/standing walk left.fbx",
+	"strafe_right": "res://player/character/archer/standing walk right.fbx",
+	"run_strafe_left": "res://player/character/archer/standing run left.fbx",
+	"run_strafe_right": "res://player/character/archer/standing run right.fbx",
+	# Retreating. The character always faces the camera, so walking back
+	# used to moonwalk on a forward stride.
+	"walk_back": "res://player/character/archer/standing walk back.fbx",
+	"run_back": "res://player/character/archer/standing run back.fbx",
+	# Aim-locomotion: stepping while the bow is drawn kept the legs but
+	# threw the draw pose away. These hold the bow AND stride.
+	"aim_walk": "res://player/character/archer/standing aim walk forward.fbx",
+	"aim_walk_back": "res://player/character/archer/standing aim walk back.fbx",
+	"aim_strafe_left": "res://player/character/archer/standing aim walk left.fbx",
+	"aim_strafe_right": "res://player/character/archer/standing aim walk right.fbx",
+	"death": "res://player/character/archer/standing death backward 01.fbx",
+	"sheath": "res://player/character/archer/standing disarm bow.fbx",
+	"turn_left": "res://player/character/archer/standing turn 90 left.fbx",
+	"turn_right": "res://player/character/archer/standing turn 90 right.fbx",
+	"estus": "res://player/character/armed/PowerUp.fbx",
 }
 
 var camera_rotation := Vector2.ZERO  # x = yaw, y = pitch
@@ -164,6 +201,9 @@ var companion_class_override: int = -1
 var _ai_move_vec: Vector2 = Vector2.ZERO
 var _ai_run: bool = false
 var is_dead: bool = false
+## True when death fell back to tipping the model over (no Death clip), so
+## revive knows whether it has a rotation to undo.
+var _tipped_over: bool = false
 var is_crouching: bool = false
 var is_reviving: bool = false
 var _revive_progress: float = 0.0
@@ -708,9 +748,26 @@ func _enter_downed() -> void:
 	velocity = Vector3.ZERO
 	_update_revive_bar(-1.0)
 	set_physics_process(false)
-	if _character_model:
+	# Collapse properly if the library has a death clip; the flat -90 tip
+	# is the fallback for a rig that doesn't, and holding the clip's last
+	# frame is what keeps the body lying there for the ally.
+	_tipped_over = not _play_death_anim()
+	if _tipped_over and _character_model:
 		_character_model.rotation.x = deg_to_rad(-90.0)
 	_spawn_death_marker()
+
+
+## Plays `<prefix>/Death`. False when the library has no death clip, which
+## is the caller's cue to fall back to tipping the model over. The body is
+## frozen on the clip's last frame by _on_animation_finished — otherwise it
+## would snap back to the idle pose the instant the collapse ended.
+func _play_death_anim() -> bool:
+	var anim := StringName(_get_current_mode_prefix() + "/Death")
+	if _current_anim_player == null or not _current_anim_player.has_animation(anim):
+		return false
+	_current_anim_player.play(anim)
+	_current_anim = anim
+	return true
 
 
 ## An ally finished the 5s channel: back on our feet at half strength.
@@ -720,8 +777,13 @@ func revive_from_death() -> void:
 	health_changed.emit(current_health, max_health)
 	velocity = Vector3.ZERO
 	_spawn_immunity_timer = 3.0
-	if _character_model:
+	if _tipped_over and _character_model:
 		_character_model.rotation.x = 0.0
+	_tipped_over = false
+	if _current_anim_player != null:
+		# Undo the paused death pose; _update_animation takes over again.
+		_current_anim_player.play(StringName(_get_current_mode_prefix() + "/Idle"))
+		_current_anim = StringName(_get_current_mode_prefix() + "/Idle")
 	_clear_death_marker()
 	set_physics_process(true)
 	print("Player(%s): back from the dead at %.0f hp" % [name, current_health])
@@ -1919,6 +1981,11 @@ func _get_unarmed_config() -> Dictionary:
 		"block": ["Block", true],
 		"action_to_idle": ["ActionToIdle", false],
 		"idle_to_fight": ["IdleToFight", false],
+		"react_hit": ["ReactHit", false],
+		"death": ["Death", false],
+		"estus": ["Estus", false],
+		"walk_back": ["WalkBack", true],
+		"run_back": ["RunBack", true],
 	}
 
 
@@ -1941,6 +2008,12 @@ func _get_armed_config() -> Dictionary:
 		"dodge_b": ["DodgeB", false],
 		"dodge_l": ["DodgeL", false],
 		"dodge_r": ["DodgeR", false],
+		"react_hit": ["ReactHit", false],
+		"death": ["Death", false],
+		"walk_back": ["WalkBack", true],
+		"run_back": ["RunBack", true],
+		"turn_left": ["TurnLeft", false],
+		"turn_right": ["TurnRight", false],
 	}
 
 
@@ -1959,6 +2032,21 @@ func _get_archer_config() -> Dictionary:
 		"dodge_b": ["DodgeB", false],
 		"dodge_l": ["DodgeL", false],
 		"dodge_r": ["DodgeR", false],
+		"strafe_left": ["StrafeLeft", true],
+		"strafe_right": ["StrafeRight", true],
+		"run_strafe_left": ["RunStrafeLeft", true],
+		"run_strafe_right": ["RunStrafeRight", true],
+		"walk_back": ["WalkBack", true],
+		"run_back": ["RunBack", true],
+		"aim_walk": ["AimWalk", true],
+		"aim_walk_back": ["AimWalkBack", true],
+		"aim_strafe_left": ["AimStrafeLeft", true],
+		"aim_strafe_right": ["AimStrafeRight", true],
+		"death": ["Death", false],
+		"sheath": ["Sheath", false],
+		"turn_left": ["TurnLeft", false],
+		"turn_right": ["TurnRight", false],
+		"estus": ["Estus", false],
 	}
 
 
@@ -2077,6 +2165,13 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 
 		instance.queue_free()
 
+	# Rigid gear on bone attachments: every clip below carries it for free.
+	GearLoadout.equip(character, library_prefix)
+
+	# Borrowed retreat clips swing the arms loose — put the character's own
+	# weapon carriage back on top before anything is composed from them.
+	DerivedAnims.compose(anim_player, library_prefix)
+
 	# No rig ships a block-walk clip, so build one: guard on the arms,
 	# stride on the legs. Without this, raising the shield froze the legs
 	# mid-step while the character kept sliding forward.
@@ -2152,6 +2247,13 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 
 
 func _on_animation_finished(anim_name: StringName) -> void:
+	# A finished collapse holds its last frame: the body has to stay down
+	# under the revive beacon, not pop back up into idle.
+	if is_dead and String(anim_name).ends_with("/Death"):
+		_current_anim_player.seek(_current_anim_player.get_animation(anim_name).length, true)
+		_current_anim_player.pause()
+		return
+
 	# Reset archer bow states when attack animation finishes
 	if character_class == CharacterClass.ARCHER and anim_name == &"archer/Attack":
 		is_drawing_bow = false
@@ -2307,7 +2409,16 @@ func _block_stance_anim(prefix: String, input_dir: Vector2) -> StringName:
 	var candidates: Array[String] = []
 	if input_dir.length() > 0.1:
 		if abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
-			candidates.append("BlockStrafeLeft" if input_dir.x < 0 else "BlockStrafeRight")
+			var side: String = "Left" if input_dir.x < 0 else "Right"
+			if is_running:
+				candidates.append("BlockRunStrafe" + side)
+			candidates.append("BlockStrafe" + side)
+		elif input_dir.y > 0.5 and abs(input_dir.x) < 0.5:
+			# Shield up while backing off — the bread and butter of a
+			# souls fight, and the one direction that used to moonwalk.
+			if is_running:
+				candidates.append("BlockRunBack")
+			candidates.append("BlockWalkBack")
 		if is_running:
 			candidates.append("BlockRun")
 			candidates.append("BlockSprint")
@@ -2322,6 +2433,33 @@ func _block_stance_anim(prefix: String, input_dir: Vector2) -> StringName:
 		if _current_anim_player.has_animation(anim):
 			return anim
 	return &""
+
+
+## First clip in `names` the current library actually has, as a full
+## "<prefix>/<clip>" name. Empty entries are skipped, so a caller can put a
+## conditional candidate in the list without branching. Returns &"" if the
+## library has none of them.
+func _first_anim(prefix: String, names: Array) -> StringName:
+	for clip in names:
+		if String(clip).is_empty():
+			continue
+		var anim := StringName(prefix + "/" + String(clip))
+		if _current_anim_player.has_animation(anim):
+			return anim
+	return &""
+
+
+## Aim-walk clip matching how a drawing/holding archer is moving, or &""
+## when the rig has no aim-locomotion at all (the Paladin) — the caller
+## then falls through to ordinary locomotion.
+func _aim_locomotion_anim(prefix: String, input_dir: Vector2) -> StringName:
+	var candidates: Array = []
+	if abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
+		candidates.append("AimStrafeLeft" if input_dir.x < 0 else "AimStrafeRight")
+	elif input_dir.y > 0.5:
+		candidates.append("AimWalkBack")
+	candidates.append("AimWalk")
+	return _first_anim(prefix, candidates)
 
 
 func _get_current_mode_prefix() -> String:
@@ -2365,11 +2503,17 @@ func _update_animation(input_dir: Vector2) -> void:
 	if is_attacking or is_sheathing or is_transitioning or is_casting or is_rolling or is_parrying or is_drinking:
 		return
 	# Aiming archer: standing still holds the drawn pose (restoring it if
-	# a walk cycle had taken over); on the move the legs keep walking and
-	# the loose plays at the moment of release instead.
+	# a walk cycle had taken over). On the move the pack's authored
+	# aim-locomotion keeps the bow up AND strides; without it the plain
+	# walk cycle threw the draw away every time the archer took a step.
 	if is_drawing_bow or is_holding_bow:
 		if input_dir.length() < 0.15:
 			_restore_aim_pose()
+			return
+		var aim_anim: StringName = _aim_locomotion_anim(
+				_get_current_mode_prefix(), input_dir)
+		if aim_anim != &"":
+			_play_anim(aim_anim)
 			return
 
 	var prefix: String = _get_current_mode_prefix()
@@ -2391,21 +2535,25 @@ func _update_animation(input_dir: Vector2) -> void:
 	elif is_blocking:
 		desired_anim = _block_stance_anim(prefix, input_dir)
 
-	# Strafe
+	# Strafe. Run-strafes first when the rig has them, so circling an enemy
+	# at speed does not play a walk cycle at a run.
 	elif abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
-		var strafe_dir: String = "StrafeLeft" if input_dir.x < 0 else "StrafeRight"
-		var strafe_anim: StringName = StringName(prefix + "/" + strafe_dir)
-		if _current_anim_player.has_animation(strafe_anim):
-			desired_anim = strafe_anim
-		else:
-			# Fallback to left strafe or walk
-			var fallback_strafe: StringName = StringName(prefix + "/StrafeLeft")
-			if _current_anim_player.has_animation(fallback_strafe):
-				desired_anim = fallback_strafe
-			else:
-				var walk_anim: StringName = StringName(prefix + "/Walk")
-				if _current_anim_player.has_animation(walk_anim):
-					desired_anim = walk_anim
+		var side: String = "Left" if input_dir.x < 0 else "Right"
+		desired_anim = _first_anim(prefix, [
+				("RunStrafe" + side) if is_running else "",
+				"Strafe" + side,
+				"StrafeLeft",
+				"Walk"])
+
+	# Retreating. The character always faces camera-forward, so walking
+	# backward on a forward stride moonwalks. Diagonals keep the forward
+	# cycle — only a committed backstep swaps clips.
+	elif input_dir.y > 0.5 and abs(input_dir.x) < 0.5:
+		desired_anim = _first_anim(prefix, [
+				"RunBack" if is_running else "",
+				"WalkBack",
+				"Run" if is_running else "",
+				"Walk"])
 
 	# Running/Sprinting (Shift key held)
 	elif is_running and input_dir.length() > 0.1:

@@ -17,7 +17,10 @@ extends RefCounted
 ## per-frame bone poking).
 
 ## Locomotion clips that get a guard-up twin (when the library has them).
-const LOCOMOTION: Array[String] = ["Walk", "Run", "Sprint", "StrafeLeft", "StrafeRight"]
+## Retreats and run-strafes are in here too: backing away or circling with
+## the guard up is the whole point of a shield.
+const LOCOMOTION: Array[String] = ["Walk", "Run", "Sprint", "StrafeLeft", "StrafeRight",
+		"WalkBack", "RunBack", "RunStrafeLeft", "RunStrafeRight"]
 
 ## Only ONE of the three rigs ships a real guard IDLE: armed/Block holds
 ## the shield (about 5 degrees of drift over the whole clip). archer/Block
@@ -104,7 +107,7 @@ static func _guard_apex_time(block: Animation) -> float:
 	for track in range(block.get_track_count()):
 		if block.track_get_type(track) != Animation.TYPE_ROTATION_3D:
 			continue
-		var short: String = _bone_of(block.track_get_path(track)) \
+		var short: String = bone_of(block.track_get_path(track)) \
 				.replace("mixamorig:", "").replace("mixamorig_", "")
 		if short in APEX_BONES:
 			tracks.append(track)
@@ -170,7 +173,7 @@ static func _apex_window(block: Animation, guard_t: float) -> float:
 	for track in range(block.get_track_count()):
 		if block.track_get_type(track) != Animation.TYPE_ROTATION_3D:
 			continue
-		var short: String = _bone_of(block.track_get_path(track)) \
+		var short: String = bone_of(block.track_get_path(track)) \
 				.replace("mixamorig:", "").replace("mixamorig_", "")
 		if short in APEX_BONES:
 			tracks.append(track)
@@ -212,7 +215,7 @@ static func _compose_one(loco: Animation, block: Animation, guard_t: float) -> A
 				and track_type != Animation.TYPE_ROTATION_3D \
 				and track_type != Animation.TYPE_SCALE_3D:
 			continue
-		var weight: float = _guard_weight(_bone_of(out.track_get_path(track)))
+		var weight: float = guard_weight(bone_of(out.track_get_path(track)))
 		if weight <= 0.0:
 			continue
 		var src: int = block.find_track(out.track_get_path(track), track_type)
@@ -227,7 +230,7 @@ static func _compose_one(loco: Animation, block: Animation, guard_t: float) -> A
 			# The guard is FROZEN at its apex: replaying the block clip
 			# across the stride made the arms pump every step (and every
 			# archer/unarmed clip is a raise-lower reaction, not a hold).
-			samples.append(_mix(track_type, out, track, t, block, src, guard_t, weight))
+			samples.append(mix_pose(track_type, out, track, t, block, src, guard_t, weight))
 
 		for k in range(out.track_get_key_count(track) - 1, -1, -1):
 			out.track_remove_key(track, k)
@@ -243,7 +246,7 @@ static func _compose_one(loco: Animation, block: Animation, guard_t: float) -> A
 	return out
 
 
-static func _mix(track_type: int, loco: Animation, loco_track: int, t: float,
+static func mix_pose(track_type: int, loco: Animation, loco_track: int, t: float,
 		block: Animation, block_track: int, bt: float, weight: float) -> Variant:
 	match track_type:
 		Animation.TYPE_ROTATION_3D:
@@ -261,7 +264,7 @@ static func _mix(track_type: int, loco: Animation, loco_track: int, t: float,
 
 
 ## 1.0 = pure guard, 0.0 = pure stride.
-static func _guard_weight(bone: String) -> float:
+static func guard_weight(bone: String) -> float:
 	if bone == "":
 		return 0.0
 	var short: String = bone.replace("mixamorig:", "").replace("mixamorig_", "")
@@ -273,7 +276,7 @@ static func _guard_weight(bone: String) -> float:
 	return 0.0
 
 
-static func _bone_of(path: NodePath) -> String:
+static func bone_of(path: NodePath) -> String:
 	if path.get_subname_count() == 0:
 		return ""
 	return String(path.get_subname(0))
