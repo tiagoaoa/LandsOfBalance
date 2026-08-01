@@ -116,7 +116,8 @@ func _ready() -> void:
 	if scenario == "GRASS" or scenario == "MOVE" or scenario == "DRAGON" \
 			or scenario == "SKEL" or scenario == "BOWSIM" or scenario == "MOBSIM" \
 			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
-			or scenario == "ANIMSIM" or scenario == "GEARSIM":
+			or scenario == "ANIMSIM" \
+			or (scenario == "GEARSIM" and OS.get_environment("LOB_GEAR_NIGHT") != "1"):
 			get_tree().create_timer(0.5).timeout.connect(_force_day_lighting)
 
 
@@ -1538,8 +1539,12 @@ const ANIMSIM_DIRS: Array[StringName] = [&"move_forward", &"move_right",
 ## armed -> unarmed -> archer so every loadout gets a full revolution. The
 ## gear offsets are hand-tuned against these frames — the mixamorig bone axes
 ## are not consistent limb to limb, so eyes beat arithmetic here.
-const GEARSIM_ORBIT: float = 4.6      # camera distance, metres (full body)
-const GEARSIM_HEIGHT: float = 1.05    # aim mid-torso for a full figure
+## Overridable from the shell so one scenario covers the whole graphics
+## matrix: LOB_GEAR_ORBIT (camera distance), LOB_GEAR_HEIGHT (look-at), and
+## LOB_GEAR_NIGHT=1 to skip the day override and shoot the game's DEFAULT
+## rainy-night lighting, which is what players actually see.
+const GEARSIM_ORBIT_DEFAULT: float = 4.6
+const GEARSIM_HEIGHT_DEFAULT: float = 1.05
 const GEARSIM_PER_CLASS: float = 6.0  # seconds per loadout
 
 func _drive_gearsim(delta: float) -> void:
@@ -1558,7 +1563,7 @@ func _drive_gearsim(delta: float) -> void:
 	var arm: SpringArm3D = _player.get_node_or_null(
 			"CameraPivot/SpringArm3D") as SpringArm3D
 	if arm:
-		arm.spring_length = GEARSIM_ORBIT
+		arm.spring_length = _gearsim_orbit()
 		# The arm shortens on collision, and orbiting this close it kept
 		# collapsing into the character — every frame came out as a
 		# close-up of the inside of the helmet.
@@ -1592,7 +1597,7 @@ func _drive_gearsim(delta: float) -> void:
 	if pivot:
 		pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
 		pivot.rotation.x = 0.0
-		pivot.position.y = GEARSIM_HEIGHT
+		pivot.position.y = _gearsim_height()
 
 
 ## Logs where every attached piece actually ended up in world space, so a
@@ -1631,12 +1636,33 @@ func _gearsim_report() -> void:
 					continue
 				found += 1
 				var rel: Vector3 = (piece as Node3D).global_position - origin
-				print("[CombatTest/GEARSIM] %-9s %-12s %-24s at +(%5.2f,%5.2f,%5.2f) shown=%s" % [
+				# World AABB relative to the character's feet, so "this piece
+				# towers over the head" is a number and not an impression.
+				var lo := INF
+				var hi := -INF
+				for mi in _gearsim_mesh_list(piece):
+					var ab: AABB = mi.get_aabb()
+					for c in 8:
+						var w: Vector3 = mi.global_transform * ab.get_endpoint(c)
+						lo = minf(lo, w.y - origin.y)
+						hi = maxf(hi, w.y - origin.y)
+				var extent := "y=%.2f..%.2f" % [lo, hi] if hi > lo else "y=n/a"
+				print("[CombatTest/GEARSIM] %-9s %-12s %-24s at +(%5.2f,%5.2f,%5.2f) %s shown=%s" % [
 						owner_name, piece.name,
 						(child as BoneAttachment3D).bone_name,
-						rel.x, rel.y, rel.z, str(shown)])
+						rel.x, rel.y, rel.z, extent, str(shown)])
 	print("[CombatTest/GEARSIM] slot=%d pieces=%d" % [_gearsim_slot, found])
 	_gearsim_meshes(_player, "")
+
+
+func _gearsim_orbit() -> float:
+	var v := OS.get_environment("LOB_GEAR_ORBIT")
+	return float(v) if v.is_valid_float() else GEARSIM_ORBIT_DEFAULT
+
+
+func _gearsim_height() -> float:
+	var v := OS.get_environment("LOB_GEAR_HEIGHT")
+	return float(v) if v.is_valid_float() else GEARSIM_HEIGHT_DEFAULT
 
 
 func _v3(v: Vector3) -> String:
@@ -1653,6 +1679,15 @@ func _gearsim_meshes(node: Node, path: String) -> void:
 				str(mi.is_visible_in_tree())])
 	for child in node.get_children():
 		_gearsim_meshes(child, path)
+
+
+func _gearsim_mesh_list(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		out.append_array(_gearsim_mesh_list(child))
+	return out
 
 
 func _gearsim_skeletons(node: Node) -> Array[Skeleton3D]:
