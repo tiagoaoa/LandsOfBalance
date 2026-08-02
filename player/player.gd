@@ -70,11 +70,11 @@ enum CharacterClass { PALADIN, ARCHER }
 const ArrowScene = preload("res://player/arrow.tscn")
 
 # Character model paths - Paladin
-const UNARMED_CHARACTER_PATH: String = "res://player/character/unarmed/Paladin.fbx"
-const ARMED_CHARACTER_PATH: String = "res://player/character/armed/Paladin.fbx"
+const UNARMED_CHARACTER_PATH: String = "res://assets/characters/paladin_unarmed_v2.glb"
+const ARMED_CHARACTER_PATH: String = "res://assets/characters/paladin_armed_v2.glb"
 
 # Character model paths - Archer
-const ARCHER_CHARACTER_PATH: String = "res://player/character/archer/Archer.fbx"
+const ARCHER_CHARACTER_PATH: String = "res://assets/characters/archer_v2.glb"
 
 # Unarmed animations (Paladin without weapons)
 const UNARMED_ANIM_PATHS: Dictionary = {
@@ -1005,9 +1005,16 @@ func _create_characters() -> void:
 		_character_model.add_child(_armed_character)
 		_armed_character.visible = false  # Hidden by default (Archer is default class)
 		_armed_anim_player = _find_animation_player(_armed_character)
-		if _armed_anim_player:
-			_armed_anim_player.animation_finished.connect(_on_animation_finished)
-			_load_animations_for_character(_armed_anim_player, ARMED_ANIM_PATHS, _get_armed_config(), "armed", _armed_character)
+		if _armed_anim_player == null:
+			# The authored character assets ship geometry and a skeleton but
+			# no clips, so there is nothing for the importer to build a player
+			# from — the other two classes already handled this, armed did not
+			# and would have silently loaded zero animations.
+			_armed_anim_player = AnimationPlayer.new()
+			_armed_anim_player.name = "AnimationPlayer"
+			_armed_character.add_child(_armed_anim_player)
+		_armed_anim_player.animation_finished.connect(_on_animation_finished)
+		_load_animations_for_character(_armed_anim_player, ARMED_ANIM_PATHS, _get_armed_config(), "armed", _armed_character)
 		# Setup sword hitbox bone attachment after character is loaded
 		_setup_sword_bone_attachment()
 
@@ -2164,9 +2171,6 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 			print("  Loaded: ", library_prefix, "/", anim_config[0])
 
 		instance.queue_free()
-
-	# Rigid gear on bone attachments: every clip below carries it for free.
-	GearLoadout.equip(character, library_prefix)
 
 	# Borrowed retreat clips swing the arms loose — put the character's own
 	# weapon carriage back on top before anything is composed from them.
