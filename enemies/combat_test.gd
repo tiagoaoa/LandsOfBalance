@@ -162,7 +162,8 @@ func _process(delta: float) -> void:
 			_player.set_process_input(false)
 	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
 			or scenario == "DRAGON" or scenario == "BOWSIM" or scenario == "MOBSIM" \
-			or scenario == "PALSIM" or scenario == "BLOCKSIM" or scenario == "GEARSIM"
+			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
+			or (scenario == "GEARSIM" and OS.get_environment("LOB_GEAR_TARGET") != "bobba")
 	if not solo and (_bobba == null or not is_instance_valid(_bobba)):
 		_bobba = _find_in_group("bobba")
 
@@ -1556,6 +1557,18 @@ func _drive_gearsim(delta: float) -> void:
 		_player.global_position = pp
 		_player.velocity = Vector3.ZERO
 		print("[CombatTest/GEARSIM] turntable start")
+
+	# LOB_GEAR_TARGET=bobba turntables the ENEMY instead of the player. The
+	# camera rig is bolted to the player, so ride the player to Bobba's spot
+	# and hide its body: the camera then orbits Bobba and looks straight at
+	# it, which is the only way to get a controlled shot of an enemy model.
+	if OS.get_environment("LOB_GEAR_TARGET") == "bobba" \
+			and _bobba != null and is_instance_valid(_bobba):
+		_player.global_position = (_bobba as Node3D).global_position
+		_player.velocity = Vector3.ZERO
+		var pm: Node3D = _player.get_node_or_null("CharacterModel") as Node3D
+		if pm:
+			pm.visible = false
 
 	# The camera rig eases spring_length back to DEFAULT_SPRING_LENGTH every
 	# physics frame, so a one-shot assignment is undone before the next

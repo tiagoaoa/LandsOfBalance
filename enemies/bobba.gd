@@ -535,6 +535,8 @@ func _setup_hand_bone_attachments() -> void:
 		_model.add_child(_left_hand_hitbox)
 		_left_hand_hitbox.position = Vector3(-0.5, 1.0, 0.5)
 
+	_setup_axe(skeleton)
+
 	# Find right hand bone
 	var right_hand_idx: int = _find_hand_bone(skeleton, "Right")
 	if right_hand_idx != -1:
@@ -1171,22 +1173,77 @@ func _apply_material_recursive(node: Node, mat: Material) -> void:
 
 	if node is MeshInstance3D:
 		var mesh_inst := node as MeshInstance3D
-		print("Bobba: Found MeshInstance3D: ", mesh_inst.name)
 
-		# Apply material override to the entire mesh
-		mesh_inst.material_override = mat
-		print("Bobba: Applied material_override")
-
-		# Also try applying to individual surfaces
-		if mesh_inst.mesh:
-			var surface_count = mesh_inst.mesh.get_surface_count()
-			print("Bobba: Mesh has ", surface_count, " surfaces")
-			for i in range(surface_count):
-				mesh_inst.set_surface_override_material(i, mat)
-				print("Bobba: Applied to surface ", i)
+		# The legacy material exists because the old FBX imported without a
+		# usable one. The authored model ships its own textured material, and
+		# force-overriding it painted the orc's green skin and torn cloth flat
+		# grey — so this is now a FALLBACK, only for meshes that have none.
+		if _has_own_material(mesh_inst):
+			print("Bobba: %s keeps its authored material" % mesh_inst.name)
+		else:
+			mesh_inst.material_override = mat
+			if mesh_inst.mesh:
+				for i in range(mesh_inst.mesh.get_surface_count()):
+					mesh_inst.set_surface_override_material(i, mat)
+			print("Bobba: applied fallback material to ", mesh_inst.name)
 
 	for child in node.get_children():
 		_apply_material_recursive(child, mat)
+
+
+## Bobba's axe: a rigid mesh on a BoneAttachment3D at the right hand, so every
+## existing mutant clip carries it without touching the animations.
+##
+## The offsets are in BOBBA'S OWN frame rather than the bone's — the mixamorig
+## hand bone points down the arm, so a hand-guessed euler there is unreadable.
+## `_axe_local_basis` solves for the bone-local rotation that lands the axe
+## upright-and-forward relative to the body, the same trick the player's gear
+## uses.
+const AXE_SCENE := "res://assets/bobba/war_axe.glb"
+const AXE_POS := Vector3(0.0, -0.05, 0.06)   # metres, in Bobba's frame
+const AXE_ROT := Vector3(-18.0, 0.0, 8.0)    # degrees: haft near-upright, head up, raked back
+const AXE_SCALE := 1.0
+
+var _axe: Node3D
+
+
+func _setup_axe(skeleton: Skeleton3D) -> void:
+	var idx: int = _find_hand_bone(skeleton, "Right")
+	if idx == -1:
+		print("Bobba: no right hand bone — axe not attached")
+		return
+	var scene: PackedScene = load(AXE_SCENE) as PackedScene
+	if scene == null:
+		print("Bobba: axe asset missing at ", AXE_SCENE)
+		return
+
+	var attach := BoneAttachment3D.new()
+	attach.name = "AxeAttachment"
+	attach.bone_name = skeleton.get_bone_name(idx)
+	skeleton.add_child(attach)
+
+	_axe = scene.instantiate() as Node3D
+	_axe.name = "WarAxe"
+	var rest: Basis = (skeleton.global_transform
+			* skeleton.get_bone_global_rest(idx)).basis.orthonormalized()
+	var want: Basis = global_transform.basis.orthonormalized() \
+			* Basis.from_euler(AXE_ROT * (PI / 180.0))
+	_axe.transform = Transform3D(
+			rest.inverse() * want * Basis().scaled(Vector3.ONE * AXE_SCALE),
+			rest.inverse() * AXE_POS)
+	attach.add_child(_axe)
+	print("Bobba: axe attached to bone ", attach.bone_name)
+
+
+## True when the mesh already carries a real, textured material of its own.
+func _has_own_material(mesh_inst: MeshInstance3D) -> bool:
+	if mesh_inst.mesh == null:
+		return false
+	for i in range(mesh_inst.mesh.get_surface_count()):
+		var m: Material = mesh_inst.mesh.surface_get_material(i)
+		if m is BaseMaterial3D and (m as BaseMaterial3D).albedo_texture != null:
+			return true
+	return false
 
 
 func _find_animation_player(node: Node) -> AnimationPlayer:

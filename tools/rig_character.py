@@ -16,7 +16,7 @@ BODY is replaced.
   blender -b -P rig_character.py -- <orig.fbx> <new_body.glb> <out.glb> <keep1,keep2>
 """
 import bpy, sys, os
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 ORIG, NEWBODY, OUT = argv[0], argv[1], argv[2]
@@ -354,6 +354,70 @@ print("ARM xform after:  rot=%s scale=%s" % (
     [round(v, 3) for v in arm.rotation_euler], [round(v, 4) for v in arm.scale]))
 
 print("KEPT:", [o.name for o in meshes() if o is not new])
+
+# RIG_TARGET_HEIGHT: scale the finished character, skeleton and all. The
+# animations are pure rotations once root motion is stripped, so a uniform
+# rest-pose rescale is safe and every clip still plays.
+target_h = os.environ.get("RIG_TARGET_HEIGHT")
+if target_h:
+    zs = []
+    for o in meshes():
+        for c in o.bound_box:
+            zs.append((o.matrix_world @ Vector(c)).z)
+    cur_h = max(zs) - min(zs)
+    k = float(target_h) / cur_h
+    for o in meshes():
+        o.data.transform(Matrix.Scale(k, 4))
+        o.data.update()
+    arm.data.transform(Matrix.Scale(k, 4))
+    print("height %.3f -> %.3f m (x%.3f)" % (cur_h, cur_h * k, k))
+
+# RIG_MATTE=1: drive the surface fully rough and non-metallic. Rodin bakes a
+# glossy metallic-roughness map that made Bobba's skin read as wet plastic;
+# stone should not reflect.
+if os.environ.get("RIG_MATTE") == "1":
+    for o in meshes():
+        for mat in o.data.materials:
+            if not mat or not mat.use_nodes:
+                continue
+            for node in mat.node_tree.nodes:
+                if node.type != 'BSDF_PRINCIPLED':
+                    continue
+                for sock, val in (("Roughness", 0.96), ("Metallic", 0.0),
+                                  ("Specular IOR Level", 0.16)):
+                    if sock in node.inputs:
+                        for link in list(node.inputs[sock].links):
+                            mat.node_tree.links.remove(link)
+                        node.inputs[sock].default_value = val
+            print("  matte:", mat.name)
+
+# RIG_TINT="r,g,b": multiply the ALBEDO only. Bobba's stone skin came back
+# fully neutral, which lost the orc entirely; a light green-grey cast keeps
+# him mossy rock rather than concrete. Never touch normal or roughness maps —
+# they encode vectors and response, and tinting them corrupts the surface.
+tint = os.environ.get("RIG_TINT")
+if tint:
+    import numpy as np
+    T = np.array([float(v) for v in tint.split(",")], dtype=np.float32)
+    for img in bpy.data.images:
+        if "diffuse" not in img.name.lower() and "base" not in img.name.lower():
+            continue
+        # Same trap as the size cap: pixels are not resident until touched,
+        # so has_data is False and the real albedo gets skipped.
+        if img.size[0] == 0:
+            try:
+                img.reload()
+            except RuntimeError:
+                continue
+        if img.size[0] == 0:
+            continue
+        px = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(px)
+        px = px.reshape(-1, 4)
+        px[:, :3] = np.clip(px[:, :3] * T, 0.0, 1.0)
+        img.pixels.foreach_set(px.reshape(-1))
+        img.update()
+        print("  tinted %s by %s" % (img.name, T))
 
 # Export is scene-wide, so anything that drifted into the scene ships inside
 # the character. A stray unit-radius Icosphere did exactly that and rendered
