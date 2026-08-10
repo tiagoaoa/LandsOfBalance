@@ -195,18 +195,58 @@ def bind_to_bones(mesh_obj, armature):
     return len(bones), float(dist.min(1).mean())
 
 
+def bone_segments(armature):
+    """World-space (head, tail) for each bone in DEFORM order."""
+    import numpy as np
+    short = {b.name.replace("mixamorig:", "").replace("mixamorig_", ""): b
+             for b in armature.data.bones}
+    M = armature.matrix_world
+    heads, tails, names = [], [], []
+    for n in DEFORM:
+        b = short.get(n)
+        if b is None:
+            continue
+        heads.append([*(M @ b.head_local)])
+        tails.append([*(M @ b.tail_local)])
+        names.append(n)
+    return np.array(heads), np.array(tails), names
+
+
+def point_bone_distance(world, heads, tails):
+    """Perpendicular distance from each point to each bone segment."""
+    import numpy as np
+    seg = tails - heads
+    L2 = np.maximum((seg ** 2).sum(1), 1e-12)
+    d = world[:, None, :] - heads[None, :, :]
+    t = np.clip((d * seg[None]).sum(2) / L2[None], 0.0, 1.0)
+    closest = heads[None] + t[:, :, None] * seg[None]
+    return np.linalg.norm(world[:, None, :] - closest, axis=2)
+
+
+def nearest_deform_bone(world, armature):
+    """Index into DEFORM of the bone nearest each vertex."""
+    import numpy as np
+    heads, tails, names = bone_segments(armature)
+    nearest = point_bone_distance(world, heads, tails).argmin(1)
+    lookup = np.array([DEFORM.index(n) for n in names])
+    return lookup[nearest]
+
+
 def fit_arms(mesh_obj, armature):
-    """Match the mesh's arm LENGTH to the skeleton's.
+    """Align each mesh arm onto the bone chain that drives it — direction AND
+    length, rotating about the shoulder.
 
-    Aligning by overall height is not enough: these generated bodies come out
-    long-armed relative to the Mixamo rig (the knight measured 0.745 m from
-    shoulder to fingertip against the skeleton's 0.560 m). The hands then
-    overshoot the hand bones by a third of an arm, so the sword and shield —
-    which hang off Sword_joint and Shield_joint at the BONE's hand — sit well
-    inside the mesh's fist and read as floating next to a stump.
+    Aligning the body by overall height is not enough. These generated bodies
+    are long-armed AND their "T-pose" arms droop: the knight measured 0.745 m
+    shoulder-to-fingertip against the skeleton's 0.560 m, and its hands sat
+    21 cm BELOW the horizontal hand bones. Every arm vertex therefore trailed
+    its driving bone, and since the sword and shield hang off Sword_joint and
+    Shield_joint at the BONE's hand, they floated a measured 13.6 cm clear of
+    the visible fist — the weapons looked carried by nothing.
 
-    Rest pose is a T-pose, so the arm axis is world X and this is a 1-D
-    rescale about each shoulder. Thickness is untouched.
+    Correcting length alone (an X-axis rescale) fixes the reach and leaves the
+    droop, so this solves for the rotation too. The transform ramps in across
+    the first fifth of the arm so the shoulder does not tear.
     """
     import numpy as np
     short = {b.name.replace("mixamorig:", "").replace("mixamorig_", ""): b
@@ -219,23 +259,56 @@ def fit_arms(mesh_obj, armature):
     MW = np.array(mesh_obj.matrix_world.to_4x4())
     world = co @ MW[:3, :3].T + MW[:3, 3]
 
+    def rot_between(a, b):
+        """Rotation matrix taking unit vector a onto unit vector b."""
+        v = np.cross(a, b)
+        c = float(np.dot(a, b))
+        if np.linalg.norm(v) < 1e-9:
+            return np.eye(3) if c > 0 else -np.eye(3)
+        vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        return np.eye(3) + vx + vx @ vx * (1.0 / (1.0 + c))
+
     report = []
     for side, sgn in (("Left", 1.0), ("Right", -1.0)):
         upper, hand = short.get(side + "Arm"), short.get(side + "Hand")
         if not upper or not hand:
             continue
-        sx = (M @ upper.head_local).x
-        tx = (M @ hand.tail_local).x
-        sel = (world[:, 0] * sgn) > (sx * sgn)
-        if not sel.any():
+        S = np.array([*(M @ upper.head_local)])
+        T = np.array([*(M @ hand.tail_local)])
+        # Select the arm by which bone OWNS each vertex, not by "outboard of
+        # the shoulder in X" — that also swept up the outer half of the boots
+        # (they sit at x 0.10..0.28, the shoulder at 0.185) and stretched the
+        # feet into points.
+        arm_bones = [side + n for n in ("Arm", "ForeArm", "Hand")]
+        near = nearest_deform_bone(world, armature)
+        sel = np.nonzero(np.isin(near, [DEFORM.index(b) for b in arm_bones
+                                        if b in DEFORM]))[0]
+        if len(sel) < 20:
             continue
-        tip = world[sel, 0].max() if sgn > 0 else world[sel, 0].min()
-        cur, want = abs(tip - sx), abs(tx - sx)
-        if cur < 1e-4:
+        rel = world[sel] - S
+        # Mesh arm tip: mean of the outermost 2% along the arm, so a stray
+        # vertex cannot define the limb.
+        proj = rel[:, 0] * sgn
+        tipsel = sel[proj >= np.percentile(proj, 98)]
+        tip = world[tipsel].mean(0)
+
+        a = tip - S
+        b = T - S
+        la, lb = np.linalg.norm(a), np.linalg.norm(b)
+        if la < 1e-4:
             continue
-        s = want / cur
-        world[sel, 0] = sx + (world[sel, 0] - sx) * s
-        report.append("%s %.3f->%.3f (x%.2f)" % (side, cur, want, s))
+        R = rot_between(a / la, b / lb)
+        s = lb / la
+        # Ramp the correction in so the shoulder joint is not sheared.
+        t = np.clip(proj / la, 0.0, 1.0)
+        wgt = np.clip((t - 0.02) / 0.18, 0.0, 1.0)
+        wgt = wgt * wgt * (3 - 2 * wgt)                     # smoothstep
+        fitted = S + (rel * s) @ R.T
+        world[sel] = world[sel] + (fitted - world[sel]) * wgt[:, None]
+
+        drop = float(np.degrees(np.arccos(np.clip(np.dot(a / la, b / lb), -1, 1))))
+        report.append("%s len %.3f->%.3f (x%.2f), axis %.1f deg"
+                      % (side, la, lb, s, drop))
 
     local = (world - MW[:3, 3]) @ np.linalg.inv(MW[:3, :3]).T
     mesh_obj.data.vertices.foreach_set("co", local.reshape(-1))
@@ -296,8 +369,17 @@ for o in list(bpy.data.objects):
 # the Archer's 212-vertex bow was carrying 4.9 MB of 2k maps. Cap them.
 MAX_PX = 512
 for img in bpy.data.images:
-    if img.has_data and max(img.size) > MAX_PX:
-        print("  downscaling %s %dx%d -> %d" % (img.name, *img.size, MAX_PX))
+    # size is (0, 0) until the pixels are actually loaded, and the FBX's
+    # textures arrive unloaded — gating on has_data silently let three
+    # 2048x2048 maps through, which was enough to OOM Godot's importer.
+    if img.size[0] == 0:
+        try:
+            img.reload()
+        except RuntimeError:
+            pass
+    if max(img.size) > MAX_PX:
+        print("  downscaling %s %dx%d -> %d" % (img.name, img.size[0],
+                                                img.size[1], MAX_PX))
         img.scale(MAX_PX, MAX_PX)
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB',
                           export_apply=False, export_yup=True,
