@@ -262,6 +262,11 @@ var _sword_smear: SlashTrail = null
 ## Smear off the torso while the body is folding away from a blow — the same
 ## displaced-air read as a swing, applied to the recoil.
 var _react_smear: SlashTrail = null
+## Impact squash, kept as its own factor because the crouch writes
+## _character_model.scale every frame and would overwrite a direct tween.
+var _crouch_scale_y: float = 1.0
+var _hit_squash: Vector3 = Vector3.ONE
+var _squash_tween: Tween
 
 # Lock-on / target tracking (souls-like). When a target is locked, the
 # camera (and therefore the strafe-facing character) orients to it every
@@ -3187,6 +3192,13 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		# Curl around the blow — knockback points the way the hit travelled.
 		_play_hit_react_animation(knockback)
 		_pulse_react_smear()
+		if _squash_tween:
+			_squash_tween.kill()
+			_hit_squash = Vector3.ONE
+		_squash_tween = HitFeedback.squash(self, Vector3.ONE, 0.15, true, "_hit_squash")
+		# Rumble scales with how much of the bar it took.
+		if HitFeedback.is_local_human(self):
+			HitFeedback.haptic(clampf(damage / 40.0, 0.35, 1.0))
 
 		# Interrupt spell casting if hit (Bobba hit stops spells)
 		if is_casting:
@@ -4161,6 +4173,10 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		# unarmed jabs lighter (0.5).
 		if has_node("/root/CombatFX"):
 			CombatFX.on_hit(0.9 if fully_blockable else 0.5)
+		# Rumble the swing that connected — sword heavier than a jab. On a
+		# phone this is the clearest "it landed" signal there is.
+		if HitFeedback.is_local_human(self):
+			HitFeedback.haptic(0.85 if combat_mode == CombatMode.ARMED else 0.45)
 
 		# In multiplayer, send entity damage to server
 		if enable_multiplayer and has_node("/root/NetworkManager") and "entity_id" in body:
@@ -4703,7 +4719,9 @@ func _physics_process(delta: float) -> void:
 			else Input.is_action_pressed(&"crouch")
 	if _character_model:
 		var want_squash: float = 0.74 if is_crouching else 1.0
-		_character_model.scale.y = lerpf(_character_model.scale.y, want_squash, 12.0 * delta)
+		_crouch_scale_y = lerpf(_crouch_scale_y, want_squash, 12.0 * delta)
+		_character_model.scale = Vector3(
+				_hit_squash.x, _crouch_scale_y * _hit_squash.y, _hit_squash.z)
 	_update_revive(delta)
 	# The loose burst borrows the body only briefly — then locomotion gets
 	# it back even though the (long) source clip keeps running underneath.

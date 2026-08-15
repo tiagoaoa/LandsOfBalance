@@ -70,6 +70,7 @@ var _animsim_step: int = -1
 var _animsim_dir_idx: int = 0
 # GEARSIM: which loadout the turntable is currently showing.
 var _gearsim_slot: int = -1
+var _gearsim_hit_timer: float = 0.0
 var _animsim_blocking: bool = false
 var _animsim_stall: float = 0.0
 var _animsim_max_stall: float = 0.0
@@ -1575,9 +1576,21 @@ func _drive_gearsim(delta: float) -> void:
 		# LOB_GEAR_CLIP=<name> holds Bobba on one clip so an authored motion
 		# can be watched in isolation. The AI would otherwise wander him
 		# through idle and attacks and the clip would never be visible.
+		# LOB_GEAR_HIT=1 strikes Bobba on a fixed cadence so the whole
+		# received-hit stack — flash, squash, lurch, react clip, smear — can
+		# be watched in day light on a still camera. The combat scenarios
+		# shoot this at night from inside his legs.
+		if OS.get_environment("LOB_GEAR_HIT") == "1":
+			_gearsim_hit_timer += delta
+			if _gearsim_hit_timer >= 1.5:
+				_gearsim_hit_timer = 0.0
+				var kb: Vector3 = -(_bobba as Node3D).global_transform.basis.z * 6.0
+				_bobba.take_hit(40.0, kb, false, _player, false)
+				print("[CombatTest/GEARSIM] struck Bobba at t=%.2f" % _elapsed)
+
 		var clip := OS.get_environment("LOB_GEAR_CLIP")
 		if clip != "":
-			_bobba.set_physics_process(false)
+			_bobba.set_physics_process(OS.get_environment("LOB_GEAR_HIT") == "1")
 			var ap: AnimationPlayer = _bobba.get("_anim_player") as AnimationPlayer
 			var full := StringName("bobba/" + clip)
 			if ap != null and ap.has_animation(full) \

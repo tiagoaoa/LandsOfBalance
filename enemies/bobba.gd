@@ -129,6 +129,8 @@ var _has_hit_this_attack: bool = false
 var _hit_flash_tween: Tween
 var _lurch_tween: Tween
 var _model_rest_pos: Vector3 = Vector3.ZERO
+var _model_rest_scale: Vector3 = Vector3.ONE
+var _squash_tween: Tween
 var _flash_materials: Array[StandardMaterial3D] = []
 
 ## Hit feedback tuning — the whole surface for "did that land?".
@@ -434,6 +436,7 @@ func _setup_model() -> void:
 		# Anchor for the hit lurch — the model node is offset/scaled in the
 		# scene, so the recoil has to spring back to THIS, not to zero.
 		_model_rest_pos = _model.position
+		_model_rest_scale = _model.scale
 		_ensure_flash_materials()
 
 		_anim_player = _find_animation_player(_model)
@@ -829,6 +832,7 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 	if is_blocking:
 		_flash_hit(Color(0.3, 0.5, 1.0))
 		_hit_lurch(knockback * 0.4)   # smaller shove — he absorbed it
+		_squash_model(0.05)           # barely gives — he took it on the guard
 		_play_hit_react(&"HitReactLight")
 		if attacker:
 			_set_attacker_as_target(attacker)  # still agro onto them
@@ -839,6 +843,7 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 
 	_flash_hit(Color(1.0, 0.2, 0.2))
 	_hit_lurch(knockback)
+	_squash_model(0.11)
 	_play_hit_react(&"HitReact")
 	_pulse_react_smear()
 
@@ -1198,6 +1203,17 @@ func _play_hit_react(clip: StringName) -> void:
 		return
 	_anim_player.play(full, 0.06)
 	_current_anim = full
+
+
+## Compress on impact. Bobba is a heavy body, so he gives less than a person
+## would — the amount is deliberately below the shared default.
+func _squash_model(amount: float) -> void:
+	if _model == null:
+		return
+	if _squash_tween:
+		_squash_tween.kill()
+		_model.scale = _model_rest_scale
+	_squash_tween = HitFeedback.squash(_model, _model_rest_scale, amount)
 
 
 ## Smear the air around the torso for the length of the recoil.
