@@ -132,13 +132,18 @@ var _model_rest_pos: Vector3 = Vector3.ZERO
 var _model_rest_scale: Vector3 = Vector3.ONE
 var _squash_tween: Tween
 var _flash_materials: Array[StandardMaterial3D] = []
+var _telegraph_level: float = -1.0
+var _telegraph_materials: Array[StandardMaterial3D] = []
 
 ## Hit feedback tuning — the whole surface for "did that land?".
-const HIT_FLASH_ENERGY: float = 1.5    # emission multiplier at impact
+const HIT_FLASH_ENERGY: float = 0.55   # a strong tint; squash+lurch+react carry the rest
 const HIT_FLASH_TIME: float = 0.16     # fade back to normal
 const HIT_LURCH_DISTANCE: float = 0.32 # metres the model recoils
 const HIT_LURCH_OUT: float = 0.06      # snap back fast...
 const HIT_LURCH_BACK: float = 0.20     # ...then settle
+## The wind-up tell. Amber, so it never reads as the red "you hit me".
+const TELEGRAPH_COLOR := Color(1.0, 0.55, 0.12)
+const TELEGRAPH_ENERGY: float = 2.2    # on the axe alone, so it can be bright
 var _stun_timer: float = 0.0
 var _hit_label: Label3D
 var _attack_anim_progress: float = 0.0
@@ -737,6 +742,7 @@ func _update_attack_hitbox_timing() -> void:
 			_right_claw_trail.emitting = false
 		if _axe_smear != null:
 			_axe_smear.emitting = false
+		_set_telegraph(0.0)
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -758,6 +764,21 @@ func _update_attack_hitbox_timing() -> void:
 	elif not should_be_active and _hitbox_active_window:
 		_hitbox_active_window = false
 		print("Bobba: Attack window ENDED at progress ", _attack_anim_progress)
+
+	# ANTICIPATION — everything before the damage window is the tell.
+	#
+	# Knightvale models this as a first-class state with its own config; we
+	# already have the data (progress < window.x IS the wind-up), it was just
+	# never expressed. A souls enemy has to be readable BEFORE the blow, and
+	# Bobba's wind-up looked identical to his recovery. Ramping a warning
+	# glow across it gives the player something to react to, and changes no
+	# damage, timing or reach.
+	var anticipating: bool = _attack_anim_progress < window.x
+	var tell: float = 0.0
+	if anticipating and window.x > 0.001:
+		tell = clampf(_attack_anim_progress / window.x, 0.0, 1.0)
+		tell = tell * tell            # late bloom — fires just before the hit
+	_set_telegraph(tell)
 
 	# Claw streaks draw exactly while the fists can hurt.
 	if _left_claw_trail != null:
@@ -1167,10 +1188,14 @@ func _ensure_flash_materials() -> void:
 
 
 func _collect_flash_materials(node: Node) -> void:
+	_collect_materials_into(node, _flash_materials)
+
+
+func _collect_materials_into(node: Node, out: Array[StandardMaterial3D]) -> void:
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		if mi.material_override is StandardMaterial3D:
-			_flash_materials.append(mi.material_override)
+			out.append(mi.material_override)
 		elif mi.mesh:
 			for i in range(mi.mesh.get_surface_count()):
 				var src: Material = mi.get_surface_override_material(i)
@@ -1179,9 +1204,9 @@ func _collect_flash_materials(node: Node) -> void:
 				if src is StandardMaterial3D:
 					var dup: StandardMaterial3D = (src as StandardMaterial3D).duplicate()
 					mi.set_surface_override_material(i, dup)
-					_flash_materials.append(dup)
+					out.append(dup)
 	for child in node.get_children():
-		_collect_flash_materials(child)
+		_collect_materials_into(child, out)
 
 
 ## Bobba has no hit-reaction clip — the pack ships Attack, Dying, Idle,
@@ -1203,6 +1228,44 @@ func _play_hit_react(clip: StringName) -> void:
 		return
 	_anim_player.play(full, 0.06)
 	_current_anim = full
+
+
+## The tell glows the WEAPON, not the body.
+##
+## Emission on a full-body material saturates the whole silhouette at any
+## useful energy, which threw away the matte stone skin the moment he wound
+## up. Lighting the axe reads better anyway — the thing about to hit you is
+## the thing that should be charging — and it leaves the character intact.
+## Falls back to the body only if there is no weapon to light.
+func _ensure_telegraph_materials() -> void:
+	if not _telegraph_materials.is_empty():
+		return
+	if _axe != null and is_instance_valid(_axe):
+		_collect_materials_into(_axe, _telegraph_materials)
+	if _telegraph_materials.is_empty():
+		_ensure_flash_materials()
+		_telegraph_materials = _flash_materials.duplicate()
+	print("Bobba: telegraph driving %d material(s)" % _telegraph_materials.size())
+
+
+## Warning glow that ramps through the wind-up and snaps off when the blow
+## actually lands. Deliberately a different colour from the red hit flash —
+## this is "it is coming", not "it connected" — and it drives the same
+## materials, so it costs nothing extra.
+func _set_telegraph(amount: float) -> void:
+	if is_equal_approx(amount, _telegraph_level):
+		return
+	_telegraph_level = amount
+	if _hit_flash_tween and _hit_flash_tween.is_running():
+		return          # a real hit flash outranks the tell
+	_ensure_telegraph_materials()
+	for mat in _telegraph_materials:
+		if amount <= 0.001:
+			mat.emission_enabled = false
+		else:
+			mat.emission_enabled = true
+			mat.emission = TELEGRAPH_COLOR
+			mat.emission_energy_multiplier = amount * TELEGRAPH_ENERGY
 
 
 ## Compress on impact. Bobba is a heavy body, so he gives less than a person
