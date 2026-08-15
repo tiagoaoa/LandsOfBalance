@@ -193,7 +193,10 @@ func _process(delta: float) -> void:
 			_finish("GEARSIM_DONE")
 		_elapsed += delta
 		_screenshot_timer += delta
-		if _screenshot_timer >= 0.25:
+		# A held clip is often well under a second; at the turntable's cadence
+		# you sample across loops instead of through the motion.
+		var cadence: float = 0.06 if OS.get_environment("LOB_GEAR_CLIP") != "" else 0.25
+		if _screenshot_timer >= cadence:
 			_screenshot_timer = 0.0
 			_capture()
 		return
@@ -1569,6 +1572,20 @@ func _drive_gearsim(delta: float) -> void:
 		var pm: Node3D = _player.get_node_or_null("CharacterModel") as Node3D
 		if pm:
 			pm.visible = false
+		# LOB_GEAR_CLIP=<name> holds Bobba on one clip so an authored motion
+		# can be watched in isolation. The AI would otherwise wander him
+		# through idle and attacks and the clip would never be visible.
+		var clip := OS.get_environment("LOB_GEAR_CLIP")
+		if clip != "":
+			_bobba.set_physics_process(false)
+			var ap: AnimationPlayer = _bobba.get("_anim_player") as AnimationPlayer
+			var full := StringName("bobba/" + clip)
+			if ap != null and ap.has_animation(full) \
+					and ap.current_animation != String(full):
+				ap.play(full)
+				ap.get_animation(full).loop_mode = Animation.LOOP_LINEAR
+				print("[CombatTest/GEARSIM] holding Bobba on %s (%.2fs)" % [
+						full, ap.get_animation(full).length])
 
 	# The camera rig eases spring_length back to DEFAULT_SPRING_LENGTH every
 	# physics frame, so a one-shot assignment is undone before the next
@@ -1608,7 +1625,13 @@ func _drive_gearsim(delta: float) -> void:
 
 	var pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
 	if pivot:
-		pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
+		# Holding a clip? Freeze the orbit at a three-quarter view — otherwise
+		# the camera's rotation is mixed into the frames and the motion of the
+		# clip itself cannot be read.
+		if OS.get_environment("LOB_GEAR_CLIP") != "":
+			pivot.rotation.y = deg_to_rad(38.0)
+		else:
+			pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
 		pivot.rotation.x = 0.0
 		pivot.position.y = _gearsim_height()
 

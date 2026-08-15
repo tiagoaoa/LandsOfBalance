@@ -2172,6 +2172,10 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 
 		instance.queue_free()
 
+	# Neither Paladin set ships a hit reaction and the Archer's is a single
+	# front-on flinch, so a blow from any angle looked the same. Build four.
+	HitReactAnim.compose(anim_player, skeleton, library_prefix)
+
 	# Borrowed retreat clips swing the arms loose — put the character's own
 	# weapon carriage back on top before anything is composed from them.
 	DerivedAnims.compose(anim_player, library_prefix)
@@ -3168,9 +3172,8 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 			is_drinking = false
 			_show_hit_label("Estus lost!")
 			print("Player: estus drink INTERRUPTED — charge wasted (%d left)" % estus_charges)
-		# Play a hit-react animation if the current character has one
-		# (archer loads `standing react small from front`; paladin has none).
-		_play_hit_react_animation()
+		# Curl around the blow — knockback points the way the hit travelled.
+		_play_hit_react_animation(knockback)
 
 		# Interrupt spell casting if hit (Bobba hit stops spells)
 		if is_casting:
@@ -3367,14 +3370,19 @@ func _on_damage_taken(_amount: float) -> void:
 ## Archer has a dedicated "react small from front" FBX; Paladin does not,
 ## so this is a no-op for Paladin (the flash + stun + knockback are the
 ## feedback instead).
-func _play_hit_react_animation() -> void:
+func _play_hit_react_animation(from_dir: Vector3 = Vector3.ZERO) -> void:
 	if _current_anim_player == null:
 		return
 	var library_prefix := "archer" if character_class == CharacterClass.ARCHER else ("armed" if combat_mode == CombatMode.ARMED else "unarmed")
-	var anim_name := StringName(library_prefix + "/ReactHit")
-	if _current_anim_player.has_animation(anim_name):
-		_current_anim_player.play(anim_name)
-		_current_anim = anim_name
+	# Prefer the composed directional clip so the body curls around the blow;
+	# fall back to the single borrowed flinch, then to nothing.
+	var dir := HitReactAnim.dir_for(self, from_dir)
+	for candidate in [library_prefix + "/ReactHit" + dir, library_prefix + "/ReactHit"]:
+		var anim_name := StringName(candidate)
+		if _current_anim_player.has_animation(anim_name):
+			_current_anim_player.play(anim_name, 0.05)
+			_current_anim = anim_name
+			return
 
 
 ## Called when player health reaches 0

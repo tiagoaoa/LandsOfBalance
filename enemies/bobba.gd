@@ -127,6 +127,16 @@ var _left_hand_attachment: BoneAttachment3D
 var _right_hand_attachment: BoneAttachment3D
 var _has_hit_this_attack: bool = false
 var _hit_flash_tween: Tween
+var _lurch_tween: Tween
+var _model_rest_pos: Vector3 = Vector3.ZERO
+var _flash_materials: Array[StandardMaterial3D] = []
+
+## Hit feedback tuning — the whole surface for "did that land?".
+const HIT_FLASH_ENERGY: float = 1.5    # emission multiplier at impact
+const HIT_FLASH_TIME: float = 0.16     # fade back to normal
+const HIT_LURCH_DISTANCE: float = 0.32 # metres the model recoils
+const HIT_LURCH_OUT: float = 0.06      # snap back fast...
+const HIT_LURCH_BACK: float = 0.20     # ...then settle
 var _stun_timer: float = 0.0
 var _hit_label: Label3D
 var _attack_anim_progress: float = 0.0
@@ -418,6 +428,10 @@ func _setup_model() -> void:
 		# Always force-apply our material to ensure visibility
 		print("Bobba: Force-applying material to model")
 		_apply_textures(_model)
+		# Anchor for the hit lurch — the model node is offset/scaled in the
+		# scene, so the recoil has to spring back to THIS, not to zero.
+		_model_rest_pos = _model.position
+		_ensure_flash_materials()
 
 		_anim_player = _find_animation_player(_model)
 		if _anim_player:
@@ -807,6 +821,8 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 	# reduced knockback, no damage, no stun.
 	if is_blocking:
 		_flash_hit(Color(0.3, 0.5, 1.0))
+		_hit_lurch(knockback * 0.4)   # smaller shove — he absorbed it
+		_play_hit_react(&"HitReactLight")
 		if attacker:
 			_set_attacker_as_target(attacker)  # still agro onto them
 		# Mild pushback so there's visible recoil on the blocker
@@ -815,6 +831,8 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 		return
 
 	_flash_hit(Color(1.0, 0.2, 0.2))
+	_hit_lurch(knockback)
+	_play_hit_react(&"HitReact")
 
 	# Switch target to attacker (prioritize who is attacking)
 	if attacker:
@@ -1102,40 +1120,94 @@ func _show_hit_label(text: String = "Hit!") -> void:
 func _flash_hit(color: Color) -> void:
 	if _hit_flash_tween:
 		_hit_flash_tween.kill()
+	_ensure_flash_materials()
+	for mat in _flash_materials:
+		mat.emission_enabled = true
+		mat.emission = color
+		mat.emission_energy_multiplier = HIT_FLASH_ENERGY
+	_hit_flash_tween = create_tween()
+	_hit_flash_tween.tween_method(
+		func(e: float) -> void:
+			for mat in _flash_materials:
+				mat.emission_energy_multiplier = e,
+		HIT_FLASH_ENERGY, 0.0, HIT_FLASH_TIME)
+	_hit_flash_tween.tween_callback(func() -> void:
+		for mat in _flash_materials:
+			mat.emission_enabled = false)
 
-	# Apply color tint to model
-	if _model:
-		_apply_hit_flash_recursive(_model, color)
 
-		# Reset after short delay
-		_hit_flash_tween = create_tween()
-		_hit_flash_tween.tween_callback(func(): _clear_hit_flash_recursive(_model)).set_delay(0.15)
+## The flash drives EMISSION on the materials Bobba actually renders with.
+##
+## It used to require a material_override, which the old code always set
+## because the legacy FBX had no usable material. The authored orc ships its
+## own textures and deliberately keeps them, so material_override is null and
+## the flash silently did nothing — hits registered, Bobba never reacted.
+##
+## Duplicating each surface material into a surface override keeps the look
+## identical (it is the same material) while giving us something safe to
+## animate, without touching the shared resource on disk.
+func _ensure_flash_materials() -> void:
+	if not _flash_materials.is_empty() or _model == null:
+		return
+	_collect_flash_materials(_model)
+	print("Bobba: hit-flash driving %d material(s)" % _flash_materials.size())
 
 
-func _apply_hit_flash_recursive(node: Node, color: Color) -> void:
+func _collect_flash_materials(node: Node) -> void:
 	if node is MeshInstance3D:
-		var mesh_inst := node as MeshInstance3D
-		if mesh_inst.material_override:
-			var mat = mesh_inst.material_override
-			if mat is StandardMaterial3D:
-				mat.emission_enabled = true
-				mat.emission = color
-				mat.emission_energy_multiplier = 3.0
-
+		var mi := node as MeshInstance3D
+		if mi.material_override is StandardMaterial3D:
+			_flash_materials.append(mi.material_override)
+		elif mi.mesh:
+			for i in range(mi.mesh.get_surface_count()):
+				var src: Material = mi.get_surface_override_material(i)
+				if src == null:
+					src = mi.mesh.surface_get_material(i)
+				if src is StandardMaterial3D:
+					var dup: StandardMaterial3D = (src as StandardMaterial3D).duplicate()
+					mi.set_surface_override_material(i, dup)
+					_flash_materials.append(dup)
 	for child in node.get_children():
-		_apply_hit_flash_recursive(child, color)
+		_collect_flash_materials(child)
 
 
-func _clear_hit_flash_recursive(node: Node) -> void:
-	if node is MeshInstance3D:
-		var mesh_inst := node as MeshInstance3D
-		if mesh_inst.material_override:
-			var mat = mesh_inst.material_override
-			if mat is StandardMaterial3D:
-				mat.emission_enabled = false
+## Bobba has no hit-reaction clip — the pack ships Attack, Dying, Idle,
+## JumpAttack, Punch, Roar, Run and Walk and nothing else. Without one, a
+## landed hit only tinted him, so a blow that connected looked identical to
+## one that whiffed. Shove the MODEL (not the body) back along the strike and
+## let it spring home: collision and the AI are untouched, but the impact
+## reads.
+## Play a composed reaction clip, but never over a death or an attack that is
+## already committed — a hit landing mid-swing should not cancel the swing, or
+## Bobba becomes stun-lockable by tapping him.
+func _play_hit_react(clip: StringName) -> void:
+	if _anim_player == null or state == State.DEAD:
+		return
+	var full := StringName("bobba/" + String(clip))
+	if not _anim_player.has_animation(full):
+		return
+	if state == State.ATTACKING:
+		return
+	_anim_player.play(full, 0.06)
+	_current_anim = full
 
-	for child in node.get_children():
-		_clear_hit_flash_recursive(child)
+
+func _hit_lurch(knockback: Vector3) -> void:
+	if _model == null:
+		return
+	if _lurch_tween:
+		_lurch_tween.kill()
+		_model.position = _model_rest_pos
+	var dir: Vector3 = knockback
+	dir.y = 0.0
+	if dir.length() < 0.01:
+		dir = -global_transform.basis.z
+	dir = dir.normalized()
+	var local: Vector3 = global_transform.basis.inverse() * dir
+	_lurch_tween = create_tween()
+	_lurch_tween.tween_property(_model, "position",
+			_model_rest_pos + local * HIT_LURCH_DISTANCE, HIT_LURCH_OUT) 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_lurch_tween.tween_property(_model, "position", _model_rest_pos, HIT_LURCH_BACK) 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _check_needs_material(node: Node) -> bool:
@@ -1332,6 +1404,10 @@ func _load_animations() -> void:
 			print("Bobba: Loaded animation bobba/", config[0])
 
 		instance.queue_free()
+
+	# The pack has no hit reaction and nothing that swings an axe — compose
+	# them onto the clips it does have.
+	BobbaAnims.compose(_anim_player, skeleton)
 
 
 func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton: Skeleton3D) -> void:
