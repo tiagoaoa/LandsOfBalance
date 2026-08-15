@@ -73,7 +73,7 @@ static func compose(base: Animation, skeleton: Skeleton3D, keys: Array,
 				Animation.TYPE_ROTATION_3D:
 					var q: Quaternion = base.rotation_track_interpolate(src, bt)
 					if has_offset:
-						q = q * _local_offset(conv, _pose_at(keys, short, t))
+						q = _local_offset(conv, _pose_at(keys, short, t)) * q
 					out.rotation_track_insert_key(track, t, q)
 	return out
 
@@ -103,21 +103,39 @@ static func _pose_at(keys: Array, bone: String, t: float) -> Vector3:
 
 
 ## Turn a character-space rotation into the equivalent bone-local one.
-## B.inverse() * R * B is the similarity transform that re-expresses R in the
-## bone's own frame — without it, "lean back" becomes an arbitrary tumble that
-## differs per joint.
-static func _local_offset(rest: Basis, euler_deg: Vector3) -> Quaternion:
+##
+## A rotation track holds a bone's rotation relative to its PARENT, and the
+## bone's orientation in skeleton space is G = G_parent * L. To rotate the
+## bone by R expressed in character space:
+##
+##     G_new = R * G_old
+##     G_parent * L_new = R * G_parent * L_old
+##     L_new = (G_parent⁻¹ * R * G_parent) * L_old
+##
+## So the conversion basis is the PARENT's rest basis, and the result
+## PRE-multiplies the animated rotation. Using the bone's own basis and
+## post-multiplying — which is the easy mistake — happens to be nearly right
+## on a spine, where each bone points the same way as its parent, but is
+## nonsense on an arm, where the shoulder-to-arm rest rotation is about 90
+## degrees. That is why "raise the arm" produced a diagonal shrug.
+static func _local_offset(parent_rest: Basis, euler_deg: Vector3) -> Quaternion:
 	if euler_deg == Vector3.ZERO:
 		return Quaternion.IDENTITY
 	var r := Basis.from_euler(euler_deg * (PI / 180.0))
-	return (rest.inverse() * r * rest).orthonormalized().get_rotation_quaternion()
+	return (parent_rest.inverse() * r * parent_rest) \
+			.orthonormalized().get_rotation_quaternion()
 
 
+## The parent bone's global rest basis, in skeleton space. Root bones have no
+## parent, so the skeleton's own frame stands in.
 static func _rest_basis(skeleton: Skeleton3D, path: NodePath) -> Basis:
 	var idx: int = skeleton.find_bone(_bone_name(path))
 	if idx == -1:
 		return Basis.IDENTITY
-	return skeleton.get_bone_global_rest(idx).basis.orthonormalized()
+	var parent: int = skeleton.get_bone_parent(idx)
+	if parent == -1:
+		return Basis.IDENTITY
+	return skeleton.get_bone_global_rest(parent).basis.orthonormalized()
 
 
 static func _bone_name(path: NodePath) -> String:

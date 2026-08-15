@@ -1570,9 +1570,11 @@ func _drive_gearsim(delta: float) -> void:
 			and _bobba != null and is_instance_valid(_bobba):
 		_player.global_position = (_bobba as Node3D).global_position
 		_player.velocity = Vector3.ZERO
-		var pm: Node3D = _player.get_node_or_null("CharacterModel") as Node3D
-		if pm:
-			pm.visible = false
+		# Hide the whole player, not just a node guessed by name — riding it
+		# to Bobba means any visible part of it sits exactly between the
+		# camera and the subject, and at some yaws it filled the frame.
+		for n in _gearsim_mesh_list(_player):
+			n.visible = false
 		# LOB_GEAR_CLIP=<name> holds Bobba on one clip so an authored motion
 		# can be watched in isolation. The AI would otherwise wander him
 		# through idle and attacks and the clip would never be visible.

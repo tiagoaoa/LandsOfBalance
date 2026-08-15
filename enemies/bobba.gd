@@ -2078,8 +2078,15 @@ func _can_axe_attack(distance: float) -> bool:
 	to_target.y = 0.0
 	if to_target.length() < 0.1:
 		return false
-	var facing: Vector3 = -(_model if _model else self).global_transform.basis.z
+	# His model's forward is +Z: the lunge aims it with atan2(dir.x, dir.z),
+	# which is the yaw that points +Z down the direction of travel. Testing
+	# against -Z inverted the cone, so the swing only ever offered itself
+	# when he had his back to the target — which is why it fired once in
+	# three fights instead of whenever he squared up.
+	var facing: Vector3 = (_model if _model else self).global_transform.basis.z
 	facing.y = 0.0
+	if facing.length() < 0.01:
+		return false
 	return rad_to_deg(facing.normalized().angle_to(to_target.normalized())) \
 			<= AXE_ATTACK_CONE_DEG
 
