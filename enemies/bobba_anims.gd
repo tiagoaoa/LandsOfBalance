@@ -139,18 +139,20 @@ static func _specs() -> Array:
 				{"t": 0.55, "pose": {
 					"Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-20, 0, 0),
 					"Spine2": Vector3(-14, 0, 0), "Head": Vector3(-14, 0, 0),
-					"RightShoulder": Vector3(0, -10, 0), "LeftShoulder": Vector3(0, 10, 0),
-					"RightArm": Vector3(-10, 4, 120), "LeftArm": Vector3(-10, 34, -108),
-					"RightForeArm": Vector3(0, 30, 0), "LeftForeArm": Vector3(0, 34, 0),
+					"RightShoulder": Vector3(0, 14, 0), "LeftShoulder": Vector3(0, -14, 0),
+					"RightArm": Vector3(-6, 72, 86), "LeftArm": Vector3(-6, -68, -80),
+					"RightForeArm": Vector3(0, 40, 0), "LeftForeArm": Vector3(0, -36, 0),
+					"RightHand": Vector3(150, 0, 0),
 					"LeftUpLeg": Vector3(-6, 0, 0), "RightUpLeg": Vector3(-6, 0, 0),
 				}},
 				# Apex hold — the readable moment before it comes down.
 				{"t": 0.66, "pose": {
 					"Spine": Vector3(-34, 0, 0), "Spine1": Vector3(-26, 0, 0),
 					"Spine2": Vector3(-16, 0, 0), "Head": Vector3(-16, 0, 0),
-					"RightShoulder": Vector3(0, -12, 0), "LeftShoulder": Vector3(0, 12, 0),
-					"RightArm": Vector3(-6, 0, 142), "LeftArm": Vector3(-6, 30, -130),
-					"RightForeArm": Vector3(0, 22, 0), "LeftForeArm": Vector3(0, 26, 0),
+					"RightShoulder": Vector3(0, 18, 0), "LeftShoulder": Vector3(0, -18, 0),
+					"RightArm": Vector3(-2, 86, 96), "LeftArm": Vector3(-2, -82, -90),
+					"RightForeArm": Vector3(0, 34, 0), "LeftForeArm": Vector3(0, -30, 0),
+					"RightHand": Vector3(170, 0, 0),
 				}},
 				# The strike, straight down the centre line.
 				{"t": 0.82, "pose": {
