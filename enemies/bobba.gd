@@ -179,8 +179,12 @@ const AXE_ATTACK: Dictionary = {
 ## Reach of the axe head, measured off the weapon rather than guessed: the
 ## blade is 1.75 m of haft swung from a shoulder on a 3 m body.
 const AXE_ATTACK_RANGE: float = 4.2
-## Frontal only — he cannot bring it round onto something beside him.
-const AXE_ATTACK_CONE_DEG: float = 40.0
+## Frontal only — he will not bring it round onto something behind him. This
+## is judged when he COMMITS, and he is still turning as he arrives, so a
+## tight cone rejected the swing at his own stopping distance and only ever
+## passed once he was nose-to-nose. He keeps rotating toward the target
+## through the first half of the wind-up, so he is squared up by the strike.
+const AXE_ATTACK_CONE_DEG: float = 90.0
 ## How wide the axe head's damage volume is. Bigger than a fist because the
 ## thing doing the damage is bigger; still only the head, never the haft.
 const AXE_HITBOX_RADIUS: float = 0.75
@@ -197,6 +201,18 @@ var _axe_attack_active: bool = false
 ## Alternate the axe with the fist chain. Left to itself he would open with
 ## the axe every time — it outranges everything, so he would never close —
 ## and the fight would be one note. Swing, then chain, then swing.
+## He picks the weapon that fits the gap, rather than alternating on a
+## counter. Beyond fist range the axe is the only thing that reaches, and
+## that is where its slow readable wind-up belongs; inside it he is better
+## off with his hands. Alternating instead meant the axe showed up about one
+## attack in three, so most of what you saw was him punching with a long axe
+## in his fist — which reads as a headbutt, not a swing.
+## Fists are for point blank only. He commits from wherever the chase leaves
+## him, which is 1.0-2.0 m, so anything higher silently excluded the axe.
+const FIST_PREFERRED_RANGE: float = 0.9
+## Alternate the two so both reads get screen time — he is a two-weapon
+## enemy, and seeing only one of them is what "I just see him headbutting"
+## actually was.
 var _last_attack_was_axe: bool = false
 var _axe_hitbox: Area3D = null
 var _axe_smear: SlashTrail = null
@@ -481,7 +497,7 @@ func _setup_model() -> void:
 			_anim_player.animation_finished.connect(_on_animation_finished)
 			_load_animations()
 			print("Bobba: Available animations after load: ", _anim_player.get_animation_list())
-			_play_anim(&"bobba/Idle")
+			_play_anim(_carry_anim(&"Idle"))
 		else:
 			print("Bobba: ERROR - No AnimationPlayer found in model!")
 			_print_node_tree(_model, 0)
@@ -1617,6 +1633,18 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 		anim.remove_track(track_idx)
 
 
+## Locomotion clip for however he is currently armed. He carries the axe in
+## one hand, so the plain mutant idle/walk/run swing that arm freely and the
+## axe swings with it — which is what made him look like he was flailing a
+## stick rather than carrying a weapon. The Axe* variants hold the haft.
+func _carry_anim(base: StringName) -> StringName:
+	if _axe != null and is_instance_valid(_axe) and _anim_player != null:
+		var carried := StringName("bobba/Axe" + String(base))
+		if _anim_player.has_animation(carried):
+			return carried
+	return StringName("bobba/" + String(base))
+
+
 func _play_anim(anim_name: StringName, speed: float = 1.0) -> void:
 	if _anim_player == null:
 		return
@@ -1630,7 +1658,14 @@ func _play_anim(anim_name: StringName, speed: float = 1.0) -> void:
 
 func _on_animation_finished(anim_name: StringName) -> void:
 	print("Bobba: Animation finished: ", anim_name)
-	if anim_name == &"bobba/Attack" or anim_name == &"bobba/Punch" or anim_name == &"bobba/JumpAttack":
+	# Every attack clip has to end its own attack. Listing them by name meant
+	# the axe swing — added later — was not recognised, so after the blade
+	# landed Bobba stood frozen mid-follow-through for a full second until
+	# the 3 s stuck-state watchdog force-ended it. That dead second is most
+	# of why the swing did not read as a swing.
+	if anim_name == &"bobba/Attack" or anim_name == &"bobba/Punch" \
+			or anim_name == &"bobba/JumpAttack" \
+			or anim_name == AXE_ATTACK["anim"]:
 		disable_attack_hitbox()
 		_current_anim = &""  # Clear so attack can replay
 		_attack_state_time = 0.0  # Reset attack timer
@@ -1691,7 +1726,7 @@ func _physics_process(delta: float) -> void:
 
 	# TEST_MULTIPLAYER mode: disable AI, just idle in place
 	if GameSettings and GameSettings.test_multiplayer:
-		_play_anim(&"bobba/Idle")
+		_play_anim(_carry_anim(&"Idle"))
 		velocity += gravity * delta
 		move_and_slide()
 		return
@@ -1786,7 +1821,7 @@ func _handle_retreat(delta: float) -> void:
 		_model.rotation.y = lerp_angle(_model.rotation.y, target_angle, ROTATION_SPEED * delta)
 
 	# Play walk animation while retreating
-	_play_anim(&"bobba/Walk")
+	_play_anim(_carry_anim(&"Walk"))
 
 
 ## Handle interpolation for network-controlled entities
@@ -1852,15 +1887,15 @@ func apply_network_state(data: Dictionary) -> void:
 func _update_animation_for_state() -> void:
 	match state:
 		State.ROAMING:
-			_play_anim(&"bobba/Walk")
+			_play_anim(_carry_anim(&"Walk"))
 		State.CHASING:
-			_play_anim(&"bobba/Run")
+			_play_anim(_carry_anim(&"Run"))
 		State.ATTACKING:
 			_play_anim(&"bobba/Attack")
 		State.IDLE:
-			_play_anim(&"bobba/Idle")
+			_play_anim(_carry_anim(&"Idle"))
 		State.STUNNED:
-			_play_anim(&"bobba/Idle")
+			_play_anim(_carry_anim(&"Idle"))
 		State.DEAD:
 			_play_anim(&"bobba/Dying")
 
@@ -1904,7 +1939,7 @@ func _handle_fleeing(delta: float) -> void:
 	if _model and _flee_dir.length() > 0.1:
 		var flee_rot := atan2(_flee_dir.x, _flee_dir.z)
 		_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * delta)
-	_play_anim(&"bobba/Run")
+	_play_anim(_carry_anim(&"Run"))
 
 
 ## Score 16 headings and pick the best escape route. The route must gain
@@ -1944,7 +1979,7 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 			if _model:
 				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
-			_play_anim(&"bobba/Run")
+			_play_anim(_carry_anim(&"Run"))
 			print("Bobba: PANIC! Fleeing from fire!")
 			return
 
@@ -1977,7 +2012,7 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 		var target_rot = atan2(move_dir.x, move_dir.z)
 		_model.rotation.y = lerp_angle(_model.rotation.y, target_rot, ROTATION_SPEED * delta)
 
-	_play_anim(&"bobba/Walk")
+	_play_anim(_carry_anim(&"Walk"))
 
 
 func _handle_chasing(delta: float, distance_to_target: float) -> void:
@@ -1990,7 +2025,7 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 			if _model:
 				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
-			_play_anim(&"bobba/Run")
+			_play_anim(_carry_anim(&"Run"))
 			print("Bobba: PANIC while chasing! Fire too close, fleeing!")
 			return
 
@@ -2012,7 +2047,7 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 			if _model:
 				var retreat_rot := atan2(fire_avoid.x, fire_avoid.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, retreat_rot, ROTATION_SPEED * delta)
-			_play_anim(&"bobba/Walk")
+			_play_anim(_carry_anim(&"Walk"))
 			print("Bobba: Won't attack - too close to fire, backing off")
 			return
 
@@ -2021,6 +2056,7 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 	# fist range he still prefers the chain, which keeps close quarters fast
 	# and keeps the slow swing as the thing you see coming from further out.
 	if attack_cooldown <= 0 and not _last_attack_was_axe \
+			and distance_to_target > FIST_PREFERRED_RANGE \
 			and _can_axe_attack(distance_to_target):
 		_start_axe_attack()
 		return
@@ -2052,7 +2088,7 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 		var target_rot = atan2(move_dir.x, move_dir.z)
 		_model.rotation.y = lerp_angle(_model.rotation.y, target_rot, ROTATION_SPEED * delta)
 
-	_play_anim(&"bobba/Run")
+	_play_anim(_carry_anim(&"Run"))
 
 
 var _attack_state_time: float = 0.0
@@ -2104,7 +2140,10 @@ func _start_axe_attack() -> void:
 	velocity.x = 0
 	velocity.z = 0
 	_attack_state_time = 0.0
-	print("Bobba: AXE SWING — two-handed, frontal")
+	print("Bobba: AXE SWING — two-handed, frontal | playing=%s len=%.2f speed=%.2f" % [
+			_anim_player.current_animation,
+			_anim_player.current_animation_length,
+			_anim_player.get_playing_speed()])
 
 
 ## Start combo step `step`. Every step keeps the orange telegraph flash —
@@ -2113,7 +2152,7 @@ func _start_axe_attack() -> void:
 func _start_combo_attack(step: int) -> void:
 	_axe_attack_active = false
 	if step == 0:
-		_last_attack_was_axe = false   # chain done, the axe is available again
+		_last_attack_was_axe = false   # chain done — the axe comes back round
 	_combo_step = step
 	_flash_hit(Color(1.0, 0.55, 0.10))
 	state = State.ATTACKING
@@ -2185,7 +2224,7 @@ func _handle_stunned(delta: float) -> void:
 	# Play idle during stun — but let a stagger Roar run its course so the
 	# "I'm wide open" tell stays visible for the whole riposte window.
 	if _current_anim != &"bobba/Roar":
-		_play_anim(&"bobba/Idle")
+		_play_anim(_carry_anim(&"Idle"))
 
 	_stun_timer -= delta
 	if _stun_timer <= 0:
@@ -2209,4 +2248,4 @@ func _handle_idle(delta: float, distance_to_target: float) -> void:
 			state = State.ROAMING
 			_pick_new_roam_direction()
 
-	_play_anim(&"bobba/Idle")
+	_play_anim(_carry_anim(&"Idle"))

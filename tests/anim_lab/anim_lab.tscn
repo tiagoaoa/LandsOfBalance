@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://banimlab_root"]
+
+[ext_resource type="Script" path="res://tests/anim_lab/anim_lab.gd" id="1_lab"]
+
+[node name="AnimLab" type="Node3D"]
+script = ExtResource("1_lab")
