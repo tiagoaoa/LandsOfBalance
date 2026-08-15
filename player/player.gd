@@ -258,6 +258,10 @@ const ATTACK_BUFFER_TIME: float = 0.35
 var _attack_input_buffer: float = 0.0
 var _attack_lunge_dir: Vector3 = Vector3.ZERO
 var _sword_trail: SlashTrail = null
+var _sword_smear: SlashTrail = null
+## Smear off the torso while the body is folding away from a blow — the same
+## displaced-air read as a swing, applied to the recoil.
+var _react_smear: SlashTrail = null
 
 # Lock-on / target tracking (souls-like). When a target is locked, the
 # camera (and therefore the strafe-facing character) orients to it every
@@ -497,6 +501,14 @@ func _ready() -> void:
 	# Slash ribbon follows the sword hitbox wherever it gets bone-attached.
 	_sword_trail = SlashTrail.attach(self, _attack_hitbox,
 			Vector3(0, 0, 0.15), Vector3(0, 0, 1.55), COMBO_TRAIL_COLOR)
+	# Wind smear: a wider, softer band of torn air riding outside the blade.
+	_sword_smear = SlashTrail.attach_smear(self, _attack_hitbox,
+			Vector3(0, 0, 0.15), Vector3(0, 0, 1.55))
+	# The same smear on the BODY, for the whip of getting hit. Cooler and
+	# fainter than a swing — this is the character being moved, not moving.
+	_react_smear = SlashTrail.attach_smear(self, self,
+			Vector3(-0.45, 0.9, 0.0), Vector3(0.45, 1.7, 0.0),
+			Color(0.72, 0.80, 0.95, 0.13), 1.0)
 	_create_characters()
 	_create_lightning_particles()
 	_create_fire_circle_spell()
@@ -3174,6 +3186,7 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 			print("Player: estus drink INTERRUPTED — charge wasted (%d left)" % estus_charges)
 		# Curl around the blow — knockback points the way the hit travelled.
 		_play_hit_react_animation(knockback)
+		_pulse_react_smear()
 
 		# Interrupt spell casting if hit (Bobba hit stops spells)
 		if is_casting:
@@ -3364,6 +3377,19 @@ var _current_attack: Resource = null
 ## Called whenever the HealthComponent registers damage — shows the HP label.
 func _on_damage_taken(_amount: float) -> void:
 	_show_hit_label("%d / %d HP" % [int(round(current_health)), int(round(max_health))])
+
+
+## Smear the air around the torso for the length of the recoil, then stop.
+## Tied to the reaction's own duration so it ends with the movement rather
+## than lingering on a body that has already settled.
+func _pulse_react_smear() -> void:
+	if _react_smear == null:
+		return
+	_react_smear.emitting = true
+	var t := get_tree().create_timer(HitReactAnim.LENGTH * 0.6)
+	t.timeout.connect(func() -> void:
+		if _react_smear != null:
+			_react_smear.emitting = false)
 
 
 ## Play the current character's hit-react animation if one is available.
@@ -4189,6 +4215,8 @@ func _update_attack_hitbox_timing() -> void:
 		_hitbox_active_window = false
 		if _sword_trail != null:
 			_sword_trail.emitting = false
+		if _sword_smear != null:
+			_sword_smear.emitting = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -4248,6 +4276,8 @@ func _update_attack_hitbox_timing() -> void:
 	# arc IS the hit volume's path (golden rule made legible).
 	if _sword_trail != null:
 		_sword_trail.emitting = _hitbox_active_window and combat_mode == CombatMode.ARMED
+	if _sword_smear != null:
+		_sword_smear.emitting = _hitbox_active_window and combat_mode == CombatMode.ARMED
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:

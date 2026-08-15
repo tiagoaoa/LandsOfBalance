@@ -162,6 +162,9 @@ const COMBO_ATTACKS: Array[Dictionary] = [
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
 const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
 var _combo_step: int = 0
+var _axe_smear: SlashTrail = null
+## Torn air off the torso while he folds away from a blow.
+var _react_smear: SlashTrail = null
 var _left_claw_trail: SlashTrail = null
 var _right_claw_trail: SlashTrail = null
 const CLAW_TRAIL_COLOR: Color = Color(1.0, 0.4, 0.15, 0.7)
@@ -729,6 +732,8 @@ func _update_attack_hitbox_timing() -> void:
 			_left_claw_trail.emitting = false
 		if _right_claw_trail != null:
 			_right_claw_trail.emitting = false
+		if _axe_smear != null:
+			_axe_smear.emitting = false
 		return
 
 	# Calculate animation progress (0.0 to 1.0)
@@ -756,6 +761,8 @@ func _update_attack_hitbox_timing() -> void:
 		_left_claw_trail.emitting = _hitbox_active_window
 	if _right_claw_trail != null:
 		_right_claw_trail.emitting = _hitbox_active_window
+	if _axe_smear != null:
+		_axe_smear.emitting = _hitbox_active_window
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:
@@ -833,6 +840,7 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacke
 	_flash_hit(Color(1.0, 0.2, 0.2))
 	_hit_lurch(knockback)
 	_play_hit_react(&"HitReact")
+	_pulse_react_smear()
 
 	# Switch target to attacker (prioritize who is attacking)
 	if attacker:
@@ -1192,6 +1200,19 @@ func _play_hit_react(clip: StringName) -> void:
 	_current_anim = full
 
 
+## Smear the air around the torso for the length of the recoil.
+func _pulse_react_smear() -> void:
+	if _react_smear == null:
+		_react_smear = SlashTrail.attach_smear(self, self,
+				Vector3(-0.7, 1.1, 0.0), Vector3(0.7, 2.3, 0.0),
+				Color(0.75, 0.82, 0.95, 0.12), 1.0)
+	_react_smear.emitting = true
+	var t := get_tree().create_timer(0.33)
+	t.timeout.connect(func() -> void:
+		if _react_smear != null:
+			_react_smear.emitting = false)
+
+
 func _hit_lurch(knockback: Vector3) -> void:
 	if _model == null:
 		return
@@ -1304,6 +1325,11 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 			rest.inverse() * want * Basis().scaled(Vector3.ONE * AXE_SCALE),
 			rest.inverse() * AXE_POS)
 	attach.add_child(_axe)
+	# Wind smear along the haft and out past the head — a long axe moves a lot
+	# of air, and the arc is what makes a heavy swing read as heavy.
+	_axe_smear = SlashTrail.attach_smear(self, _axe,
+			Vector3(0, -0.30, 0), Vector3(0, 1.45, 0),
+			Color(0.86, 0.90, 1.0, 0.16), 1.2)
 	print("Bobba: axe attached to bone ", attach.bone_name)
 
 

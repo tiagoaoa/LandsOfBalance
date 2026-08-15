@@ -13,6 +13,9 @@ var tip_offset: Vector3 = Vector3(0, 0, 1.0)
 var color: Color = Color(1.0, 0.9, 0.55, 0.85)
 var lifetime: float = 0.22
 var emitting: bool = false
+## Smears are air, not steel: they fade along their length as well as their
+## age, so the outer edge dissolves instead of ending in a hard rim.
+var is_smear: bool = false
 
 var _points: Array[Dictionary] = []  # {b: Vector3, t: Vector3, at: float}
 var _mesh: ImmediateMesh = ImmediateMesh.new()
@@ -29,6 +32,26 @@ static func attach(host: Node, emitter_node: Node3D, base_off: Vector3,
 	trail.color = col
 	host.add_child(trail)
 	return trail
+
+
+## A wind smear: the same ribbon, but a wide soft band of displaced air rather
+## than the bright edge of the blade.
+##
+## It rides OUTSIDE the weapon — starting partway along it and reaching past
+## the tip — so it reads as air torn along by the swing instead of a second
+## blade. Longer lifetime leaves a tail behind the sharp ribbon, which is what
+## sells the speed; low alpha keeps it from competing with the edge.
+##
+## `reach` scales the span outward from the emitter's origin: 1.0 is the
+## weapon itself, so the default overhangs the tip by nearly half again.
+static func attach_smear(host: Node, emitter_node: Node3D, base_off: Vector3,
+		tip_off: Vector3, col: Color = Color(0.82, 0.88, 1.0, 0.18),
+		reach: float = 1.45) -> SlashTrail:
+	var smear := SlashTrail.attach(host, emitter_node,
+			base_off.lerp(tip_off, 0.3), tip_off * reach, col)
+	smear.lifetime = 0.34   # trails behind the blade ribbon
+	smear.is_smear = true
+	return smear
 
 
 ## One-shot spark burst at a hit point — the "clang" of a landed swing.
@@ -98,8 +121,15 @@ func _rebuild() -> void:
 		var age: float = (_time - p["at"]) / lifetime
 		var fade: float = (1.0 - age) * (1.0 - age)  # quadratic tail fade
 		var c := Color(color.r, color.g, color.b, color.a * fade)
-		_mesh.surface_set_color(c)
-		_mesh.surface_add_vertex(p["b"])
-		_mesh.surface_set_color(c)
-		_mesh.surface_add_vertex(p["t"])
+		if is_smear:
+			# Solid at the inner edge, dissolving at the outer one.
+			_mesh.surface_set_color(c)
+			_mesh.surface_add_vertex(p["b"])
+			_mesh.surface_set_color(Color(c.r, c.g, c.b, 0.0))
+			_mesh.surface_add_vertex(p["t"])
+		else:
+			_mesh.surface_set_color(c)
+			_mesh.surface_add_vertex(p["b"])
+			_mesh.surface_set_color(c)
+			_mesh.surface_add_vertex(p["t"])
 	_mesh.surface_end()
