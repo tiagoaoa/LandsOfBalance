@@ -1642,7 +1642,11 @@ func _drive_gearsim(delta: float) -> void:
 		# the camera's rotation is mixed into the frames and the motion of the
 		# clip itself cannot be read.
 		if OS.get_environment("LOB_GEAR_CLIP") != "":
-			pivot.rotation.y = deg_to_rad(38.0)
+			# LOB_GEAR_ANGLE picks the frozen viewing angle — a two-handed
+			# grip or a weapon crossing the body is unreadable from the
+			# default three-quarter and needs a front or side look.
+			var ang := OS.get_environment("LOB_GEAR_ANGLE")
+			pivot.rotation.y = deg_to_rad(float(ang) if ang.is_valid_float() else 38.0)
 		else:
 			pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
 		pivot.rotation.x = 0.0

@@ -109,35 +109,67 @@ static func _specs() -> Array:
 			"name": "AxeRun", "base": "Run", "length": 0.0, "loop": true,
 			"keys": [{"t": 0.0, "pose": carry}],
 		},
-		# Overhead chop: haul it up and back over the right shoulder, then
-		# drive it down through the target and follow through low. The damage
-		# window in ATTACKS is a fraction of clip length, so the blade has to
-		# be coming DOWN across the middle of the clip.
+		# Two-handed overhead chop, frontal.
+		#
+		# He carries the axe one-handed, so the swing has to START by
+		# committing to it: the left hand crosses the body and takes the haft
+		# below the right, THEN both arms haul it overhead, hold at the apex,
+		# and drive it down the centre line. That grab is what makes the
+		# attack expensive — it is why this one is slow and readable where a
+		# punch is not.
+		#
+		# The damage window in AXE_ATTACK sits over the downswing only, so the
+		# blade has to be travelling through the middle of the arc there.
 		{
-			"name": "AxeAttack", "base": "Idle", "length": 1.15,
+			"name": "AxeAttack", "base": "Idle", "length": 1.60,
 			"keys": [
 				{"t": 0.00, "pose": carry},
-				{"t": 0.34, "pose": {          # wind up, coiled back
-					"Spine": Vector3(20, -10, 0), "Spine1": Vector3(15, -12, 0),
-					"Spine2": Vector3(12, -10, 0), "Head": Vector3(10, -6, 0),
-					"RightShoulder": Vector3(0, -24, 0),
-					"RightArm": Vector3(-96, 10, -30), "RightForeArm": Vector3(0, 62, 0),
-					"LeftArm": Vector3(-20, -24, 16),
-					"RightUpLeg": Vector3(-8, 0, 0),
+				# Left hand crosses and grips the haft; knees settle.
+				{"t": 0.26, "pose": {
+					"Spine": Vector3(-6, -8, 0), "Spine1": Vector3(-4, -10, 0),
+					"Head": Vector3(4, -10, 0),
+					"RightShoulder": Vector3(0, 4, 0),
+					"RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 34, 0),
+					"LeftShoulder": Vector3(0, 16, 0),
+					"LeftArm": Vector3(-8, 52, -34), "LeftForeArm": Vector3(0, 46, 0),
+					"LeftHand": Vector3(0, 0, -10),
+					"LeftUpLeg": Vector3(6, 0, 0), "RightUpLeg": Vector3(6, 0, 0),
 				}},
-				{"t": 0.58, "pose": {          # the strike, driving down
-					"Spine": Vector3(-28, 14, 0), "Spine1": Vector3(-22, 16, 0),
-					"Spine2": Vector3(-16, 12, 0), "Head": Vector3(-14, 8, 0),
-					"RightShoulder": Vector3(0, 16, 0),
-					"RightArm": Vector3(58, -8, -6), "RightForeArm": Vector3(0, 8, 0),
-					"LeftArm": Vector3(10, 18, -12),
-					"LeftUpLeg": Vector3(-10, 0, 0), "RightUpLeg": Vector3(10, 0, 0),
+				# Both arms haul it up and back over the head.
+				{"t": 0.55, "pose": {
+					"Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-20, 0, 0),
+					"Spine2": Vector3(-14, 0, 0), "Head": Vector3(-14, 0, 0),
+					"RightShoulder": Vector3(0, -10, 0), "LeftShoulder": Vector3(0, 10, 0),
+					"RightArm": Vector3(-10, 4, 92), "LeftArm": Vector3(-10, 30, -86),
+					"RightForeArm": Vector3(0, 30, 0), "LeftForeArm": Vector3(0, 34, 0),
+					"LeftUpLeg": Vector3(-6, 0, 0), "RightUpLeg": Vector3(-6, 0, 0),
 				}},
-				{"t": 0.80, "pose": {          # follow through, blade low
-					"Spine": Vector3(-18, 8, 0), "Spine1": Vector3(-13, 8, 0),
-					"RightArm": Vector3(34, -4, -10), "RightForeArm": Vector3(0, 18, 0),
+				# Apex hold — the readable moment before it comes down.
+				{"t": 0.66, "pose": {
+					"Spine": Vector3(-30, 0, 0), "Spine1": Vector3(-23, 0, 0),
+					"Spine2": Vector3(-16, 0, 0), "Head": Vector3(-16, 0, 0),
+					"RightShoulder": Vector3(0, -12, 0), "LeftShoulder": Vector3(0, 12, 0),
+					"RightArm": Vector3(-8, 2, 104), "LeftArm": Vector3(-8, 28, -98),
+					"RightForeArm": Vector3(0, 22, 0), "LeftForeArm": Vector3(0, 26, 0),
 				}},
-				{"t": 1.15, "pose": carry},    # back to the carry
+				# The strike, straight down the centre line.
+				{"t": 0.82, "pose": {
+					"Spine": Vector3(34, 0, 0), "Spine1": Vector3(26, 0, 0),
+					"Spine2": Vector3(18, 0, 0), "Head": Vector3(20, 0, 0),
+					"RightShoulder": Vector3(0, 6, 0), "LeftShoulder": Vector3(0, -6, 0),
+					"RightArm": Vector3(6, 0, -34), "LeftArm": Vector3(6, 26, 30),
+					"RightForeArm": Vector3(0, 10, 0), "LeftForeArm": Vector3(0, 12, 0),
+					"LeftUpLeg": Vector3(14, 0, 0), "RightUpLeg": Vector3(14, 0, 0),
+				}},
+				# Blade low, weight forward — the recovery he is punishable in.
+				{"t": 1.05, "pose": {
+					"Spine": Vector3(24, 0, 0), "Spine1": Vector3(18, 0, 0),
+					"Head": Vector3(14, 0, 0),
+					"RightArm": Vector3(2, 2, -30), "LeftArm": Vector3(2, 30, 24),
+					"RightForeArm": Vector3(0, 20, 0), "LeftForeArm": Vector3(0, 24, 0),
+				}},
+				# Left hand releases, back to the one-handed carry.
+				{"t": 1.60, "pose": carry},
 			],
 		},
 	]

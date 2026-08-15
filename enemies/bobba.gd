@@ -166,9 +166,39 @@ const COMBO_ATTACKS: Array[Dictionary] = [
 	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
 	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0, "speed": 1.5},
 ]
+## The axe swing is a separate decision from the fist chain, not a step in
+## it. He carries the axe one-handed and has to commit BOTH hands to use it,
+## which is what buys the player the read: it is slow, it is frontal, and it
+## reaches much further than a punch.
+const AXE_ATTACK: Dictionary = {
+	"anim": &"bobba/AxeAttack", "damage": 95.0,
+	"window": Vector2(0.68, 0.86),   # the downswing only
+	"kb_mult": 1.6, "lunge": 0.9,
+	"speed": 0.8,                    # deliberately slower than any fist
+}
+## Reach of the axe head, measured off the weapon rather than guessed: the
+## blade is 1.75 m of haft swung from a shoulder on a 3 m body.
+const AXE_ATTACK_RANGE: float = 4.2
+## Frontal only — he cannot bring it round onto something beside him.
+const AXE_ATTACK_CONE_DEG: float = 40.0
+## How wide the axe head's damage volume is. Bigger than a fist because the
+## thing doing the damage is bigger; still only the head, never the haft.
+const AXE_HITBOX_RADIUS: float = 0.75
+
+## Committing both hands leaves him open — a longer punish than the chain.
+const AXE_END_COOLDOWN: float = 1.8
+
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
 const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
 var _combo_step: int = 0
+## True while the axe swing owns the attack state, so every read of the
+## current attack's data resolves to AXE_ATTACK instead of a chain step.
+var _axe_attack_active: bool = false
+## Alternate the axe with the fist chain. Left to itself he would open with
+## the axe every time — it outranges everything, so he would never close —
+## and the fight would be one note. Swing, then chain, then swing.
+var _last_attack_was_axe: bool = false
+var _axe_hitbox: Area3D = null
 var _axe_smear: SlashTrail = null
 ## Torn air off the torso while he folds away from a blow.
 var _react_smear: SlashTrail = null
@@ -674,8 +704,8 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 
 		# Per-combo-step numbers: the punch is quick and light, the
 		# jump-slam finisher hits hard and shoves furthest.
-		var step_damage: float = COMBO_ATTACKS[_combo_step]["damage"]
-		var step_kb: float = KNOCKBACK_FORCE * COMBO_ATTACKS[_combo_step]["kb_mult"]
+		var step_damage: float = _current_attack_data()["damage"]
+		var step_kb: float = KNOCKBACK_FORCE * _current_attack_data()["kb_mult"]
 
 		# The defender is the authority on whether the contact counted:
 		# take_hit returns false when the hit was negated outright (spawn
@@ -755,7 +785,7 @@ func _update_attack_hitbox_timing() -> void:
 
 	# Active window comes from the current combo step (each clip's swing
 	# lands at a different point in the animation).
-	var window: Vector2 = COMBO_ATTACKS[_combo_step]["window"]
+	var window: Vector2 = _current_attack_data()["window"]
 	var should_be_active: bool = _attack_anim_progress >= window.x and _attack_anim_progress <= window.y
 
 	if should_be_active and not _hitbox_active_window:
@@ -790,6 +820,15 @@ func _update_attack_hitbox_timing() -> void:
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:
+		# An axe swing damages with the blade; the fists are irrelevant to it
+		# (and would otherwise land a punch at axe range).
+		if _axe_attack_active:
+			if _axe_hitbox != null:
+				for body in _axe_hitbox.get_overlapping_bodies():
+					_on_attack_hitbox_body_entered(body)
+					if _has_hit_this_attack:
+						return
+			return
 		var left_bodies = _left_hand_hitbox.get_overlapping_bodies()
 		var right_bodies = _right_hand_hitbox.get_overlapping_bodies()
 		if left_bodies.size() > 0 or right_bodies.size() > 0:
@@ -821,6 +860,7 @@ func on_parried(parrier: Node3D) -> void:
 	_stun_timer = PARRIED_STUN_DURATION
 	_riposte_ready = true
 	_combo_step = 0  # a parry breaks the whole chain
+	_axe_attack_active = false
 	velocity = Vector3.ZERO
 	disable_attack_hitbox()
 	_has_hit_this_attack = true  # the deflected swing can't also deal damage
@@ -1406,6 +1446,24 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 	attach.add_child(_axe)
 	# Wind smear along the haft and out past the head — a long axe moves a lot
 	# of air, and the arc is what makes a heavy swing read as heavy.
+	# Damage comes from the HEAD of the axe, not his fist — the golden rule
+	# is that the volume matches the thing you can see hitting you. It sits
+	# up the haft where the blade is, and only ever monitors during the
+	# downswing window.
+	_axe_hitbox = Area3D.new()
+	_axe_hitbox.name = "AxeHitbox"
+	_axe_hitbox.collision_layer = 0
+	_axe_hitbox.collision_mask = 1
+	_axe_hitbox.monitoring = true
+	var axe_shape := CollisionShape3D.new()
+	var axe_sphere := SphereShape3D.new()
+	axe_sphere.radius = AXE_HITBOX_RADIUS
+	axe_shape.shape = axe_sphere
+	axe_shape.position = Vector3(0, 1.30, 0)   # at the head, up the haft
+	_axe_hitbox.add_child(axe_shape)
+	_axe.add_child(_axe_hitbox)
+	_axe_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
+
 	_axe_smear = SlashTrail.attach_smear(self, _axe,
 			Vector3(0, -0.30, 0), Vector3(0, 1.45, 0),
 			Color(0.86, 0.90, 1.0, 0.16), 1.2)
@@ -1578,7 +1636,8 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		_attack_state_time = 0.0  # Reset attack timer
 		# Chain the combo: target still in reach, this wasn't the finisher,
 		# and nothing (parry stun, death, fire panic) broke the chain.
-		if state == State.ATTACKING and _combo_step < COMBO_ATTACKS.size() - 1 \
+		if state == State.ATTACKING and not _axe_attack_active \
+				and _combo_step < COMBO_ATTACKS.size() - 1 \
 				and target != null and is_instance_valid(target) \
 				and global_position.distance_to(target.global_position) <= COMBO_CHAIN_RANGE \
 				and not _is_in_fire_panic_zone():
@@ -1587,8 +1646,10 @@ func _on_animation_finished(anim_name: StringName) -> void:
 			return
 		# Chain over — the deeper the combo went, the longer the punish window.
 		print("Bobba: Attack chain finished at step %d, cooldown and state=CHASING" % _combo_step)
-		attack_cooldown = COMBO_END_COOLDOWN if _combo_step > 0 else 0.7
+		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \
+				else (COMBO_END_COOLDOWN if _combo_step > 0 else 0.7)
 		_combo_step = 0
+		_axe_attack_active = false
 		if state == State.ATTACKING:
 			state = State.CHASING
 	elif anim_name == &"bobba/Roar":
@@ -1955,6 +2016,15 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 			print("Bobba: Won't attack - too close to fire, backing off")
 			return
 
+	# The axe outreaches the fists, so it is what he uses at the range where
+	# only it can land — a punch chain there would swing at empty air. Inside
+	# fist range he still prefers the chain, which keeps close quarters fast
+	# and keeps the slow swing as the thing you see coming from further out.
+	if attack_cooldown <= 0 and not _last_attack_was_axe \
+			and _can_axe_attack(distance_to_target):
+		_start_axe_attack()
+		return
+
 	# If close enough, open the combo chain
 	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
 		print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
@@ -1988,10 +2058,55 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 var _attack_state_time: float = 0.0
 
 
+## The attack currently driving the state — an axe swing or a chain step.
+func _current_attack_data() -> Dictionary:
+	if _axe_attack_active:
+		return AXE_ATTACK
+	return COMBO_ATTACKS[_combo_step]
+
+
+## Can he bring the axe down on the target from here? Needs the reach AND
+## the target roughly in front — this swing has no sideways version.
+func _can_axe_attack(distance: float) -> bool:
+	if _axe == null or _anim_player == null:
+		return false
+	if not _anim_player.has_animation(AXE_ATTACK["anim"]):
+		return false
+	if distance > AXE_ATTACK_RANGE or target == null or not is_instance_valid(target):
+		return false
+	var to_target: Vector3 = (target as Node3D).global_position - global_position
+	to_target.y = 0.0
+	if to_target.length() < 0.1:
+		return false
+	var facing: Vector3 = -(_model if _model else self).global_transform.basis.z
+	facing.y = 0.0
+	return rad_to_deg(facing.normalized().angle_to(to_target.normalized())) \
+			<= AXE_ATTACK_CONE_DEG
+
+
+## Commit to the two-handed swing.
+func _start_axe_attack() -> void:
+	_axe_attack_active = true
+	_last_attack_was_axe = true
+	_combo_step = 0
+	state = State.ATTACKING
+	_current_anim = &""
+	_play_anim(AXE_ATTACK["anim"], AXE_ATTACK["speed"])
+	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.8, 0), -1.0)
+	enable_attack_hitbox()
+	velocity.x = 0
+	velocity.z = 0
+	_attack_state_time = 0.0
+	print("Bobba: AXE SWING — two-handed, frontal")
+
+
 ## Start combo step `step`. Every step keeps the orange telegraph flash —
 ## the wind-up must stay readable even mid-chain (fun rule: visible
 ## decision → visible consequence).
 func _start_combo_attack(step: int) -> void:
+	_axe_attack_active = false
+	if step == 0:
+		_last_attack_was_axe = false   # chain done, the axe is available again
 	_combo_step = step
 	_flash_hit(Color(1.0, 0.55, 0.10))
 	state = State.ATTACKING
@@ -2014,6 +2129,7 @@ func _handle_attacking(delta: float) -> void:
 		print("Bobba: ABORTING ATTACK - fire too close!")
 		disable_attack_hitbox()
 		_combo_step = 0
+		_axe_attack_active = false
 		attack_cooldown = 0.2  # Short cooldown after abort
 		state = State.CHASING
 		_current_anim = &""
@@ -2027,7 +2143,7 @@ func _handle_attacking(delta: float) -> void:
 	velocity.x = 0
 	velocity.z = 0
 	if _attack_anim_progress < 0.45 and target != null and is_instance_valid(target):
-		var lunge_speed: float = COMBO_ATTACKS[_combo_step]["lunge"]
+		var lunge_speed: float = _current_attack_data()["lunge"]
 		var lunge_dir: Vector3 = target.global_position - global_position
 		lunge_dir.y = 0.0
 		if lunge_dir.length() > 0.6 and lunge_speed > 0.0:
@@ -2045,8 +2161,10 @@ func _handle_attacking(delta: float) -> void:
 	if _attack_state_time > 3.0:
 		print("Bobba: WARNING - Stuck in ATTACKING state for %.1f seconds! Animation: %s — force-ending attack" % [_attack_state_time, _current_anim])
 		disable_attack_hitbox()
-		attack_cooldown = COMBO_END_COOLDOWN if _combo_step > 0 else 0.7
+		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \
+				else (COMBO_END_COOLDOWN if _combo_step > 0 else 0.7)
 		_combo_step = 0
+		_axe_attack_active = false
 		_attack_state_time = 0.0
 		_current_anim = &""
 		state = State.CHASING
