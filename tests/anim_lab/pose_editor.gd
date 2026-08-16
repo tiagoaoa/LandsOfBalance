@@ -11,12 +11,20 @@ extends PanelContainer
 ## yaws, z rolls sideways. TWIST is separate and rolls the bone about its own
 ## long axis, which is the only way to pronate a wrist onto a shaft.
 ##
-## Export writes the whole clip back out as GDScript ready to paste into
-## bobba_anims.gd, so nothing dialled in here is lost.
+## Save writes the clip twice — a .json the lab can reopen, and a .gd.txt
+## ready to paste into bobba_anims.gd — into tests/anim_lab/poses/ so the
+## files sit beside the lab instead of in the user data directory. Open loads
+## a saved clip straight back, so a session can be picked up where it stopped.
 
 signal spec_changed(clip_name: String)
 
-const OUT_PATH := "user://edited_poses.gd.txt"
+## Saves land next to the lab in the project, not buried in the user data
+## directory where they have to be hunted for. Each save writes TWO files:
+## a .json the lab can load straight back, and a .gd.txt ready to paste into
+## bobba_anims.gd. res:// is writable when running from source; if it is not
+## (an exported build), fall back to user:// rather than silently losing work.
+const SAVE_DIR := "res://tests/anim_lab/poses"
+const FALLBACK_DIR := "user://poses"
 
 var specs: Array = []                  ## live, mutated in place
 var skeleton: Skeleton3D
@@ -29,6 +37,7 @@ var _add_bone_pick: OptionButton
 var _sliders: Dictionary = {}          ## axis -> HSlider
 var _values: Dictionary = {}           ## axis -> SpinBox
 var _status: Label
+var _open_pick: OptionButton
 var _muted: bool = false
 
 
@@ -88,6 +97,21 @@ func _build() -> void:
 			sl.set_value_no_signal(v)
 			_write_back())
 
+	# Open a previously saved clip.
+	var openrow := HBoxContainer.new()
+	vb.add_child(openrow)
+	var ol := Label.new()
+	ol.text = "Open saved"
+	ol.custom_minimum_size = Vector2(120, 0)
+	openrow.add_child(ol)
+	_open_pick = OptionButton.new()
+	_open_pick.custom_minimum_size = Vector2(180, 0)
+	openrow.add_child(_open_pick)
+	var openbtn := Button.new()
+	openbtn.text = "Load"
+	openbtn.pressed.connect(_load_selected)
+	openrow.add_child(openbtn)
+
 	var addrow := HBoxContainer.new()
 	vb.add_child(addrow)
 	var al := Label.new()
@@ -113,7 +137,7 @@ func _build() -> void:
 		_write_back())
 	btns.add_child(zero)
 	var exp := Button.new()
-	exp.text = "Export clip"
+	exp.text = "Save clip"
 	exp.pressed.connect(_export)
 	btns.add_child(exp)
 
@@ -122,6 +146,7 @@ func _build() -> void:
 	_status.custom_minimum_size = Vector2(310, 60)
 	_status.text = "pick a clip"
 	vb.add_child(_status)
+	_refresh_saved_list()
 
 
 func _row(parent: Node, label: String) -> OptionButton:
@@ -339,19 +364,140 @@ func refresh_keys_preserving(t: float) -> void:
 
 # --- export -----------------------------------------------------------------
 
-## Emit the selected clip as GDScript matching the style in bobba_anims.gd,
-## so a dialled-in pose can be pasted straight back into the source.
+## Where saves go. Prefers the project folder so the files sit beside the
+## lab and show up in git; falls back to user:// if res:// is read-only.
+static func _save_dir() -> String:
+	if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(SAVE_DIR)):
+		return SAVE_DIR
+	var err := DirAccess.make_dir_recursive_absolute(
+			ProjectSettings.globalize_path(SAVE_DIR))
+	if err == OK:
+		return SAVE_DIR
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(FALLBACK_DIR))
+	return FALLBACK_DIR
+
+
+## Save the selected clip as BOTH a reloadable .json and a paste-ready
+## .gd.txt. The old version only wrote the paste blob, so anything dialled in
+## could not be reopened — every session started from the source again.
 func _export() -> void:
 	var sp := _spec()
 	if sp.is_empty():
 		return
+	var dir := _save_dir()
+	var name := String(sp["name"])
+
+	var json_path := "%s/%s.json" % [dir, name]
+	var jf := FileAccess.open(json_path, FileAccess.WRITE)
+	if jf:
+		jf.store_string(JSON.stringify(_to_json(sp), "\t"))
+		jf.close()
+
+	var text := _to_gdscript(sp)
+	var gd_path := "%s/%s.gd.txt" % [dir, name]
+	var gf := FileAccess.open(gd_path, FileAccess.WRITE)
+	if gf:
+		gf.store_string(text)
+		gf.close()
+	DisplayServer.clipboard_set(text)
+
+	_refresh_saved_list()
+	var where := ProjectSettings.globalize_path(gd_path)
+	print("\n--- saved %s (%d keys) ---\n%s\n--- %s ---" % [
+			name, _keys().size(), text, where])
+	_status.text = "Saved %s (%d keys)\n%s\n(+ .json, and copied to clipboard)" % [
+			name, _keys().size(), where]
+
+
+## Vector3 is not JSON, so poses become [x, y, z] and come back the same way.
+func _to_json(sp: Dictionary) -> Dictionary:
+	var keys := []
+	for k in (sp["keys"] as Array):
+		var pose := {}
+		for b in (k.get("pose", {}) as Dictionary):
+			var v: Vector3 = k["pose"][b]
+			pose[b] = [v.x, v.y, v.z]
+		keys.append({
+			"t": float(k["t"]),
+			"pose": pose,
+			"twist": (k.get("twist", {}) as Dictionary).duplicate(),
+		})
+	return {
+		"name": sp["name"], "base": sp.get("base", "Idle"),
+		"length": float(sp.get("length", 0.0)),
+		"loop": bool(sp.get("loop", false)),
+		"keys": keys,
+	}
+
+
+func _from_json(d: Dictionary) -> Array:
+	var keys := []
+	for k in (d.get("keys", []) as Array):
+		var pose := {}
+		for b in (k.get("pose", {}) as Dictionary):
+			var a: Array = k["pose"][b]
+			pose[b] = Vector3(float(a[0]), float(a[1]), float(a[2]))
+		var twist := {}
+		for b in (k.get("twist", {}) as Dictionary):
+			twist[b] = float(k["twist"][b])
+		keys.append({"t": float(k["t"]), "pose": pose, "twist": twist})
+	return keys
+
+
+## Populate the Open dropdown from whatever has been saved.
+func _refresh_saved_list() -> void:
+	if _open_pick == null:
+		return
+	_open_pick.clear()
+	for dir in [SAVE_DIR, FALLBACK_DIR]:
+		var d := DirAccess.open(dir)
+		if d == null:
+			continue
+		for f in d.get_files():
+			if f.ends_with(".json"):
+				_open_pick.add_item("%s  (%s)" % [f.get_basename(),
+						"project" if dir == SAVE_DIR else "user"])
+				_open_pick.set_item_metadata(_open_pick.item_count - 1, dir + "/" + f)
+
+
+## Load a saved clip back over the live spec of the same name.
+func _load_selected() -> void:
+	if _open_pick.selected < 0:
+		_status.text = "nothing saved yet"
+		return
+	var path: String = _open_pick.get_item_metadata(_open_pick.selected)
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		_status.text = "could not open %s" % path
+		return
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		_status.text = "%s is not valid JSON" % path.get_file()
+		return
+	var name := String(parsed.get("name", ""))
+	var sp := spec_for(name)
+	if sp.is_empty():
+		_status.text = "no live clip called %s" % name
+		return
+	sp["keys"] = _from_json(parsed)
+	if parsed.has("length"):
+		sp["length"] = float(parsed["length"])
+	select_clip(name)
+	_emit()
+	_status.text = "Loaded %s (%d keys) from\n%s" % [
+			name, (sp["keys"] as Array).size(), ProjectSettings.globalize_path(path)]
+
+
+## The clip as GDScript in the style of bobba_anims.gd, ready to paste.
+func _to_gdscript(sp: Dictionary) -> String:
 	var out := PackedStringArray()
 	out.append('\t\t{')
 	out.append('\t\t\t"name": "%s", "base": "%s", "length": %.2f,%s' % [
 			sp["name"], sp.get("base", "Idle"), float(sp.get("length", 0.0)),
 			' "loop": true,' if sp.get("loop", false) else ''])
 	out.append('\t\t\t"keys": [')
-	for k in _keys():
+	for k in (sp["keys"] as Array):
 		var pose: Dictionary = k.get("pose", {})
 		var twist: Dictionary = k.get("twist", {})
 		var parts := PackedStringArray()
@@ -374,13 +520,4 @@ func _export() -> void:
 		out.append(line)
 	out.append('\t\t\t],')
 	out.append('\t\t},')
-	var text := "\n".join(out)
-	var f := FileAccess.open(OUT_PATH, FileAccess.WRITE)
-	if f:
-		f.store_string(text)
-		f.close()
-	DisplayServer.clipboard_set(text)
-	print("\n--- %s ---\n%s\n--- copied to clipboard, saved to %s ---" % [
-			sp["name"], text, ProjectSettings.globalize_path(OUT_PATH)])
-	_status.text = "Exported %s (%d keys) to clipboard and\n%s" % [
-			sp["name"], _keys().size(), ProjectSettings.globalize_path(OUT_PATH)]
+	return "\n".join(out)
