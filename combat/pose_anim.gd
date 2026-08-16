@@ -23,6 +23,14 @@ extends RefCounted
 const SAMPLE_FPS: float = 30.0
 
 
+## A key may also carry "twist": {"<ShortBone>": degrees} — a roll about the
+## bone's OWN long axis, which is what pronating a wrist onto a shaft is.
+## That cannot be written as a character-space euler: a rotation about world
+## Y only twists a limb that happens to point straight up, and on any other
+## limb it swings it sideways instead. Mixamo bones run down +Y, so this is a
+## local rotation about Y, post-multiplied so it spins the bone in place
+## without disturbing where the limb points.
+##
 ## `keys` is an Array of {"t": seconds, "pose": {"<ShortBone>": Vector3(deg)}}.
 ## Bones absent from a key are held at zero offset there, so a pose only has to
 ## name what it moves. Returns null if the base is unusable.
@@ -34,6 +42,8 @@ static func compose(base: Animation, skeleton: Skeleton3D, keys: Array,
 	var targeted := {}
 	for k in keys:
 		for bone in (k.get("pose", {}) as Dictionary):
+			targeted[bone] = true
+		for bone in (k.get("twist", {}) as Dictionary):
 			targeted[bone] = true
 
 	var out := Animation.new()
@@ -74,6 +84,9 @@ static func compose(base: Animation, skeleton: Skeleton3D, keys: Array,
 					var q: Quaternion = base.rotation_track_interpolate(src, bt)
 					if has_offset:
 						q = _local_offset(conv, _pose_at(keys, short, t)) * q
+						var tw: float = _twist_at(keys, short, t)
+						if not is_zero_approx(tw):
+							q = q * Quaternion(Vector3.UP, deg_to_rad(tw))
 					out.rotation_track_insert_key(track, t, q)
 	return out
 
@@ -100,6 +113,29 @@ static func _pose_at(keys: Array, bone: String, t: float) -> Vector3:
 		return prev
 	var u: float = (t - prev_t) / (next_t - prev_t)
 	return prev.lerp(next, u * u * (3.0 - 2.0 * u))
+
+
+## Interpolated roll (degrees) about the bone's own axis at time `t`.
+static func _twist_at(keys: Array, bone: String, t: float) -> float:
+	var prev_t: float = -INF
+	var next_t: float = INF
+	var prev: float = 0.0
+	var next: float = 0.0
+	for k in keys:
+		var kt: float = float(k["t"])
+		var v: float = float((k.get("twist", {}) as Dictionary).get(bone, 0.0))
+		if kt <= t and kt > prev_t:
+			prev_t = kt
+			prev = v
+		if kt >= t and kt < next_t:
+			next_t = kt
+			next = v
+	if prev_t == -INF:
+		return next
+	if next_t == INF or is_equal_approx(prev_t, next_t):
+		return prev
+	var u: float = (t - prev_t) / (next_t - prev_t)
+	return lerpf(prev, next, u * u * (3.0 - 2.0 * u))
 
 
 ## Turn a character-space rotation into the equivalent bone-local one.

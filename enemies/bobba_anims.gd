@@ -129,22 +129,22 @@ static func _specs() -> Array:
 					"Spine": Vector3(6, -8, 0), "Spine1": Vector3(4, -10, 0),
 					"Head": Vector3(4, -10, 0),
 					"RightShoulder": Vector3(0, 4, 0),
-					"RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 34, 0),
+					"RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 30, 0),
 					"LeftShoulder": Vector3(0, 16, 0),
-					"LeftArm": Vector3(-6, 54, 30), "LeftForeArm": Vector3(0, 52, 0),
+					"LeftArm": Vector3(-6, 54, 30), "LeftForeArm": Vector3(0, -24, 0),
 					"LeftHand": Vector3(0, 0, -10),
 					"LeftUpLeg": Vector3(6, 0, 0), "RightUpLeg": Vector3(6, 0, 0),
 				}},
 				# Both arms haul it up and back over the head.
-				{"t": 0.55, "pose": {
+				{"t": 0.55, "twist": {"RightForeArm": 45.0, "RightHand": 30.0,
+						"LeftForeArm": -45.0, "LeftHand": -30.0}, "pose": {
 					"Spine": Vector3(12, 0, 0), "Spine1": Vector3(9, 0, 0),
 					"Spine2": Vector3(6, 0, 0), "Head": Vector3(-4, 0, 0),
 					"RightShoulder": Vector3(0, -6, 0), "LeftShoulder": Vector3(0, 6, 0),
 					# Three quarters of the way into the solved coil.
 					"RightArm": Vector3(-9, -5, -84),
 					"LeftArm": Vector3(-11, 6, 90),
-					"RightForeArm": Vector3(0, 14, 0), "LeftForeArm": Vector3(0, -14, 0),
-					"RightHand": Vector3(18, 0, 0),
+					"RightForeArm": Vector3(0, 12, 0), "LeftForeArm": Vector3(0, -12, 0),
 					"LeftUpLeg": Vector3(-4, 0, 0), "RightUpLeg": Vector3(-4, 0, 0),
 				}},
 				# Apex hold — the readable moment before it comes down.
@@ -154,7 +154,11 @@ static func _specs() -> Array:
 				# is left near its carry angle on purpose — rolling the blade
 				# upright is what made him look like he was presenting the axe
 				# rather than cocking it.
-				{"t": 0.66, "pose": {
+				# Palms rolled INWARD onto the shaft — counterclockwise on the
+				# right, clockwise on the left — as a twist about each bone's
+				# own axis, which is what a wrist actually does.
+				{"t": 0.66, "twist": {"RightForeArm": 70.0, "RightHand": 45.0,
+						"LeftForeArm": -70.0, "LeftHand": -45.0}, "pose": {
 					# Matches the reference: stood up out of the mutant idle's
 					# hunch (which is why the spine offset is large and
 					# negative), fists together high on the haft above the
@@ -173,8 +177,7 @@ static func _specs() -> Array:
 					# of closing them.
 					"RightArm": Vector3(-12, -7, -111),
 					"LeftArm": Vector3(-15, 8, 120),
-					"RightForeArm": Vector3(0, 18, 0), "LeftForeArm": Vector3(0, -18, 0),
-					"RightHand": Vector3(25, 0, 0),
+					"RightForeArm": Vector3(0, 16, 0), "LeftForeArm": Vector3(0, -16, 0),
 				}},
 				# The strike, straight down the centre line.
 				{"t": 0.82, "pose": {
