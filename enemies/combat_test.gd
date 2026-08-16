@@ -1601,6 +1601,14 @@ func _drive_gearsim(delta: float) -> void:
 				ap.get_animation(full).loop_mode = Animation.LOOP_LINEAR
 				print("[CombatTest/GEARSIM] holding Bobba on %s (%.2fs)" % [
 						full, ap.get_animation(full).length])
+			# LOB_GEAR_SEEK=<0..1> pins the clip at an exact fraction instead
+			# of letting it run. Sampling a playing clip by wall clock is not
+			# phase-locked, so "the apex frame" was never reliably the apex —
+			# several rounds of tuning were done against mis-sampled poses.
+			var seek := OS.get_environment("LOB_GEAR_SEEK")
+			if ap != null and seek.is_valid_float() and ap.current_animation != "":
+				ap.seek(clampf(float(seek), 0.0, 1.0) * ap.current_animation_length, true)
+				ap.pause()
 
 	# The camera rig eases spring_length back to DEFAULT_SPRING_LENGTH every
 	# physics frame, so a one-shot assignment is undone before the next

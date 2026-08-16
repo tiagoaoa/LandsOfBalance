@@ -137,22 +137,34 @@ static func _specs() -> Array:
 				}},
 				# Both arms haul it up and back over the head.
 				{"t": 0.55, "pose": {
-					"Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-20, 0, 0),
-					"Spine2": Vector3(-14, 0, 0), "Head": Vector3(-14, 0, 0),
-					"RightShoulder": Vector3(0, 14, 0), "LeftShoulder": Vector3(0, -14, 0),
-					"RightArm": Vector3(-6, 72, 86), "LeftArm": Vector3(-6, -68, -80),
-					"RightForeArm": Vector3(0, 40, 0), "LeftForeArm": Vector3(0, -36, 0),
-					"RightHand": Vector3(150, 0, 0),
-					"LeftUpLeg": Vector3(-6, 0, 0), "RightUpLeg": Vector3(-6, 0, 0),
+					"Spine": Vector3(-22, 0, 0), "Spine1": Vector3(-16, 0, 0),
+					"Spine2": Vector3(-10, 0, 0), "Head": Vector3(4, 0, 0),
+					"RightShoulder": Vector3(0, -6, 0), "LeftShoulder": Vector3(0, 6, 0),
+					"RightArm": Vector3(0, -12, 88), "LeftArm": Vector3(0, 12, -88),
+					"RightForeArm": Vector3(0, 56, 0), "LeftForeArm": Vector3(0, -56, 0),
+					"RightHand": Vector3(18, 0, 0),
+					"LeftUpLeg": Vector3(-4, 0, 0), "RightUpLeg": Vector3(-4, 0, 0),
 				}},
 				# Apex hold — the readable moment before it comes down.
+				# The coil, matching the reference: both fists together high
+				# on the haft above the head, arms back over the shoulder, and
+				# the head of the axe hanging BEHIND and BELOW them. The wrist
+				# is left near its carry angle on purpose — rolling the blade
+				# upright is what made him look like he was presenting the axe
+				# rather than cocking it.
 				{"t": 0.66, "pose": {
-					"Spine": Vector3(-34, 0, 0), "Spine1": Vector3(-26, 0, 0),
-					"Spine2": Vector3(-16, 0, 0), "Head": Vector3(-16, 0, 0),
-					"RightShoulder": Vector3(0, 18, 0), "LeftShoulder": Vector3(0, -18, 0),
-					"RightArm": Vector3(-2, 86, 96), "LeftArm": Vector3(-2, -82, -90),
-					"RightForeArm": Vector3(0, 34, 0), "LeftForeArm": Vector3(0, -30, 0),
-					"RightHand": Vector3(170, 0, 0),
+					# Matches the reference: stood up out of the mutant idle's
+					# hunch (which is why the spine offset is large and
+					# negative), fists together high on the haft above the
+					# head, arms back over the shoulder, blade trailing behind
+					# and below. The wrist stays near its carry angle — rolling
+					# the blade upright made him present the axe rather than
+					# cock it.
+					"Spine": Vector3(-28, 0, 0), "Spine1": Vector3(-20, 0, 0),
+					"Spine2": Vector3(-12, 0, 0), "Head": Vector3(6, 0, 0),
+					"RightArm": Vector3(0, -18, 112), "LeftArm": Vector3(0, 18, -112),
+					"RightForeArm": Vector3(0, 70, 0), "LeftForeArm": Vector3(0, -70, 0),
+					"RightHand": Vector3(25, 0, 0),
 				}},
 				# The strike, straight down the centre line.
 				{"t": 0.82, "pose": {
