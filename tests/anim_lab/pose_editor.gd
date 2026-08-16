@@ -282,6 +282,48 @@ func _emit() -> void:
 	spec_changed.emit(String(_spec().get("name", "")))
 
 
+## Select a bone from outside (a joint was grabbed in the viewport).
+func focus_bone(bone: String) -> void:
+	for i in _bone_pick.item_count:
+		if _bone_pick.get_item_text(i) == bone:
+			_bone_pick.select(i)
+			_load_bone_values()
+			return
+	# Not in this key yet — the drag will have added it, so rebuild the list.
+	_refresh_bones()
+	for i in _bone_pick.item_count:
+		if _bone_pick.get_item_text(i) == bone:
+			_bone_pick.select(i)
+			_load_bone_values()
+			return
+
+
+## Spec by clip name, for the viewport editor.
+func spec_for(clip_name: String) -> Dictionary:
+	for sp in specs:
+		if String(sp["name"]) == clip_name:
+			return sp
+	return {}
+
+
+## Rebuild the keyframe dropdown after keys were added or removed, keeping the
+## selection on whichever key is nearest `t`.
+func refresh_keys_preserving(t: float) -> void:
+	var ks := _keys()
+	_key_pick.clear()
+	var best := 0
+	var best_d := INF
+	for i in ks.size():
+		_key_pick.add_item("t = %.2f s" % float(ks[i]["t"]))
+		var d: float = absf(float(ks[i]["t"]) - t)
+		if d < best_d:
+			best_d = d
+			best = i
+	if ks.size() > 0:
+		_key_pick.select(best)
+	_refresh_bones()
+
+
 # --- export -----------------------------------------------------------------
 
 ## Emit the selected clip as GDScript matching the style in bobba_anims.gd,

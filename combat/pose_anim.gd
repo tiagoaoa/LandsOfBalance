@@ -91,6 +91,17 @@ static func compose(base: Animation, skeleton: Skeleton3D, keys: Array,
 	return out
 
 
+## Public wrappers — the animation lab needs the same interpolation the
+## composer uses, so inserting a key at the playhead can hold exactly what is
+## on screen and change nothing until it is dragged.
+static func pose_at(keys: Array, bone: String, t: float) -> Vector3:
+	return _pose_at(keys, bone, t)
+
+
+static func twist_at(keys: Array, bone: String, t: float) -> float:
+	return _twist_at(keys, bone, t)
+
+
 ## Character-space euler (degrees) for `bone` at time `t`, smoothstepped
 ## between the surrounding keys so the motion eases instead of snapping.
 static func _pose_at(keys: Array, bone: String, t: float) -> Vector3:

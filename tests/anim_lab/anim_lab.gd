@@ -46,6 +46,12 @@ var _editor: PoseEditor
 ## Live copy of the composed-clip specs. The editor mutates these in place and
 ## we rebuild the affected clip, so a change is visible without a relaunch.
 var _specs: Array = []
+var _handles: BoneHandles
+var _posing: bool = false          ## dragging a joint, not the camera
+var _pose_bone: String = ""
+var _drag_basis: Basis = Basis.IDENTITY
+var _twisting: bool = false        ## shift-drag rolls about the bone's own axis
+var _drag_twist: float = 0.0
 
 
 func _ready() -> void:
@@ -57,6 +63,7 @@ func _ready() -> void:
 	await _spawn_bobba()
 	_populate_clips()
 	_build_editor()
+	_build_handles()
 
 
 # --- scene ------------------------------------------------------------------
@@ -169,6 +176,88 @@ func _spawn_bobba() -> void:
 		for lib in _anim.get_animation_library_list():
 			n += _anim.get_animation_library(lib).get_animation_list().size()
 	print("AnimLab: found AnimationPlayer=%s with %d clips" % [str(_anim != null), n])
+
+
+## Clickable joints over the character. Selecting one here drives the side
+## panel too, so the numbers and the direct manipulation stay in sync.
+func _build_handles() -> void:
+	if _skeleton == null or _cam == null:
+		return
+	_handles = BoneHandles.new()
+	add_child(_handles)
+	_handles.setup(_skeleton, _cam)
+	_handles.picked.connect(func(b: String) -> void:
+		_pose_bone = b
+		if _editor:
+			_editor.focus_bone(b))
+
+
+## The keyframe this edit belongs to. If the playhead is not sitting on an
+## existing key, insert one HERE holding the currently interpolated pose — so
+## posing at an arbitrary frame adds a key instead of dragging a neighbour,
+## and the shape either side is untouched.
+func _key_at_playhead(spec: Dictionary) -> Dictionary:
+	var keys: Array = spec["keys"]
+	var t: float = _anim.current_animation_position
+	var tol: float = 0.02
+	for k in keys:
+		if absf(float(k["t"]) - t) <= tol:
+			return k
+	var fresh := {"t": t, "pose": {}, "twist": {}}
+	# Seed it with the interpolated values so inserting a key changes nothing
+	# on its own — only the drag that follows does.
+	var bones := {}
+	for k in keys:
+		for b in (k.get("pose", {}) as Dictionary):
+			bones[b] = true
+		for b in (k.get("twist", {}) as Dictionary):
+			bones[b] = true
+	for b in bones:
+		fresh["pose"][b] = PoseAnim.pose_at(keys, b, t)
+		var tw: float = PoseAnim.twist_at(keys, b, t)
+		if not is_zero_approx(tw):
+			fresh["twist"][b] = tw
+	keys.append(fresh)
+	keys.sort_custom(func(a: Dictionary, b2: Dictionary) -> bool:
+		return float(a["t"]) < float(b2["t"]))
+	if _editor:
+		_editor.refresh_keys_preserving(t)
+	return fresh
+
+
+## Apply a screen-space drag to the selected joint.
+##
+## Horizontal drag spins the bone about the camera's UP axis and vertical
+## about its RIGHT axis, both converted into character space — so the joint
+## follows the mouse from wherever you happen to be orbiting, which is the
+## whole point of grabbing it directly.
+func _apply_drag(delta: Vector2) -> void:
+	if _pose_bone == "" or _editor == null or _anim == null:
+		return
+	var spec: Dictionary = _editor.spec_for(_current_clip.get_slice("/", 1))
+	if spec.is_empty():
+		return
+	var key: Dictionary = _key_at_playhead(spec)
+
+	if _twisting:
+		_drag_twist += delta.x * 0.5
+		if not key.has("twist"):
+			key["twist"] = {}
+		key["twist"][_pose_bone] = _drag_twist
+	else:
+		var char_basis: Basis = _bobba.global_transform.basis.orthonormalized()
+		var cam_b: Basis = _cam.global_transform.basis
+		# Camera axes expressed in the character's frame.
+		var up: Vector3 = (char_basis.inverse() * cam_b.y).normalized()
+		var right: Vector3 = (char_basis.inverse() * cam_b.x).normalized()
+		var r := Basis(up, deg_to_rad(delta.x * 0.45)) 				* Basis(right, deg_to_rad(delta.y * 0.45))
+		_drag_basis = (r * _drag_basis).orthonormalized()
+		if not key.has("pose"):
+			key["pose"] = {}
+		key["pose"][_pose_bone] = _drag_basis.get_euler() * 57.29578
+	_on_spec_changed(String(spec["name"]))
+	if _editor:
+		_editor.focus_bone(_pose_bone)
 
 
 ## The editor lives beside the clip list and rebuilds a clip on every change.
@@ -350,7 +439,7 @@ func _build_ui() -> void:
 	_speed_slider.value_changed.connect(_on_speed)
 	row.add_child(_speed_slider)
 	var hint := Label.new()
-	hint.text = "   drag = orbit · wheel = zoom · W/S = raise/lower · Esc = quit"
+	hint.text = "   drag JOINT = pose (shift = twist) · drag empty = orbit · wheel = zoom · Del = drop key · Esc = quit"
 	row.add_child(hint)
 
 
@@ -454,6 +543,15 @@ func _draw_timeline() -> void:
 	if win != Vector2.ZERO:
 		_timeline.draw_rect(Rect2(win.x * w, 0, (win.y - win.x) * w, h),
 				Color(0.95, 0.35, 0.25, 0.65))
+	# Keyframe ticks, so it is clear where a pose is pinned and where the
+	# motion is being interpolated.
+	if _editor and _anim and _anim.current_animation_length > 0.0:
+		var spec: Dictionary = _editor.spec_for(_current_clip.get_slice("/", 1))
+		if not spec.is_empty():
+			for k in (spec["keys"] as Array):
+				var kf: float = float(k["t"]) / _anim.current_animation_length
+				_timeline.draw_rect(Rect2(kf * w - 1.5, 0, 3.0, h),
+						Color(0.35, 0.95, 0.55, 0.95))
 	if _anim and _anim.current_animation_length > 0.0:
 		var f: float = _anim.current_animation_position / _anim.current_animation_length
 		_timeline.draw_rect(Rect2(f * w - 1.0, 0, 2.0, h), Color(1, 1, 1, 0.9))
@@ -465,6 +563,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed and _handles != null:
+				var hit: String = _handles.pick_at(mb.position)
+				if hit != "":
+					# Grabbing a joint poses it; empty space orbits the camera.
+					_handles.select(hit)
+					_pose_bone = hit
+					_posing = true
+					_twisting = Input.is_key_pressed(KEY_SHIFT)
+					_seed_drag_from_current()
+					return
+			_posing = false
 			_dragging = mb.pressed
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			_dist = maxf(1.5, _dist - 0.4)
@@ -472,11 +581,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			_dist = minf(18.0, _dist + 0.4)
 			_update_camera()
-	elif event is InputEventMouseMotion and _dragging:
+	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		_yaw -= mm.relative.x * 0.008
-		_pitch = clampf(_pitch - mm.relative.y * 0.006, -1.2, 1.2)
-		_update_camera()
+		if _posing:
+			_apply_drag(mm.relative)
+		elif _dragging:
+			_yaw -= mm.relative.x * 0.008
+			_pitch = clampf(_pitch - mm.relative.y * 0.006, -1.2, 1.2)
+			_update_camera()
+		elif _handles != null:
+			_handles.hover_at(mm.position)
 	elif event is InputEventKey and (event as InputEventKey).pressed:
 		match (event as InputEventKey).keycode:
 			KEY_ESCAPE:
@@ -489,6 +603,49 @@ func _unhandled_input(event: InputEvent) -> void:
 				_update_camera()
 			KEY_SPACE:
 				_toggle_play()
+			KEY_DELETE:
+				_delete_key_at_playhead()
+
+
+## Start a drag from whatever the bone is doing right now, so the joint moves
+## from its current pose instead of snapping to zero.
+func _seed_drag_from_current() -> void:
+	_drag_basis = Basis.IDENTITY
+	_drag_twist = 0.0
+	if _editor == null or _anim == null:
+		return
+	var spec: Dictionary = _editor.spec_for(_current_clip.get_slice("/", 1))
+	if spec.is_empty():
+		return
+	var t: float = _anim.current_animation_position
+	_drag_basis = Basis.from_euler(
+			PoseAnim.pose_at(spec["keys"], _pose_bone, t) * (PI / 180.0))
+	_drag_twist = PoseAnim.twist_at(spec["keys"], _pose_bone, t)
+
+
+## Drop the key nearest the playhead — the way to undo an accidental one.
+func _delete_key_at_playhead() -> void:
+	if _editor == null or _anim == null:
+		return
+	var spec: Dictionary = _editor.spec_for(_current_clip.get_slice("/", 1))
+	if spec.is_empty():
+		return
+	var keys: Array = spec["keys"]
+	if keys.size() <= 2:
+		return                     # never leave a clip without endpoints
+	var t: float = _anim.current_animation_position
+	var best := -1
+	var best_d: float = 0.06
+	for i in keys.size():
+		var d: float = absf(float(keys[i]["t"]) - t)
+		if d < best_d:
+			best_d = d
+			best = i
+	if best == -1:
+		return
+	keys.remove_at(best)
+	_on_spec_changed(String(spec["name"]))
+	_editor.refresh_keys_preserving(t)
 
 
 func _update_camera() -> void:
