@@ -116,92 +116,29 @@ static func _specs() -> Array:
 		},
 		# Two-handed overhead chop, frontal.
 		#
-		# He carries the axe one-handed, so the swing has to START by
-		# committing to it: the left hand crosses the body and takes the haft
-		# below the right, THEN both arms haul it overhead, hold at the apex,
-		# and drive it down the centre line. That grab is what makes the
-		# attack expensive — it is why this one is slow and readable where a
-		# punch is not.
+		# HAND-KEYED IN THE ANIMATION LAB, not written by hand here. Twelve keys,
+		# with the downswing broken into 0.74 / 0.79 / 0.82 / 0.89 so the blade
+		# accelerates through the strike instead of sliding linearly into it.
+		# Edit it there (tools/run_anim_lab.sh) and paste the export back, rather
+		# than nudging these numbers blind — that is what they are for.
 		#
-		# The damage window in AXE_ATTACK sits over the downswing only, so the
-		# blade has to be travelling through the middle of the arc there.
+		# Key times are SECONDS along the 1.60 s clip; AXE_ATTACK's damage window
+		# is a FRACTION of it. Apex 0.66 s = 0.41, strike 0.82 s = 0.51.
 		{
 			"name": "AxeAttack", "base": "Idle", "length": 1.60,
 			"keys": [
-				{"t": 0.00, "pose": carry},
-				# Left hand crosses and grips the haft; knees settle.
-				{"t": 0.26, "pose": {
-					"Spine": Vector3(6, -8, 0), "Spine1": Vector3(4, -10, 0),
-					"Head": Vector3(4, -10, 0),
-					"RightShoulder": Vector3(0, 4, 0),
-					"RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 30, 0),
-					"LeftShoulder": Vector3(0, 16, 0),
-					"LeftArm": Vector3(-6, 54, 30), "LeftForeArm": Vector3(0, -24, 0),
-					"LeftHand": Vector3(0, 0, -10),
-					"LeftUpLeg": Vector3(6, 0, 0), "RightUpLeg": Vector3(6, 0, 0),
-				}},
-				# Both arms haul it up and back over the head.
-				{"t": 0.55, "twist": {"RightForeArm": 45.0, "RightHand": 30.0,
-						"LeftForeArm": -45.0, "LeftHand": -30.0}, "pose": {
-					"Spine": Vector3(12, 0, 0), "Spine1": Vector3(9, 0, 0),
-					"Spine2": Vector3(6, 0, 0), "Head": Vector3(-4, 0, 0),
-					"RightShoulder": Vector3(0, -6, 0), "LeftShoulder": Vector3(0, 6, 0),
-					# Three quarters of the way into the solved coil.
-					"RightArm": Vector3(-9, -5, -84),
-					"LeftArm": Vector3(-11, 6, 90),
-					"RightForeArm": Vector3(0, 12, 0), "LeftForeArm": Vector3(0, -12, 0),
-					"LeftUpLeg": Vector3(-4, 0, 0), "RightUpLeg": Vector3(-4, 0, 0),
-				}},
-				# Apex hold — the readable moment before it comes down.
-				# The coil, matching the reference: both fists together high
-				# on the haft above the head, arms back over the shoulder, and
-				# the head of the axe hanging BEHIND and BELOW them. The wrist
-				# is left near its carry angle on purpose — rolling the blade
-				# upright is what made him look like he was presenting the axe
-				# rather than cocking it.
-				# Palms rolled INWARD onto the shaft — counterclockwise on the
-				# right, clockwise on the left — as a twist about each bone's
-				# own axis, which is what a wrist actually does.
-				{"t": 0.66, "twist": {"RightForeArm": 70.0, "RightHand": 45.0,
-						"LeftForeArm": -70.0, "LeftHand": -45.0}, "pose": {
-					# Matches the reference: stood up out of the mutant idle's
-					# hunch (which is why the spine offset is large and
-					# negative), fists together high on the haft above the
-					# head, arms back over the shoulder, blade trailing behind
-					# and below. The wrist stays near its carry angle — rolling
-					# the blade upright made him present the axe rather than
-					# cock it.
-					"Spine": Vector3(16, 0, 0), "Spine1": Vector3(12, 0, 0),
-					"Spine2": Vector3(7, 0, 0), "Head": Vector3(-6, 0, 0),
-					# SOLVED, not guessed: the rotation that takes each arm from
-					# its rest direction (shoulder->hand) to the direction of
-					# the fists meeting above the head. Verified to land the
-					# right hand within a centimetre of the target. The signs
-					# are opposite to what the isolation test suggested, which
-					# is why every hand-tuned attempt spread the arms instead
-					# of closing them.
-					"RightArm": Vector3(-12, -7, -111),
-					"LeftArm": Vector3(-15, 8, 120),
-					"RightForeArm": Vector3(0, 16, 0), "LeftForeArm": Vector3(0, -16, 0),
-				}},
-				# The strike, straight down the centre line.
-				{"t": 0.82, "pose": {
-					"Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-19, 0, 0),
-					"Spine2": Vector3(-13, 0, 0), "Head": Vector3(-14, 0, 0),
-					"RightShoulder": Vector3(0, 6, 0), "LeftShoulder": Vector3(0, -6, 0),
-					"RightArm": Vector3(6, 0, -34), "LeftArm": Vector3(6, 26, 30),
-					"RightForeArm": Vector3(0, 10, 0), "LeftForeArm": Vector3(0, 12, 0),
-					"LeftUpLeg": Vector3(14, 0, 0), "RightUpLeg": Vector3(14, 0, 0),
-				}},
-				# Blade low, weight forward — the recovery he is punishable in.
-				{"t": 1.05, "pose": {
-					"Spine": Vector3(24, 0, 0), "Spine1": Vector3(18, 0, 0),
-					"Head": Vector3(14, 0, 0),
-					"RightArm": Vector3(2, 2, -30), "LeftArm": Vector3(2, 30, 24),
-					"RightForeArm": Vector3(0, 20, 0), "LeftForeArm": Vector3(0, 24, 0),
-				}},
-				# Left hand releases, back to the one-handed carry.
-				{"t": 1.60, "pose": carry},
+				{"t": 0.00, "pose": {"RightArm": Vector3(-12, 6, -28), "RightForeArm": Vector3(0, 26, 0), "RightHand": Vector3(0, 0, 12), "RightShoulder": Vector3(0, 8, 0), "Spine1": Vector3(0, -6, 0)}},
+				{"t": 0.26, "pose": {"Head": Vector3(4, -10, 0), "LeftArm": Vector3(-6, 54, 30), "LeftForeArm": Vector3(0, -24, 0), "LeftHand": Vector3(0, 0, -10), "LeftShoulder": Vector3(0, 16, 0), "LeftUpLeg": Vector3(6, 0, 0), "RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 30, 0), "RightShoulder": Vector3(0, 4, 0), "RightUpLeg": Vector3(6, 0, 0), "Spine": Vector3(6, -8, 0), "Spine1": Vector3(4, -10, 0)}},
+				{"t": 0.55, "twist": {"LeftForeArm": -45.0, "LeftHand": -30.0, "RightForeArm": 45.0, "RightHand": 30.0}, "pose": {"Head": Vector3(-4, 0, 0), "LeftArm": Vector3(-11, 6, 90), "LeftForeArm": Vector3(0, -12, 0), "LeftShoulder": Vector3(0, 6, 0), "LeftUpLeg": Vector3(-4, 0, 0), "RightArm": Vector3(-9, -5, -84), "RightForeArm": Vector3(0, 12, 0), "RightShoulder": Vector3(0, -6, 0), "RightUpLeg": Vector3(-4, 0, 0), "Spine": Vector3(12, 0, 0), "Spine1": Vector3(9, 0, 0), "Spine2": Vector3(6, 0, 0)}},
+				{"t": 0.59, "twist": {"LeftForeArm": -53.7, "LeftHand": -35.2, "RightForeArm": 53.7, "RightHand": 35.2}, "pose": {"Head": Vector3(-5, 0, 0), "LeftArm": Vector3(-12, 7, 100), "LeftForeArm": Vector3(0, -13, 0), "LeftHand": Vector3(0, 0, 0), "LeftShoulder": Vector3(0, 4, 0), "LeftUpLeg": Vector3(6, -5, -6), "RightArm": Vector3(-10, -6, -93), "RightForeArm": Vector3(5, -53, 26), "RightHand": Vector3(29, 151, 66), "RightShoulder": Vector3(0, -4, 0), "RightUpLeg": Vector3(-3, 0, 0), "Spine": Vector3(13, 0, 0), "Spine1": Vector3(10, 0, 0), "Spine2": Vector3(6, 0, 0)}},
+				{"t": 0.62, "twist": {"LeftForeArm": -59.1, "LeftHand": -38.4, "RightForeArm": 59.1, "RightHand": -15.1}, "pose": {"Head": Vector3(-5, 0, 0), "LeftArm": Vector3(-13, 7, 107), "LeftForeArm": Vector3(0, -14, 0), "LeftHand": Vector3(0, 0, 0), "LeftShoulder": Vector3(0, 3, 0), "LeftUpLeg": Vector3(4, -3, -4), "RightArm": Vector3(-11, -6, -99), "RightForeArm": Vector3(3, -30, 17), "RightHand": Vector3(19, 101, 44), "RightShoulder": Vector3(0, -3, 0), "RightUpLeg": Vector3(-2, 0, 0), "Spine": Vector3(14, 0, 0), "Spine1": Vector3(11, 0, 0), "Spine2": Vector3(7, 0, 0)}},
+				{"t": 0.66, "twist": {"LeftForeArm": -70.0, "LeftHand": -45.0, "RightForeArm": 70.0, "RightHand": 45.0}, "pose": {"Head": Vector3(-6, 0, 0), "LeftArm": Vector3(-15, 8, 120), "LeftForeArm": Vector3(0, -16, 0), "RightArm": Vector3(-12, -7, -111), "RightForeArm": Vector3(0, 16, 0), "Spine": Vector3(16, 0, 0), "Spine1": Vector3(12, 0, 0), "Spine2": Vector3(7, 0, 0)}},
+				{"t": 0.74, "twist": {"LeftForeArm": -35.5, "LeftHand": -22.8, "RightForeArm": -31.5, "RightHand": 22.8}, "pose": {"Head": Vector3(-10, 0, 0), "LeftArm": Vector3(-5, 17, 76), "LeftForeArm": Vector3(0, -2, 0), "LeftHand": Vector3(0, 0, 0), "LeftShoulder": Vector3(0, -3, 0), "LeftUpLeg": Vector3(7, 0, 0), "RightArm": Vector3(-3, -4, -73), "RightForeArm": Vector3(0, 13, 0), "RightHand": Vector3(4, -12, -4), "RightShoulder": Vector3(0, 3, 0), "RightUpLeg": Vector3(7, 0, 0), "Spine": Vector3(-5, 0, 0), "Spine1": Vector3(-3, 0, 0), "Spine2": Vector3(-3, 0, 0)}},
+				{"t": 0.79, "twist": {"LeftForeArm": -8.9, "LeftHand": -5.7, "RightForeArm": -33.9, "RightHand": 5.7}, "pose": {"Head": Vector3(-13, 0, 0), "LeftArm": Vector3(3, 24, 41), "LeftForeArm": Vector3(0, 8, 0), "LeftHand": Vector3(0, 0, 0), "LeftShoulder": Vector3(0, -5, 0), "LeftUpLeg": Vector3(12, 0, 0), "RightArm": Vector3(4, -1, -44), "RightForeArm": Vector3(-12, 47, 4), "RightHand": Vector3(-1, -3, 3), "RightShoulder": Vector3(0, 5, 0), "RightUpLeg": Vector3(12, 0, 0), "Spine": Vector3(-21, 0, 0), "Spine1": Vector3(-15, 0, 0), "Spine2": Vector3(-10, 0, 0)}},
+				{"t": 0.82, "pose": {"Head": Vector3(-14, 0, 0), "LeftArm": Vector3(6, 26, 30), "LeftForeArm": Vector3(0, 12, 0), "LeftShoulder": Vector3(0, -6, 0), "LeftUpLeg": Vector3(14, 0, 0), "RightArm": Vector3(6, 0, -34), "RightForeArm": Vector3(0, 10, 0), "RightShoulder": Vector3(0, 6, 0), "RightUpLeg": Vector3(14, 0, 0), "Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-19, 0, 0), "Spine2": Vector3(-13, 0, 0)}},
+				{"t": 0.89, "twist": {"LeftArm": -19.5, "RightArm": 49.0, "RightForeArm": -101.0, "RightHand": 8.5}, "pose": {"Head": Vector3(-8, 0, 0), "LeftArm": Vector3(5, 27, 29), "LeftForeArm": Vector3(0, 15, 0), "LeftShoulder": Vector3(0, -5, 0), "LeftUpLeg": Vector3(11, 0, 0), "RightArm": Vector3(13, 12, -44), "RightForeArm": Vector3(3, 21, -2), "RightHand": Vector3(0, 0, 0), "RightShoulder": Vector3(0, 5, 0), "RightUpLeg": Vector3(11, 0, 0), "Spine": Vector3(-15, 0, 0), "Spine1": Vector3(-11, 0, 0), "Spine2": Vector3(-10, 0, 0)}},
+				{"t": 1.05, "pose": {"Head": Vector3(14, 0, 0), "LeftArm": Vector3(2, 30, 24), "LeftForeArm": Vector3(0, 24, 0), "RightArm": Vector3(2, 2, -30), "RightForeArm": Vector3(0, 20, 0), "Spine": Vector3(24, 0, 0), "Spine1": Vector3(18, 0, 0)}},
+				{"t": 1.60, "pose": {"RightArm": Vector3(-12, 6, -28), "RightForeArm": Vector3(0, 26, 0), "RightHand": Vector3(0, 0, 12), "RightShoulder": Vector3(0, 8, 0), "Spine1": Vector3(0, -6, 0)}},
 			],
 		},
 	]

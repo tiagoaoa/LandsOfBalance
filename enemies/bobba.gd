@@ -176,9 +176,12 @@ const AXE_ATTACK: Dictionary = {
 	# and 0.82 s of a 1.60 s clip — fraction 0.41 to 0.51. The window was set
 	# in fractions against key times written in SECONDS, so it fired at
 	# 1.09-1.38 s, well into the follow-through with the axe already down.
-	# Measured off the clip by pinning it at fixed fractions: the coil peaks
-	# at 0.51 and the blade is down by 0.64, so the blade travels 0.52-0.64.
-	"window": Vector2(0.54, 0.66),
+	# Taken from the hand-keyed clip's own key times. Those are SECONDS along
+	# a 1.60 s clip and this is a FRACTION of it: the coil apex sits at 0.66 s
+	# (0.41), the strike at 0.82 s (0.51) and the follow-through at 0.89 s
+	# (0.56). So the blade is travelling across 0.44-0.56 and the hitbox is
+	# live exactly while it comes down.
+	"window": Vector2(0.44, 0.56),
 	"kb_mult": 1.6, "lunge": 0.9,
 	"speed": 0.8,                    # deliberately slower than any fist
 }
