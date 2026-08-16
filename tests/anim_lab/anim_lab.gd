@@ -46,8 +46,11 @@ var _windows: Dictionary = {}
 
 func _ready() -> void:
 	_build_world()
-	_spawn_bobba()
 	_build_ui()
+	# _spawn_bobba awaits frames, so it MUST be awaited — calling it bare
+	# made _ready run straight on and populate the clip list while the
+	# AnimationPlayer was still null, which is why the lab came up empty.
+	await _spawn_bobba()
 	_populate_clips()
 
 
@@ -146,11 +149,21 @@ func _spawn_bobba() -> void:
 	# Inert: the lab drives the AnimationPlayer directly, so his AI, physics
 	# and hitboxes must not fight it.
 	_bobba.set_physics_process(false)
+	# His clips are loaded and composed during his own setup, which takes a
+	# few frames — wait for them rather than assuming one frame is enough.
+	for i in 60:
+		await get_tree().process_frame
+		_anim = _find_anim_player(_bobba)
+		if _anim != null and not _anim.get_animation_library_list().is_empty():
+			break
 	_bobba.set_process(false)
-	await get_tree().process_frame
-	_anim = _find_anim_player(_bobba)
 	_skeleton = _find_skeleton(_bobba)
 	_read_attack_windows()
+	var n := 0
+	if _anim:
+		for lib in _anim.get_animation_library_list():
+			n += _anim.get_animation_library(lib).get_animation_list().size()
+	print("AnimLab: found AnimationPlayer=%s with %d clips" % [str(_anim != null), n])
 
 
 func _read_attack_windows() -> void:
