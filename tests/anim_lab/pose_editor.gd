@@ -113,7 +113,7 @@ func _build() -> void:
 		_write_back())
 	btns.add_child(zero)
 	var exp := Button.new()
-	exp.text = "Export clip to file"
+	exp.text = "Export clip"
 	exp.pressed.connect(_export)
 	btns.add_child(exp)
 
@@ -253,7 +253,7 @@ func _load_bone_values() -> void:
 		(_sliders[pair[0]] as HSlider).set_value_no_signal(pair[1])
 		(_values[pair[0]] as SpinBox).set_value_no_signal(pair[1])
 	_muted = false
-	_status.text = "%s / t=%.2f / %s" % [
+	_status.text = "editing  %s   t=%.2f s   %s" % [
 			String(_spec().get("name", "?")), float(_key().get("t", 0.0)), b]
 
 
@@ -280,6 +280,19 @@ func _write_back() -> void:
 
 func _emit() -> void:
 	spec_changed.emit(String(_spec().get("name", "")))
+
+
+## Point the panel at `clip_name`, so the keyframe list, the bone list and
+## above all EXPORT follow whatever clip is actually being viewed. Without
+## this the dropdown sat on the first spec while posing edited the playing
+## clip, and Export silently wrote out the wrong animation.
+func select_clip(clip_name: String) -> void:
+	for i in _clip_pick.item_count:
+		if _clip_pick.get_item_text(i) == clip_name:
+			if _clip_pick.selected != i:
+				_clip_pick.select(i)
+				_refresh_keys()
+			return
 
 
 ## Select a bone from outside (a joint was grabbed in the viewport).
@@ -369,5 +382,5 @@ func _export() -> void:
 	DisplayServer.clipboard_set(text)
 	print("\n--- %s ---\n%s\n--- copied to clipboard, saved to %s ---" % [
 			sp["name"], text, ProjectSettings.globalize_path(OUT_PATH)])
-	_status.text = "Exported %s to clipboard and\n%s" % [
-			sp["name"], ProjectSettings.globalize_path(OUT_PATH)]
+	_status.text = "Exported %s (%d keys) to clipboard and\n%s" % [
+			sp["name"], _keys().size(), ProjectSettings.globalize_path(OUT_PATH)]

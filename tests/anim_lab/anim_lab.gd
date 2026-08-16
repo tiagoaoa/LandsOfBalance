@@ -64,6 +64,8 @@ func _ready() -> void:
 	_populate_clips()
 	_build_editor()
 	_build_handles()
+	if _editor and _current_clip != "":
+		_editor.select_clip(_current_clip.get_slice("/", 1))
 
 
 # --- scene ------------------------------------------------------------------
@@ -464,6 +466,9 @@ func _populate_clips() -> void:
 
 func _on_clip_selected(idx: int) -> void:
 	_current_clip = _clip_list.get_item_text(idx)
+	# Keep the editor panel on the same clip, or Export writes a different one.
+	if _editor:
+		_editor.select_clip(_current_clip.get_slice("/", 1))
 	_anim.play(_current_clip)
 	_anim.speed_scale = _speed_slider.value
 	_play_btn.text = "Pause"
