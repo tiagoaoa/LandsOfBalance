@@ -42,6 +42,10 @@ var _scrubbing: bool = false
 var _current_clip: String = ""
 ## {clip_name: Vector2(window_start, window_end)} in clip fraction.
 var _windows: Dictionary = {}
+var _editor: PoseEditor
+## Live copy of the composed-clip specs. The editor mutates these in place and
+## we rebuild the affected clip, so a change is visible without a relaunch.
+var _specs: Array = []
 
 
 func _ready() -> void:
@@ -52,6 +56,7 @@ func _ready() -> void:
 	# AnimationPlayer was still null, which is why the lab came up empty.
 	await _spawn_bobba()
 	_populate_clips()
+	_build_editor()
 
 
 # --- scene ------------------------------------------------------------------
@@ -164,6 +169,61 @@ func _spawn_bobba() -> void:
 		for lib in _anim.get_animation_library_list():
 			n += _anim.get_animation_library(lib).get_animation_list().size()
 	print("AnimLab: found AnimationPlayer=%s with %d clips" % [str(_anim != null), n])
+
+
+## The editor lives beside the clip list and rebuilds a clip on every change.
+func _build_editor() -> void:
+	if _anim == null or _skeleton == null:
+		return
+	_specs = BobbaAnims.specs()
+	_editor = PoseEditor.new()
+	_editor.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_editor.position = Vector2(-350, 12)
+	_editor.spec_changed.connect(_on_spec_changed)
+	for c in get_children():
+		if c is CanvasLayer:
+			c.add_child(_editor)
+			break
+	_editor.setup(_specs, _skeleton)
+
+
+## Recompose just the edited clip and swap it in, holding the playhead so the
+## pose you are looking at does not jump while you drag a slider.
+func _on_spec_changed(clip_name: String) -> void:
+	if clip_name == "" or _anim == null:
+		return
+	var lib: AnimationLibrary = _anim.get_animation_library(&"bobba")
+	if lib == null:
+		return
+	var spec: Dictionary = {}
+	for sp in _specs:
+		if String(sp["name"]) == clip_name:
+			spec = sp
+			break
+	if spec.is_empty():
+		return
+	var base_name := StringName(String(spec.get("base", "Idle")))
+	if not lib.has_animation(base_name):
+		return
+	var base: Animation = lib.get_animation(base_name)
+	var length: float = float(spec.get("length", 0.0))
+	if length <= 0.0:
+		length = base.length
+	var rebuilt: Animation = PoseAnim.compose(base, _skeleton, spec["keys"],
+			length, bool(spec.get("loop", false)))
+	if rebuilt == null:
+		return
+	var was_playing: bool = _anim.is_playing()
+	var pos: float = _anim.current_animation_position
+	var name := StringName(clip_name)
+	if lib.has_animation(name):
+		lib.remove_animation(name)
+	lib.add_animation(name, rebuilt)
+	if _current_clip.get_slice("/", 1) == clip_name:
+		_anim.play(_current_clip)
+		_anim.seek(minf(pos, rebuilt.length), true)
+		if not was_playing:
+			_anim.pause()
 
 
 func _read_attack_windows() -> void:

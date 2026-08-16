@@ -49,6 +49,11 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 		print("Bobba: composed clips: %s" % ", ".join(built))
 
 
+## The clip specs, exposed so the animation lab can edit them live.
+static func specs() -> Array:
+	return _specs()
+
+
 static func _specs() -> Array:
 	# Arms thrown open and torso driven back — the "took one square in the
 	# chest" read. Snap out fast, recover slower, so it lands as an impact
