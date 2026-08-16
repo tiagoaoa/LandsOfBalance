@@ -172,7 +172,13 @@ const COMBO_ATTACKS: Array[Dictionary] = [
 ## reaches much further than a punch.
 const AXE_ATTACK: Dictionary = {
 	"anim": &"bobba/AxeAttack", "damage": 95.0,
-	"window": Vector2(0.68, 0.86),   # the downswing only
+	# The blade travels between the apex and strike keys, which sit at 0.66 s
+	# and 0.82 s of a 1.60 s clip — fraction 0.41 to 0.51. The window was set
+	# in fractions against key times written in SECONDS, so it fired at
+	# 1.09-1.38 s, well into the follow-through with the axe already down.
+	# Measured off the clip by pinning it at fixed fractions: the coil peaks
+	# at 0.51 and the blade is down by 0.64, so the blade travels 0.52-0.64.
+	"window": Vector2(0.54, 0.66),
 	"kb_mult": 1.6, "lunge": 0.9,
 	"speed": 0.8,                    # deliberately slower than any fist
 }

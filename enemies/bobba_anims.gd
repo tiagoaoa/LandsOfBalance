@@ -11,7 +11,7 @@ extends RefCounted
 ## Everything here is composed onto an existing clip via PoseAnim, so each
 ## output is a full body and the AnimationPlayer can play it like any other.
 ## Poses are character-space degrees. Verified against the rig with an
-## isolation clip: -x leans BACK / opens the chest, +x folds FORWARD.
+## isolation clip: +x arches BACK / opens the chest, -x folds FORWARD.
 
 const LIB := "bobba"
 
@@ -54,17 +54,17 @@ static func _specs() -> Array:
 	# chest" read. Snap out fast, recover slower, so it lands as an impact
 	# rather than a sway.
 	var hit_open := {
-		"Spine": Vector3(-28, 0, 0), "Spine1": Vector3(-21, 0, 0),
-		"Spine2": Vector3(-16, 0, 0), "Neck": Vector3(-12, 0, 0),
-		"Head": Vector3(-24, 0, 0),
+		"Spine": Vector3(28, 0, 0), "Spine1": Vector3(21, 0, 0),
+		"Spine2": Vector3(16, 0, 0), "Neck": Vector3(12, 0, 0),
+		"Head": Vector3(24, 0, 0),
 		"LeftShoulder": Vector3(0, -20, 0), "RightShoulder": Vector3(0, 20, 0),
 		"LeftArm": Vector3(-16, -42, 28), "RightArm": Vector3(-16, 42, -28),
 		"LeftForeArm": Vector3(0, -28, 0), "RightForeArm": Vector3(0, 28, 0),
 		"LeftUpLeg": Vector3(12, 0, 0), "RightUpLeg": Vector3(12, 0, 0),
 	}
 	var hit_settle := {
-		"Spine": Vector3(-9, 0, 0), "Spine1": Vector3(-7, 0, 0),
-		"Head": Vector3(-8, 0, 0),
+		"Spine": Vector3(9, 0, 0), "Spine1": Vector3(7, 0, 0),
+		"Head": Vector3(8, 0, 0),
 		"LeftArm": Vector3(0, -14, 9), "RightArm": Vector3(0, 14, -9),
 	}
 
@@ -126,7 +126,7 @@ static func _specs() -> Array:
 				{"t": 0.00, "pose": carry},
 				# Left hand crosses and grips the haft; knees settle.
 				{"t": 0.26, "pose": {
-					"Spine": Vector3(-6, -8, 0), "Spine1": Vector3(-4, -10, 0),
+					"Spine": Vector3(6, -8, 0), "Spine1": Vector3(4, -10, 0),
 					"Head": Vector3(4, -10, 0),
 					"RightShoulder": Vector3(0, 4, 0),
 					"RightArm": Vector3(-16, 8, -22), "RightForeArm": Vector3(0, 34, 0),
@@ -137,11 +137,13 @@ static func _specs() -> Array:
 				}},
 				# Both arms haul it up and back over the head.
 				{"t": 0.55, "pose": {
-					"Spine": Vector3(-22, 0, 0), "Spine1": Vector3(-16, 0, 0),
-					"Spine2": Vector3(-10, 0, 0), "Head": Vector3(4, 0, 0),
+					"Spine": Vector3(12, 0, 0), "Spine1": Vector3(9, 0, 0),
+					"Spine2": Vector3(6, 0, 0), "Head": Vector3(-4, 0, 0),
 					"RightShoulder": Vector3(0, -6, 0), "LeftShoulder": Vector3(0, 6, 0),
-					"RightArm": Vector3(0, -12, 88), "LeftArm": Vector3(0, 12, -88),
-					"RightForeArm": Vector3(0, 56, 0), "LeftForeArm": Vector3(0, -56, 0),
+					# Three quarters of the way into the solved coil.
+					"RightArm": Vector3(-9, -5, -84),
+					"LeftArm": Vector3(-11, 6, 90),
+					"RightForeArm": Vector3(0, 14, 0), "LeftForeArm": Vector3(0, -14, 0),
 					"RightHand": Vector3(18, 0, 0),
 					"LeftUpLeg": Vector3(-4, 0, 0), "RightUpLeg": Vector3(-4, 0, 0),
 				}},
@@ -160,16 +162,24 @@ static func _specs() -> Array:
 					# and below. The wrist stays near its carry angle — rolling
 					# the blade upright made him present the axe rather than
 					# cock it.
-					"Spine": Vector3(-28, 0, 0), "Spine1": Vector3(-20, 0, 0),
-					"Spine2": Vector3(-12, 0, 0), "Head": Vector3(6, 0, 0),
-					"RightArm": Vector3(0, -18, 112), "LeftArm": Vector3(0, 18, -112),
-					"RightForeArm": Vector3(0, 70, 0), "LeftForeArm": Vector3(0, -70, 0),
+					"Spine": Vector3(16, 0, 0), "Spine1": Vector3(12, 0, 0),
+					"Spine2": Vector3(7, 0, 0), "Head": Vector3(-6, 0, 0),
+					# SOLVED, not guessed: the rotation that takes each arm from
+					# its rest direction (shoulder->hand) to the direction of
+					# the fists meeting above the head. Verified to land the
+					# right hand within a centimetre of the target. The signs
+					# are opposite to what the isolation test suggested, which
+					# is why every hand-tuned attempt spread the arms instead
+					# of closing them.
+					"RightArm": Vector3(-12, -7, -111),
+					"LeftArm": Vector3(-15, 8, 120),
+					"RightForeArm": Vector3(0, 18, 0), "LeftForeArm": Vector3(0, -18, 0),
 					"RightHand": Vector3(25, 0, 0),
 				}},
 				# The strike, straight down the centre line.
 				{"t": 0.82, "pose": {
-					"Spine": Vector3(24, 0, 0), "Spine1": Vector3(18, 0, 0),
-					"Spine2": Vector3(13, 0, 0), "Head": Vector3(14, 0, 0),
+					"Spine": Vector3(-26, 0, 0), "Spine1": Vector3(-19, 0, 0),
+					"Spine2": Vector3(-13, 0, 0), "Head": Vector3(-14, 0, 0),
 					"RightShoulder": Vector3(0, 6, 0), "LeftShoulder": Vector3(0, -6, 0),
 					"RightArm": Vector3(6, 0, -34), "LeftArm": Vector3(6, 26, 30),
 					"RightForeArm": Vector3(0, 10, 0), "LeftForeArm": Vector3(0, 12, 0),
