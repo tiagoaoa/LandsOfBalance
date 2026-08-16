@@ -29,7 +29,7 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 		return
 
 	var built: Array[String] = []
-	for spec in _specs():
+	for spec in specs():
 		var name: StringName = StringName(spec["name"])
 		if lib.has_animation(name):
 			continue
@@ -49,9 +49,54 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 		print("Bobba: composed clips: %s" % ", ".join(built))
 
 
+## Where the animation lab saves. A clip saved there OVERRIDES the keys
+## written below, so posing in the lab reaches the game without anyone
+## pasting GDScript around.
+const POSE_DIR := "res://tests/anim_lab/poses"
+
+
 ## The clip specs, exposed so the animation lab can edit them live.
+##
+## Specs below are the DEFAULT — they always work, with no files present. A
+## saved .json replaces that clip's keys, and says so in the log, because a
+## silent override would make the source read as the truth when it is not.
 static func specs() -> Array:
-	return _specs()
+	var all := _specs()
+	for sp in all:
+		_apply_override(sp)
+	return all
+
+
+static func _apply_override(spec: Dictionary) -> void:
+	var path := "%s/%s.json" % [POSE_DIR, String(spec["name"])]
+	if not FileAccess.file_exists(path):
+		return
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	if typeof(parsed) != TYPE_DICTIONARY or not (parsed as Dictionary).has("keys"):
+		push_warning("Bobba: %s is not a pose file, ignoring" % path)
+		return
+	var keys := []
+	for k in (parsed["keys"] as Array):
+		var pose := {}
+		for b in (k.get("pose", {}) as Dictionary):
+			var a: Array = k["pose"][b]
+			pose[b] = Vector3(float(a[0]), float(a[1]), float(a[2]))
+		var twist := {}
+		for b in (k.get("twist", {}) as Dictionary):
+			twist[b] = float(k["twist"][b])
+		keys.append({"t": float(k["t"]), "pose": pose, "twist": twist})
+	if keys.is_empty():
+		return
+	spec["keys"] = keys
+	if parsed.has("length"):
+		spec["length"] = float(parsed["length"])
+	print("Bobba: %s OVERRIDDEN from %s (%d keys) — the values in " % [
+			spec["name"], path.get_file(), keys.size()]
+			+ "bobba_anims.gd are NOT what is running")
 
 
 static func _specs() -> Array:
