@@ -166,19 +166,32 @@ const COMBO_ATTACKS: Array[Dictionary] = [
 	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
 	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0, "speed": 1.5},
 ]
-## The axe swing is a separate decision from the fist chain, not a step in
-## it. He carries the axe one-handed and has to commit BOTH hands to use it,
-## which is what buys the player the read: it is slow, it is frontal, and it
-## reaches much further than a punch.
+## The axe swing is a separate decision from the fist chain, not a step in it.
+## What buys the player the read is that it is slow, frontal, and reaches much
+## further than a punch.
+##
+## It is a ONE-handed overhead chop, not the two-handed grip the composed
+## version aimed at: the imported clip keeps the left arm out as counterweight
+## — measured 1.8 m from the right hand at the moment of impact — and swings
+## the axe off the right shoulder alone. Restoring the two-handed read means
+## going back to the composed clip (see ANIM_PATHS), not editing this.
 const AXE_ATTACK: Dictionary = {
 	"anim": &"bobba/AxeAttack", "damage": 95.0,
-	# Taken from the hand-keyed clip's own key times. Those are SECONDS along
-	# a 1.60 s clip and this is a FRACTION of it: the apex sits at 0.74 s
-	# (0.46) and the strike at 0.89 s (0.56). So the blade is travelling
-	# across 0.47-0.60 and the hitbox is live exactly while it comes down.
-	"window": Vector2(0.47, 0.60),
+	# MEASURED off the clip, not read off its key times — tools/measure_clip.gd
+	# walks the right hand's arc through the 2.267 s FBX:
+	#   0.00-0.65  wind-up, hand climbs 0.78 -> 2.10 m and swings overhead
+	#   0.65       apex
+	#   0.75-0.90  the chop: peak downward speed 0.833 s, furthest reach 0.85 s
+	#   1.10-2.27  recovery back to guard
+	# So the blade is coming down across 0.77-0.93 s, which on this clip is the
+	# fraction 0.34-0.41. Narrower than the old composed swing's window because
+	# this chop is genuinely faster through the bottom of its arc.
+	"window": Vector2(0.34, 0.41),
 	"kb_mult": 1.6, "lunge": 0.9,
-	"speed": 0.8,                    # deliberately slower than any fist
+	# The clip is already slower than any fist at 1x — 2.27 s against the
+	# swipe's 1.4 s — so it no longer needs to be dragged down to read as the
+	# committed, punishable option.
+	"speed": 1.0,
 }
 ## Reach of the axe head, measured off the weapon rather than guessed: the
 ## blade is 1.75 m of haft swung from a shoulder on a 3 m body.
@@ -193,7 +206,9 @@ const AXE_ATTACK_CONE_DEG: float = 90.0
 ## thing doing the damage is bigger; still only the head, never the haft.
 const AXE_HITBOX_RADIUS: float = 0.75
 
-## Committing both hands leaves him open — a longer punish than the chain.
+## Burying the axe in the ground leaves him open — a longer punish than the
+## chain. The clip's own recovery runs from 1.1 s to 2.27 s, so this sits on
+## top of a swing that is already committed for over a second after impact.
 const AXE_END_COOLDOWN: float = 1.8
 
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
@@ -241,6 +256,12 @@ const ANIM_PATHS: Dictionary = {
 	"roar": "res://assets/bobba/mutant roaring.fbx",
 	"dying": "res://assets/bobba/mutant dying.fbx",
 	"jump_attack": "res://assets/bobba/mutant jump attack.fbx",
+	# Mixamo "Standing Melee Attack Downward" — an authored overhead chop,
+	# replacing the hand-keyed AxeAttack that PoseAnim used to compose. A clip
+	# loaded here wins: BobbaAnims.compose() skips any spec the library already
+	# has, so DELETING THIS LINE restores the composed version (and with it the
+	# animation lab's saved AxeAttack.json, which is inert while this is here).
+	"axe_attack": "res://assets/bobba/axe_attack_downward.fbx",
 }
 
 @onready var gravity: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity") * \
@@ -1542,6 +1563,7 @@ func _load_animations() -> void:
 		"roar": ["Roar", false],
 		"dying": ["Dying", false],
 		"jump_attack": ["JumpAttack", false],
+		"axe_attack": ["AxeAttack", false],
 	}
 
 	for anim_key in ANIM_PATHS:
@@ -2131,7 +2153,7 @@ func _can_axe_attack(distance: float) -> bool:
 			<= AXE_ATTACK_CONE_DEG
 
 
-## Commit to the two-handed swing.
+## Commit to the overhead chop.
 func _start_axe_attack() -> void:
 	_axe_attack_active = true
 	_last_attack_was_axe = true
@@ -2144,7 +2166,7 @@ func _start_axe_attack() -> void:
 	velocity.x = 0
 	velocity.z = 0
 	_attack_state_time = 0.0
-	print("Bobba: AXE SWING — two-handed, frontal | playing=%s len=%.2f speed=%.2f" % [
+	print("Bobba: AXE SWING — overhead, frontal | playing=%s len=%.2f speed=%.2f" % [
 			_anim_player.current_animation,
 			_anim_player.current_animation_length,
 			_anim_player.get_playing_speed()])

@@ -29,9 +29,14 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 		return
 
 	var built: Array[String] = []
+	var supplied: Array[String] = []
 	for spec in specs():
 		var name: StringName = StringName(spec["name"])
+		# An imported FBX under the same name wins. Say so: otherwise the keys
+		# below — and any saved pose overriding them — read as what is running
+		# when they are inert, which is the same trap the override log fixes.
 		if lib.has_animation(name):
+			supplied.append(String(name))
 			continue
 		var base_name: StringName = StringName(spec.get("base", "Idle"))
 		var base: Animation = lib.get_animation(base_name) if lib.has_animation(base_name) else idle
@@ -45,8 +50,15 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 		if clip != null:
 			lib.add_animation(name, clip)
 			built.append(String(name))
+			if spec.has("_override"):
+				print("Bobba: %s OVERRIDDEN from %s — the values in " % [
+						name, spec["_override"]]
+						+ "bobba_anims.gd are NOT what is running")
 	if not built.is_empty():
 		print("Bobba: composed clips: %s" % ", ".join(built))
+	if not supplied.is_empty():
+		print("Bobba: %s came from an imported clip, NOT from bobba_anims.gd"
+				% ", ".join(supplied))
 
 
 ## Where the animation lab saves. A clip saved there OVERRIDES the keys
@@ -94,9 +106,11 @@ static func _apply_override(spec: Dictionary) -> void:
 	spec["keys"] = keys
 	if parsed.has("length"):
 		spec["length"] = float(parsed["length"])
-	print("Bobba: %s OVERRIDDEN from %s (%d keys) — the values in " % [
-			spec["name"], path.get_file(), keys.size()]
-			+ "bobba_anims.gd are NOT what is running")
+	# Noted, not announced. compose() reports it only for clips it actually
+	# builds — a spec that an imported FBX supersedes is not "what is running"
+	# however recently it was saved, and saying so anyway is the same lie the
+	# message exists to prevent.
+	spec["_override"] = "%s (%d keys)" % [path.get_file(), keys.size()]
 
 
 static func _specs() -> Array:
@@ -160,6 +174,13 @@ static func _specs() -> Array:
 			"keys": [{"t": 0.0, "pose": carry}],
 		},
 		# Two-handed overhead chop, frontal.
+		#
+		# SUPERSEDED, but kept: Bobba's "axe_attack" entry in ANIM_PATHS now
+		# imports an authored Mixamo chop under this same name, and compose()
+		# skips any spec the library already has. Everything below — and the
+		# lab's saved AxeAttack.json — is therefore inert until that line is
+		# removed. It is the only two-handed version of this swing there is,
+		# which is why it is still here rather than deleted.
 		#
 		# HAND-KEYED IN THE ANIMATION LAB, not written by hand here. Edit it there
 		# (tools/run_anim_lab.sh), save, and paste the export back — do not nudge
