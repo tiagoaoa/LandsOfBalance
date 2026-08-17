@@ -1609,6 +1609,12 @@ func _drive_gearsim(delta: float) -> void:
 			if ap != null and seek.is_valid_float() and ap.current_animation != "":
 				ap.seek(clampf(float(seek), 0.0, 1.0) * ap.current_animation_length, true)
 				ap.pause()
+	elif OS.get_environment("LOB_GEAR_CLIP") != "":
+		# Same treatment for the PLAYER, so an authored player clip can be
+		# read frame by frame too. LOB_GEAR_CLIP is unprefixed here as well;
+		# the current loadout's library supplies the prefix, which keeps one
+		# clip name working across armed, unarmed and archer.
+		_gearsim_hold_player_clip()
 
 	# The camera rig eases spring_length back to DEFAULT_SPRING_LENGTH every
 	# physics frame, so a one-shot assignment is undone before the next
@@ -1633,8 +1639,12 @@ func _drive_gearsim(delta: float) -> void:
 		cam.position.y = 0.0
 		cam.fov = 45.0
 
-	# One revolution per loadout, then switch class.
+	# One revolution per loadout, then switch class — unless a clip is being
+	# held, in which case the loadout must stay put: cycling it swaps the
+	# animation library out from under the clip being examined.
 	var slot: int = int(_elapsed / GEARSIM_PER_CLASS)
+	if OS.get_environment("LOB_GEAR_CLIP") != "":
+		slot = _gearsim_slot
 	if slot != _gearsim_slot:
 		_gearsim_slot = slot
 		match slot:
@@ -1661,6 +1671,34 @@ func _drive_gearsim(delta: float) -> void:
 			pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
 		pivot.rotation.x = 0.0
 		pivot.position.y = _gearsim_height()
+
+
+## Hold the PLAYER on one clip, pinned at LOB_GEAR_SEEK. The player drives its
+## own animation every frame from movement state, so a clip set once is gone by
+## the next frame — this re-asserts it, and freezes the body so locomotion does
+## not fight the pose being examined.
+func _gearsim_hold_player_clip() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ap: AnimationPlayer = _player.get("_current_anim_player") as AnimationPlayer
+	if ap == null:
+		return
+	var clip := OS.get_environment("LOB_GEAR_CLIP")
+	var prefix: String = "armed"
+	if _player.has_method("_get_current_mode_prefix"):
+		prefix = _player._get_current_mode_prefix()
+	var full := StringName("%s/%s" % [prefix, clip])
+	if not ap.has_animation(full):
+		return
+	_player.velocity = Vector3.ZERO
+	if ap.current_animation != String(full):
+		ap.play(full)
+		print("[CombatTest/GEARSIM] holding player on %s (%.2fs)" % [
+				full, ap.get_animation(full).length])
+	var seek := OS.get_environment("LOB_GEAR_SEEK")
+	if seek.is_valid_float():
+		ap.seek(clampf(float(seek), 0.0, 1.0) * ap.current_animation_length, true)
+		ap.pause()
 
 
 ## Logs where every attached piece actually ended up in world space, so a

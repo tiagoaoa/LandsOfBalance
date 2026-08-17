@@ -98,6 +98,9 @@ const UNARMED_ANIM_PATHS: Dictionary = {
 	"estus": "res://player/character/armed/PowerUp.fbx",
 	"walk_back": "res://player/character/archer/standing walk back.fbx",
 	"run_back": "res://player/character/archer/standing run back.fbx",
+	# Unarmed shipped no evasion clip at all — the roll moved the body and
+	# played whatever it was already playing. Same tumble as armed.
+	"roll": "res://player/character/armed/Roll.fbx",
 }
 
 # Armed animations (Paladin with sword & shield)
@@ -127,6 +130,14 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	"dodge_b": "res://player/character/archer/standing dodge backward.fbx",
 	"dodge_l": "res://player/character/archer/standing dodge left.fbx",
 	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
+	# The dodge-roll proper. Those four clips are SIDESTEPS — quick shuffles
+	# that never leave the feet — which is why the roll never read as one.
+	# This is a full tumble, played for any directional roll; the sidesteps
+	# stay for the neutral backstep, which is a different move in the genre
+	# and looks wrong as a somersault. Trimmed and speed-fitted on load
+	# (ROLL_CLIP_FROM/TO), and it is the one clip that keeps its vertical
+	# root motion.
+	"roll": "res://player/character/armed/Roll.fbx",
 	# Generic (non-bow) Mixamo clips from the Archer folder, same rig, same
 	# bone-name retarget as the dodges above.
 	"react_hit": "res://player/character/archer/standing react small from front.fbx",
@@ -291,11 +302,27 @@ var _lock_indicator: Sprite3D = null       # billboard reticle drawn over the ta
 var is_rolling: bool = false
 var _roll_timer: float = 0.0
 var _roll_dir: Vector3 = Vector3.ZERO
+## True when this roll is an actual tumble (directional) rather than the
+## neutral backstep. A tumble turns the body down its own direction of
+## travel; a backstep stays squared up to the camera.
+var _roll_faces_dir: bool = false
 const ROLL_SPEED: float = 9.0          # m/s peak — faster than RUN_SPEED (7.0)
-const ROLL_DURATION: float = 0.5       # total roll length in seconds
-const ROLL_IFRAME_START: float = 0.06  # i-frames begin shortly after start
-const ROLL_IFRAME_END: float = 0.40    # ...and end before recovery, leaving a punish window
+## Total roll length. Lengthened from 0.50 s when the tumble clip landed: a
+## real forward roll cannot be told in half a second without playing at 3x,
+## which reads as a stutter rather than a dodge. 0.72 s is Dark Souls' fast
+## roll almost exactly, and the i-frame window below keeps the same share of
+## it as before (~58%), so the timing the fight was tuned around is intact.
+const ROLL_DURATION: float = 0.72
+const ROLL_IFRAME_START: float = 0.09  # i-frames begin shortly after start
+const ROLL_IFRAME_END: float = 0.51    # ...and end before recovery, leaving a punish window
 const ROLL_STAMINA_COST: float = 22.0
+## The slice of "Stand To Roll" that IS the roll. The source is 2.37 s of
+## stand, crouch, dive, tumble and stand up; measured on the hips, the dive
+## starts around 0.40 s and the body is coming back upright by 1.60 s
+## (tools/measure_clip.gd). Everything outside that is a preamble the game
+## does not want — the dodge has to be instant.
+const ROLL_CLIP_FROM: float = 0.40
+const ROLL_CLIP_TO: float = 1.60
 
 # Parry → riposte (souls-like). Press G / gamepad RB to flick the shield.
 # A parryable melee hit that lands on the player INSIDE the active window
@@ -2010,6 +2037,7 @@ func _get_unarmed_config() -> Dictionary:
 		"estus": ["Estus", false],
 		"walk_back": ["WalkBack", true],
 		"run_back": ["RunBack", true],
+		"roll": ["Roll", false],
 	}
 
 
@@ -2032,6 +2060,7 @@ func _get_armed_config() -> Dictionary:
 		"dodge_b": ["DodgeB", false],
 		"dodge_l": ["DodgeL", false],
 		"dodge_r": ["DodgeR", false],
+		"roll": ["Roll", false],
 		"react_hit": ["ReactHit", false],
 		"death": ["Death", false],
 		"walk_back": ["WalkBack", true],
@@ -2179,7 +2208,10 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 			new_anim.loop_mode = Animation.LOOP_LINEAR if anim_config[1] else Animation.LOOP_NONE
 
 			# Retarget animation
-			_retarget_animation(new_anim, skel_path, skeleton)
+			_retarget_animation(new_anim, skel_path, skeleton, anim_key == "roll")
+			if anim_key == "roll":
+				new_anim = ClipTrim.sub(new_anim, ROLL_CLIP_FROM, ROLL_CLIP_TO)
+				new_anim.loop_mode = Animation.LOOP_NONE
 
 			var lib_name: StringName = StringName(library_prefix)
 			if not anim_player.has_animation_library(lib_name):
@@ -2237,7 +2269,14 @@ func _apply_character_material(node: Node, color: Color) -> void:
 		_apply_character_material(child, color)
 
 
-func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton: Skeleton3D) -> void:
+## `keep_vertical` keeps the Hips' UP motion while still discarding the
+## horizontal travel. Almost every clip wants root motion gone outright —
+## code drives the character and a clip that also walks it fights that. A
+## roll is the exception: the hips genuinely drop to the floor and come back
+## up, and flattening that leaves the body pirouetting around standing hip
+## height with its head through the ground.
+func _retarget_animation(anim: Animation, target_skeleton_path: String,
+		skeleton: Skeleton3D, keep_vertical: bool = false) -> void:
 	var tracks_to_remove: Array[int] = []
 
 	for i in range(anim.get_track_count()):
@@ -2252,8 +2291,11 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 
 		# Remove root motion from Hips
 		if bone_name == "mixamorig_Hips" and anim.track_get_type(i) == Animation.TYPE_POSITION_3D:
-			tracks_to_remove.append(i)
-			continue
+			if keep_vertical:
+				_flatten_hips_track(anim, i, skeleton)
+			else:
+				tracks_to_remove.append(i)
+				continue
 
 		# Verify bone exists
 		if skeleton.find_bone(bone_name) == -1:
@@ -2269,6 +2311,22 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 	tracks_to_remove.reverse()
 	for track_idx in tracks_to_remove:
 		anim.remove_track(track_idx)
+
+
+## Rewrite a Hips position track to vertical-only, anchored so the clip's
+## first frame sits exactly at the bone's rest height. Without the anchor the
+## character pops down (or up) the instant the clip starts, because Mixamo's
+## standing hip height is not this skeleton's.
+func _flatten_hips_track(anim: Animation, track: int, skeleton: Skeleton3D) -> void:
+	var hips: int = skeleton.find_bone("mixamorig_Hips")
+	if hips == -1 or anim.track_get_key_count(track) == 0:
+		return
+	var rest: Vector3 = skeleton.get_bone_rest(hips).origin
+	var anchor: float = (anim.track_get_key_value(track, 0) as Vector3).y
+	for k in range(anim.track_get_key_count(track)):
+		var v: Vector3 = anim.track_get_key_value(track, k)
+		anim.track_set_key_value(track, k,
+				Vector3(rest.x, rest.y + (v.y - anchor), rest.z))
 
 
 func _on_animation_finished(anim_name: StringName) -> void:
@@ -4462,6 +4520,8 @@ func _try_dodge() -> void:
 	var fwd := Vector3.FORWARD.rotated(Vector3.UP, cam_yaw)
 	var rt := Vector3.RIGHT.rotated(Vector3.UP, cam_yaw)
 	var anim_key: String = "dodge_b"
+	_roll_faces_dir = false
+	var directional: bool = false
 	if raw.length() > 0.15:
 		var n: Vector2 = raw.normalized()
 		_roll_dir = (fwd * -n.y + rt * n.x).normalized()
@@ -4470,6 +4530,7 @@ func _try_dodge() -> void:
 			anim_key = "dodge_f" if n.y < 0.0 else "dodge_b"
 		else:
 			anim_key = "dodge_l" if n.x < 0.0 else "dodge_r"
+		directional = true
 	else:
 		_roll_dir = -fwd  # backstep away from where the camera faces
 
@@ -4477,8 +4538,32 @@ func _try_dodge() -> void:
 	_roll_timer = ROLL_DURATION
 	Sfx.play3d("roll", global_position, -8.0)
 
-	# Play the directional dodge clip for the current character/mode.
 	var prefix: String = _get_current_mode_prefix()
+
+	# A DIRECTIONAL roll is a tumble down its own line of travel — the body
+	# turns to face where it is going and rolls forward, exactly as the genre
+	# does it, which is why one clip covers all four directions. Neutral is a
+	# backstep: a different move, and a somersault backwards would read as a
+	# mistake. Falls back to the old sidestep clips for any set without the
+	# tumble (the archer keeps hers).
+	if directional:
+		var roll_name := StringName("%s/Roll" % prefix)
+		if _current_anim_player != null and _current_anim_player.has_animation(roll_name):
+			_roll_faces_dir = true
+			var clip: Animation = _current_anim_player.get_animation(roll_name)
+			# Fit the trimmed tumble to the roll's own duration, so the body
+			# is never still mid-somersault when the i-frames end.
+			var rate: float = clip.length / ROLL_DURATION if clip.length > 0.0 else 1.0
+			_current_anim_player.play(roll_name, 0.05, rate)
+			_current_anim = roll_name
+			# Snap, do not ease: the roll commits on the frame it starts, and
+			# a body still swinging round to face the direction it is already
+			# travelling in looks like a slide.
+			if _character_model != null:
+				_character_model.rotation.y = atan2(_roll_dir.x, _roll_dir.z)
+			return
+
+	# Backstep (or no tumble available): the old directional clip.
 	var anim_name := StringName("%s/%s" % [prefix, _dodge_anim_suffix(anim_key)])
 	if _current_anim_player != null and _current_anim_player.has_animation(anim_name):
 		_current_anim_player.play(anim_name)
@@ -4911,6 +4996,12 @@ func _physics_process(delta: float) -> void:
 				and _attack_lunge_dir.length() > 0.1:
 			# Locked-on swings square up to the target itself.
 			mesh_target_rotation = atan2(_attack_lunge_dir.x, _attack_lunge_dir.z)
+		elif is_rolling and _roll_faces_dir:
+			# A tumble goes where the body is pointed. Holding this for the
+			# whole roll matters under lock-on especially: the camera is
+			# tracking the enemy, so without it the model would be dragged
+			# back to face the threat while somersaulting sideways.
+			mesh_target_rotation = atan2(_roll_dir.x, _roll_dir.z)
 		_character_model.rotation.y = lerp_angle(_character_model.rotation.y, mesh_target_rotation, 12.0 * delta)
 
 	velocity = horizontal_velocity + Vector3.UP * velocity.y

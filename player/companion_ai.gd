@@ -6,7 +6,7 @@ extends Node
 ## human uses: it steers the character's camera pivot, writes
 ## `_ai_move_vec` / `_ai_run` (read where player.gd would poll Input), and
 ## calls the same action methods the combat harness does (_do_attack,
-## _do_roll, _try_parry, _try_estus, _do_spell_cast, _shoot_arrow).
+## _try_dodge, _try_parry, _try_estus, _do_spell_cast, _shoot_arrow).
 ##
 ## Intelligence model — every game rule feeds the decisions:
 ## - PERCEPTION: blind-in-the-dark rules ([[Perception.can_see]] —
@@ -256,8 +256,13 @@ func _react_to_attack(enemy: Node3D, is_paladin: bool) -> bool:
 	away.y = 0.0
 	if away.length_squared() > 0.01:
 		_move_world(away.normalized(), true)
-	if body.has_method("_do_roll"):
-		body._do_roll()
+	# _try_dodge, not _do_roll — there has never been a _do_roll, so this
+	# branch quietly did nothing but consume the defence reaction: the
+	# companion stepped away from the swing and ate it. _move_world above
+	# has already set _ai_move_vec, which is where the roll takes its
+	# direction from for an AI body.
+	if body.has_method("_try_dodge"):
+		body._try_dodge()
 	return true
 
 

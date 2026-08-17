@@ -27,6 +27,13 @@ ANGLE="${3:-90}"
 HIT="${4:-}"
 FROM="${5:-0}"
 TO="${6:-1}"
+# TARGET=player shoots the Paladin instead of Bobba. The clip name is given
+# unprefixed either way; the subject's own library resolves it.
+TARGET="${TARGET:-bobba}"
+# Framing. A standing enemy and a character rolling through waist-high grass
+# want very different shots, so both are overridable.
+ORBIT="${ORBIT:-7.0}"
+HEIGHT="${HEIGHT:-1.6}"
 
 OUT=/tmp/clip_sheet
 rm -rf "$OUT"
@@ -41,12 +48,12 @@ for i in $(seq 0 $((FRAMES - 1))); do
     # headless run has nothing to read — it completes happily and writes zero
     # frames. This opens a game window on the desktop for ~25 s per frame.
     LOB_HEADLESS=0 \
-    LOB_GEAR_TARGET=bobba \
+    LOB_GEAR_TARGET="$TARGET" \
     LOB_GEAR_CLIP="$CLIP" \
     LOB_GEAR_SEEK="$SEEK" \
     LOB_GEAR_ANGLE="$ANGLE" \
-    LOB_GEAR_ORBIT=7.0 \
-    LOB_GEAR_HEIGHT=1.6 \
+    LOB_GEAR_ORBIT="$ORBIT" \
+    LOB_GEAR_HEIGHT="$HEIGHT" \
     ${HIT:+LOB_GEAR_HIT=1} \
         timeout 90 tools/run_combat_scenario.sh GEARSIM 25 >/dev/null 2>&1
 
