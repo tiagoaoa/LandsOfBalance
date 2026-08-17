@@ -915,6 +915,15 @@ func _stop_lightning_vfx() -> void:
 func _start_fire_circle_vfx() -> void:
 	_fire_circle_active = true
 	_fire_circle_time = 0.0
+	# Join "ground_fire" so this is a REAL fire to every AI, exactly as the
+	# local caster's is (player.gd:_start_fire_circle_spell). Without it a
+	# networked ally's fire circle was pure decoration: it lit the scene but
+	# revealed nobody and Bobba walked through it. In other words the one
+	# thing an archer does for the party — light the dark so the melee
+	# fighter can find what is hitting him — did nothing in actual co-op,
+	# which is the only mode with a second player to do it for.
+	if _fire_circle_node and not _fire_circle_node.is_in_group("ground_fire"):
+		_fire_circle_node.add_to_group("ground_fire")
 	if _fire_circle_light:
 		_fire_circle_light.light_energy = 4.0
 	for fire in _fire_circle_particles:
@@ -923,6 +932,10 @@ func _start_fire_circle_vfx() -> void:
 
 func _stop_fire_circle_vfx() -> void:
 	_fire_circle_active = false
+	# The reveal ends with the flames, or the ally would light the field
+	# permanently from wherever he happened to cast.
+	if _fire_circle_node and _fire_circle_node.is_in_group("ground_fire"):
+		_fire_circle_node.remove_from_group("ground_fire")
 	if _fire_circle_light:
 		_fire_circle_light.light_energy = 0.0
 	for fire in _fire_circle_particles:

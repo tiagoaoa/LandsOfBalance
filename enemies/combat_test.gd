@@ -44,6 +44,11 @@ var _dodge_test_started: bool = false
 var _scripted_test_started: bool = false  # one-shot latch for PARRY/BACKSTAB/ESTUS
 var _coop_fire_dropped: bool = false  # spare one-shot latch (COOP/SKEL scripted events)
 var _skel_arrow_shot: bool = false
+var _darksim_haunt: Vector3 = Vector3.ZERO
+## Where DARKSIM parks the player: outside moonlight (8 m) and outside the
+## reach of a fire lit at his own feet, but inside the glow of one lit ON the
+## pack (18 m). The whole mechanic lives in that gap.
+const DARKSIM_STANDOFF := 16.0
 var _poster_marks: Dictionary = {}  # actor → staged x/z mark (movie-set pinning)
 var _bowsim_flags: Dictionary = {}
 var _bowsim_freeze: int = 0
@@ -284,6 +289,12 @@ func _process(delta: float) -> void:
 		_drive_lockon(delta)
 		if _elapsed > 9.0:
 			_finish("LOCKON_DONE")
+		return
+
+	if scenario == "DARKSIM":
+		_drive_darksim(delta)
+		if _elapsed > 34.0:
+			_finish("DARKSIM_DONE")
 		return
 
 	if scenario == "DODGE":
@@ -1145,6 +1156,91 @@ func _drive_skel(_delta: float) -> void:
 				nearest = minf(nearest, _player.global_position.distance_to((sk as Node3D).global_position))
 		print("[CombatTest] SKEL t=%d alive=%d nearest=%.1f player_hp=%.0f" % [
 				int(_elapsed), alive, nearest, float(_player.current_health)])
+
+
+## DARKSIM: does the archer's fire actually FIND anything? Runs at NIGHT —
+## the only skeleton scenario that does, since SKEL forces daylight so its
+## captures read, which is exactly why nobody noticed the dark rules were
+## inert.
+##
+## The player stands 22 m off the haunt: outside moonlight, inside the range
+## a ground fire lights. Nothing is lit for the first 10 s (the baseline —
+## AI-visible should be ZERO and the screen should be near-black), then a fire
+## is planted between the party and the pack. Every second it reports the two
+## numbers that matter and that used to be impossible to tell apart:
+##
+##   ai_sees  — how many skeletons Perception says are visible
+##   lit      — how many stand in a fire's glow
+##
+## Before the radius fix those were the same number whatever you did, because
+## the free moonlight range covered fire's entirely.
+func _drive_darksim(_delta: float) -> void:
+	var skels: Array = get_tree().get_nodes_in_group("skeletons")
+	if skels.is_empty():
+		if int(_elapsed) % 3 == 0 and int(_elapsed) != int(_elapsed - _delta):
+			print("[CombatTest] DARKSIM: waiting for the crew to rise")
+		return
+	var crew := get_tree().current_scene.find_child("SkeletonCrew", true, false)
+	if not _scripted_test_started:
+		_scripted_test_started = true
+		var center: Vector3 = crew.haunt_center if crew else (skels[0] as Node3D).global_position
+		_darksim_haunt = center
+		# Stand off on the far side of the haunt FROM Bobba, and hold him
+		# there. He spawns 25-40 m from the pack, and parked on his side of
+		# it he simply walked into the shot and filled it — the frames were
+		# of an orc, not of a dark field with something in it.
+		var away := Vector3(1, 0, 0)
+		if _bobba != null and is_instance_valid(_bobba):
+			(_bobba as Node3D).set_physics_process(false)
+			var d: Vector3 = center - (_bobba as Node3D).global_position
+			d.y = 0.0
+			if d.length() > 0.5:
+				away = d.normalized()
+		var pp: Vector3 = center + away * DARKSIM_STANDOFF
+		pp.y = _player.global_position.y
+		_player.global_position = pp
+		_player.velocity = Vector3.ZERO
+		_player._spawn_immunity_timer = 120.0
+		# HOLD the pack where it rose. Skeletons have dark vision and a 50 m
+		# aggro, so left alone they cross 18 m in five seconds and every
+		# reading afterwards is taken at knife range, where the light rules
+		# no longer separate anything. Freezing them is the only way to ask
+		# the question this scenario exists for: at a FIXED distance, what
+		# changes when the archer lights a fire?
+		for sk in skels:
+			(sk as Node3D).set_physics_process(false)
+		print("[CombatTest] DARKSIM: player %.0fm from haunt %s, pack held, no fire"
+				% [DARKSIM_STANDOFF, str(center.snapped(Vector3.ONE))])
+	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if cam_pivot:
+		var to_c: Vector3 = _darksim_haunt - _player.global_position
+		cam_pivot.rotation.y = atan2(-to_c.x, -to_c.z)
+		cam_pivot.rotation.x = deg_to_rad(-6.0)
+
+	# t=12: the archer's fire arrow lands ON the pack — the shot that turns
+	# "something is out there" into "there are five of them, there".
+	if _elapsed >= 12.0 and not _coop_fire_dropped:
+		_coop_fire_dropped = true
+		FireFX.create_ground_fire(get_tree().current_scene, _darksim_haunt,
+				"DarkSimGroundFire", 60.0, false)
+		print("[CombatTest] DARKSIM: --- FIRE LIT on the haunt ---")
+
+	if int(_elapsed) != int(_elapsed - _delta):
+		var sees := 0
+		var lit := 0
+		var nearest := INF
+		for sk in skels:
+			if sk.is_dead_skeleton:
+				continue
+			nearest = minf(nearest, _player.global_position.distance_to(
+					(sk as Node3D).global_position))
+			if Perception.can_see(_player, sk):
+				sees += 1
+			if Perception.is_lit_by_fire(sk):
+				lit += 1
+		print("[CombatTest] DARKSIM t=%d fire=%s ai_sees=%d lit=%d nearest=%.1f" % [
+				int(_elapsed), "yes" if _coop_fire_dropped else "no",
+				sees, lit, nearest])
 
 
 ## REVIVE: co-op revive + crouch simulation. Kills the AI companion,

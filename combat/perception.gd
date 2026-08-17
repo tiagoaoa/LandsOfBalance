@@ -10,9 +10,24 @@ extends RefCounted
 ## flight. Smell/touch exceptions live with the specific AI (Bobba smells
 ## characters that come too close; anyone who HITS an AI reveals himself).
 
-const FIRE_REVEAL_RADIUS := 12.0   # ground-fire glow that exposes a character
-const ARROW_REVEAL_RADIUS := 5.0   # a burning arrow in flight, much smaller
-const MOON_REVEAL_RADIUS := 25.0   # full-moon silhouettes read at this range
+## THE INVARIANT THIS FILE EXISTS FOR: MOON_REVEAL_RADIUS < FIRE_REVEAL_RADIUS.
+##
+## It was the other way round — moon 25 m against fire 12 m — which quietly
+## cancelled the entire mechanic. Free moonlight sight completely contained
+## fire's, so lighting a fire could never show an AI anything it could not
+## already see; the archer's fires only added sight beyond 25 m, which is past
+## where any fight happens. Everything downstream of this file behaved as
+## designed. The design just could not reach the numbers.
+##
+## The radii now match the lights that are actually RENDERED, so what an AI
+## knows and what a player can see are the same claim (fire_fx.gd builds the
+## ground-fire glow at range 18, arrow.gd the in-flight one at 6):
+const FIRE_REVEAL_RADIUS := 18.0   # = the ground fire's own light range
+const ARROW_REVEAL_RADIUS := 6.0   # = the burning arrow's light range in flight
+## Moonlight shows you a shape, not a threat, and only right on top of you.
+## Deliberately shorter than Bobba's 10 m sense of smell: he finds you in the
+## dark by scent BEFORE he can make you out, which is the intended order.
+const MOON_REVEAL_RADIUS := 8.0
 const DAY_REVEAL_RADIUS := 120.0   # daylight (GRASS/MOVE test presets)
 const FIRE_SIGHT_RADIUS := 90.0    # a fire-LIT character is visible across the field
 
@@ -42,6 +57,30 @@ static func can_see(observer: Node3D, target: Node3D) -> bool:
 	if dist <= moonlight_range(observer):
 		return true
 	return dist <= FIRE_SIGHT_RADIUS and is_lit_by_fire(target)
+
+
+## How strongly fire falls on `node`: 1.0 standing in the flames, easing to
+## 0.0 at the edge of the reveal. `is_lit_by_fire` is the same question asked
+## as a yes/no, which is all an AI needs; a renderer needs the gradient, so
+## that a body walking out of the light dims instead of switching off.
+static func fire_lit_amount(node: Node3D) -> float:
+	if node == null or not is_instance_valid(node):
+		return 0.0
+	var tree := node.get_tree()
+	if tree == null:
+		return 0.0
+	var pos := node.global_position
+	var best := 0.0
+	for spec in [["ground_fire", FIRE_REVEAL_RADIUS], ["fire_arrows", ARROW_REVEAL_RADIUS]]:
+		var radius: float = spec[1]
+		for fire in tree.get_nodes_in_group(spec[0]):
+			if fire is Node3D and is_instance_valid(fire):
+				var d: float = pos.distance_to((fire as Node3D).global_position)
+				if d < radius:
+					# Falls off toward the edge rather than at it — a hard
+					# ring of light moving over a body reads as a bug.
+					best = maxf(best, 1.0 - (d / radius) * (d / radius))
+	return best
 
 
 ## True when `node` stands in the light of any burning fire.

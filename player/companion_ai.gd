@@ -45,6 +45,13 @@ const Proto = preload("res://multiplayer/protocol.gd")
 
 const ENGAGE_RANGE := 90.0        # fire-lit enemies are visible across the field
 const HEAR_HUNTER_RANGE := 18.0   # a charging, roaring enemy is audible
+## Your own party is not something you have to SEE to keep track of — you
+## called to each other on the way out. The dark hides ENEMIES; making it hide
+## your ally too just loses the archer, who is deliberately standing 10-30 m
+## back (ARCHER_SUPPORT_DIST, KITE_DIST) precisely so he can light the field.
+## Under the light rules alone he would report "lost the leader's trail" from
+## the exact position his job requires him to hold.
+const PARTY_SIGHT := 40.0
 const MELEE_RANGE := 2.4
 const FOLLOW_NEAR := 3.5          # stop approaching the leader here
 const FOLLOW_RUN := 12.0          # run to catch up beyond this
@@ -101,8 +108,9 @@ func _physics_process(delta: float) -> void:
 	_defense_timer -= delta
 	_spell_timer -= delta
 
-	# Leader tracking under the shared visibility rules.
-	if Perception.can_see(body, leader):
+	# Leader tracking: party range OR the light rules, whichever finds him.
+	if body.global_position.distance_to(leader.global_position) <= PARTY_SIGHT \
+			or Perception.can_see(body, leader):
 		if not _leader_known:
 			print("CompanionAI: leader spotted — regrouping")
 		_leader_known = true

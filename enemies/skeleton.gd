@@ -50,6 +50,8 @@ var _ring_reroll: float = 0.0
 var _gait_scale: float = 1.0     # per-bone-bag stride/speed desync
 var _phase_offset: float = 0.0   # personal gait phase — clip switches keep it
 var _burn_left: float = 0.0      # seconds of arrow-fire still burning on the bones
+## Firelight caught on the bones — see combat/fire_glow.gd.
+var _fire_glow := FireGlow.new()
 var _burn_fx: Node3D = null
 var home_post: Vector3           # where it haunts when nothing is near
 var is_dead_skeleton: bool = false
@@ -117,6 +119,9 @@ func _ready() -> void:
 	_anim.speed_scale = _gait_scale
 	_anim.seek(randf() * 2.0, true)  # desync the loops across the pack
 	_apply_grave_tone()
+	# Must follow _apply_grave_tone — it is what installs the surface
+	# overrides the glow writes to.
+	_fire_glow.collect(_model)
 
 	if home_post == Vector3.ZERO:
 		home_post = global_position
@@ -124,7 +129,13 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	if is_dead_skeleton:
+		# A corpse still cools in the firelight; it just does nothing else.
+		_fire_glow.update(Perception.fire_lit_amount(self), delta)
 		return
+	# Firelight on the bones. This is the archer's whole contribution made
+	# visible: without it a revealed skeleton is a dark shape behind waist-
+	# high grass, which is no revelation at all on a phone.
+	_fire_glow.update(Perception.fire_lit_amount(self), delta)
 	velocity += _gravity * delta
 	_attack_cooldown -= delta
 
@@ -252,17 +263,40 @@ func _closest_character() -> Node3D:
 	return best
 
 
+## Where the flames are, gathered ONCE per physics frame for the whole pack.
+##
+## Every skeleton asks about fire twice a frame — once for burn damage, once
+## for pathing — and each ask used to walk two scene-tree groups. Five
+## skeletons at 120 Hz physics is 1200 group walks a second to answer a
+## question that has one answer per frame. Positions only, so nothing here
+## outlives a freed node.
+static var _fire_cache: PackedVector3Array = PackedVector3Array()
+static var _fire_cache_frame: int = -1
+
+
+static func _fire_positions(tree: SceneTree) -> PackedVector3Array:
+	var frame: int = Engine.get_physics_frames()
+	if frame == _fire_cache_frame:
+		return _fire_cache
+	_fire_cache_frame = frame
+	var out := PackedVector3Array()
+	# Ground fires plus burning arrows lying on the field — both are flame.
+	for gname in ["ground_fire", "fire_arrows"]:
+		for fire in tree.get_nodes_in_group(gname):
+			if fire is Node3D and is_instance_valid(fire):
+				out.append((fire as Node3D).global_position)
+	_fire_cache = out
+	return out
+
+
 func _nearest_fire(radius: float) -> Vector3:
 	var best := Vector3.INF
 	var best_d := radius
-	# Ground fires plus burning arrows lying on the field — both are flame.
-	for gname in ["ground_fire", "fire_arrows"]:
-		for fire in get_tree().get_nodes_in_group(gname):
-			if fire is Node3D and is_instance_valid(fire):
-				var d: float = global_position.distance_to((fire as Node3D).global_position)
-				if d < best_d:
-					best_d = d
-					best = (fire as Node3D).global_position
+	for pos in _fire_positions(get_tree()):
+		var d: float = global_position.distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best = pos
 	return best
 
 
