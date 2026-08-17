@@ -15,11 +15,29 @@ extends SceneTree
 
 const FPS := 60.0
 
+## Optional 3rd/4th/5th args: an euler (degrees, character frame) describing a
+## rigid prop bolted to the tracked bone, the way Bobba's axe is. When given,
+## the report adds where the prop's own +Y — its business end — is pointing at
+## each sample. "The axe looks upside down mid-swing" is a claim about that
+## vector and nothing else, and it is not answerable from a screenshot: the
+## haft reads the same from either end at most camera angles.
+
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	var path: String = args[0] if args.size() > 0 else "res://assets/bobba/axe_attack_downward.fbx"
 	var bone_name: String = args[1] if args.size() > 1 else "mixamorig_RightHand"
+	var prop := Vector3.ZERO
+	var has_prop: bool = args.size() >= 5
+	if has_prop:
+		prop = Vector3(float(args[2]), float(args[3]), float(args[4]))
+	# Args 6-8: a further rotation in the PROP's own frame, which is how a
+	# per-clip grip correction is applied at runtime. Sweeping this offline
+	# beats flipping it in the game and squinting: the capture rig does not
+	# control the body's yaw, so two runs are not comparable frame to frame.
+	var flip := Vector3.ZERO
+	if args.size() >= 8:
+		flip = Vector3(float(args[5]), float(args[6]), float(args[7]))
 
 	var scene: PackedScene = load(path) as PackedScene
 	if scene == null:
@@ -107,7 +125,24 @@ func _initialize() -> void:
 			var hb := Basis(anim.rotation_track_interpolate(tracks[hips]["rot"], t))
 			var f: Vector3 = hb * Vector3.FORWARD
 			yaw = rad_to_deg(atan2(f.x, f.z))
-		samples.append({"t": t, "p": g.origin, "yaw": yaw})
+		# The prop hangs off the bone with a FIXED local basis, solved once at
+		# rest so the prop sits at `prop` degrees in the character's frame.
+		# That is exactly how Bobba's axe is attached, so whatever the clip
+		# does to the wrist happens to the axe too.
+		var head_up := 0.0
+		var head_pos := Vector3.ZERO
+		if has_prop:
+			var bone_rest: Basis = skel.get_bone_global_rest(bone).basis.orthonormalized()
+			var local: Basis = bone_rest.inverse() * Basis.from_euler(prop * (PI / 180.0))
+			local = local * Basis.from_euler(flip * (PI / 180.0))
+			var dir: Vector3 = (g.basis.orthonormalized() * local) * Vector3.UP
+			head_up = dir.y
+			# Where the blade actually IS — 1.30 m up the haft, which is where
+			# the damage volume sits. Direction alone cannot tell a chop that
+			# lands in front from one that lands on his own feet.
+			head_pos = g.origin + dir * 1.30
+		samples.append({"t": t, "p": g.origin, "yaw": yaw,
+				"head": head_up, "hp": head_pos})
 
 	var lowest := INF
 	var lowest_t := 0.0
@@ -126,8 +161,15 @@ func _initialize() -> void:
 			fastest = dy
 			fastest_t = t
 		if i % 3 == 0:
-			print("%6.3f %8.3f %8.3f %8.3f %9.2f %9.1f"
-					% [t, p.y, p.z, p.x, dy, samples[i]["yaw"]])
+			var line := "%6.3f %8.3f %8.3f %8.3f %9.2f %9.1f" % [
+					t, p.y, p.z, p.x, dy, samples[i]["yaw"]]
+			if has_prop:
+				var h: float = samples[i]["head"]
+				var hp: Vector3 = samples[i]["hp"]
+				line += "  %6.2f %-5s  head@ y%6.2f f%6.2f" % [h,
+						"UP" if h > 0.15 else ("DOWN" if h < -0.15 else "level"),
+						hp.y, hp.z]
+			print(line)
 
 	print("\nlowest point  : %.3f s  (y = %.3f)" % [lowest_t, lowest])
 	print("peak downward : %.3f s  (%.2f/s)" % [fastest_t, fastest])

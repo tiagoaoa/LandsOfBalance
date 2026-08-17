@@ -1457,7 +1457,39 @@ const AXE_POS := Vector3(0.0, -0.05, 0.06)   # metres, in Bobba's frame
 const AXE_ROT := Vector3(-18.0, 0.0, 8.0)    # degrees: haft near-upright, head up, raked back
 const AXE_SCALE := 1.0
 
+## Extra rotation applied to the axe IN ITS OWN FRAME while the swing plays.
+##
+## The axe is rigid on the hand bone, so its orientation is whatever the clip
+## does to the wrist — and the imported chop was authored for a weapon gripped
+## differently from the carry pose AXE_ROT was solved for. Uncorrected, the
+## blade never gets above the hand after the wind-up: it hangs under it through
+## the apex and is BELOW GROUND from the moment of impact onward.
+##
+## 90 degrees of roll, not 180. Solved by sweeping candidates through
+## tools/measure_clip.gd's prop mode and reading where the blade actually ends
+## up — the capture rig cannot answer this, since it does not control Bobba's
+## yaw and two runs are not comparable frame to frame. What 90 buys, in blade
+## world-height across the swing:
+##
+##     t=0.35  y 2.34 behind      rising past the shoulder
+##     t=0.45  y 3.05 behind      cocked overhead — the highest point
+##     t=0.65  y 2.89             apex, blade well above the hand (2.10)
+##     t=0.75  y 3.04 forward     sweeping over the top
+##     t=0.85  y 0.18 forward     impact, driven down 0.8 m ahead of the hand
+##
+## A full 180 puts the apex right too, but it inverts the FIRST half instead —
+## blade at y 0.05 while he lifts — and leaves the blade above the hand at the
+## moment of impact, so he appears to chop with the axe pointing at the sky.
+## Zero this out to see the raw clip again.
+const AXE_ATTACK_ROT := Vector3(0.0, 0.0, 90.0)
+## How fast the grip changes over. Fast enough not to read as the axe turning
+## in his hand, slow enough not to pop on the frame he commits.
+const AXE_GRIP_BLEND: float = 14.0
+
 var _axe: Node3D
+## The solved carry orientation, kept so the attack grip is an offset FROM it
+## rather than a second hand-tuned euler that has to be kept in sync.
+var _axe_carry_basis: Basis = Basis.IDENTITY
 
 
 func _setup_axe(skeleton: Skeleton3D) -> void:
@@ -1481,8 +1513,11 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 			* skeleton.get_bone_global_rest(idx)).basis.orthonormalized()
 	var want: Basis = global_transform.basis.orthonormalized() \
 			* Basis.from_euler(AXE_ROT * (PI / 180.0))
+	# Kept unscaled — _update_axe_grip slerps this and applies AXE_SCALE once,
+	# so folding the scale in here would square it every frame.
+	_axe_carry_basis = (rest.inverse() * want).orthonormalized()
 	_axe.transform = Transform3D(
-			rest.inverse() * want * Basis().scaled(Vector3.ONE * AXE_SCALE),
+			_axe_carry_basis.scaled(Vector3.ONE * AXE_SCALE),
 			rest.inverse() * AXE_POS)
 	attach.add_child(_axe)
 	# Wind smear along the haft and out past the head — a long axe moves a lot
@@ -1509,6 +1544,27 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 			Vector3(0, -0.30, 0), Vector3(0, 1.45, 0),
 			Color(0.86, 0.90, 1.0, 0.16), 1.2)
 	print("Bobba: axe attached to bone ", attach.bone_name)
+
+
+## Ease the axe between its carry grip and its swing grip. The hitbox and the
+## wind smear are children of the axe, so they follow the flip for free —
+## damage keeps coming from wherever the blade actually is, which is the whole
+## point of hanging them off the mesh rather than off the hand.
+func _update_axe_grip(delta: float) -> void:
+	if _axe == null or not is_instance_valid(_axe):
+		return
+	# Keyed off the CLIP, not the attack flag: the grip belongs to the
+	# animation, so anything that plays the swing — the fight, the animation
+	# lab, a frame-by-frame capture — shows the same axe.
+	var swinging: bool = _anim_player != null \
+			and _anim_player.current_animation == String(AXE_ATTACK["anim"])
+	var want: Basis = _axe_carry_basis
+	if swinging and AXE_ATTACK_ROT != Vector3.ZERO:
+		want = _axe_carry_basis * Basis.from_euler(AXE_ATTACK_ROT * (PI / 180.0))
+	var q: Quaternion = _axe.transform.basis.orthonormalized().get_rotation_quaternion()
+	var target: Quaternion = want.orthonormalized().get_rotation_quaternion()
+	var t: float = clampf(AXE_GRIP_BLEND * delta, 0.0, 1.0)
+	_axe.transform.basis = Basis(q.slerp(target, t)).scaled(Vector3.ONE * AXE_SCALE)
 
 
 ## True when the mesh already carries a real, textured material of its own.
@@ -1741,6 +1797,9 @@ func _physics_process(delta: float) -> void:
 
 	# Update hand hitbox timing based on attack animation progress
 	_update_attack_hitbox_timing()
+
+	# Keep the axe the right way up for whatever clip is running.
+	_update_axe_grip(delta)
 
 	# Block state machine: tick timers and maybe enter block.
 	_update_block_state(delta)

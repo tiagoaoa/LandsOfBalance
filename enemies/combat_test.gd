@@ -1609,6 +1609,11 @@ func _drive_gearsim(delta: float) -> void:
 			if ap != null and seek.is_valid_float() and ap.current_animation != "":
 				ap.seek(clampf(float(seek), 0.0, 1.0) * ap.current_animation_length, true)
 				ap.pause()
+			# Physics is off above, so anything Bobba does per-frame to his
+			# gear has to be ticked by hand or the capture shows a pose the
+			# game never draws. A whole second of delta snaps the blend.
+			if _bobba.has_method("_update_axe_grip"):
+				_bobba._update_axe_grip(1.0)
 	elif OS.get_environment("LOB_GEAR_CLIP") != "":
 		# Same treatment for the PLAYER, so an authored player clip can be
 		# read frame by frame too. LOB_GEAR_CLIP is unprefixed here as well;
