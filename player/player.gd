@@ -306,6 +306,10 @@ var _roll_dir: Vector3 = Vector3.ZERO
 ## neutral backstep. A tumble turns the body down its own direction of
 ## travel; a backstep stays squared up to the camera.
 var _roll_faces_dir: bool = false
+## Held while a roll has cancelled the crouch, so releasing Ctrl — and only
+## releasing it — hands the crouch back. See the crouch block in
+## _physics_process for why the roll chord makes this necessary.
+var _crouch_locked_out: bool = false
 const ROLL_SPEED: float = 9.0          # m/s peak — faster than RUN_SPEED (7.0)
 ## Total roll length. Lengthened from 0.50 s when the tumble clip landed: a
 ## real forward roll cannot be told in half a second without playing at 3x,
@@ -4672,7 +4676,15 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"lock_on"):
 		_toggle_lock_on()
 
-	# Dodge-roll (X key or gamepad LB). Direction from the movement stick.
+	# Dodge-roll (Ctrl+Space, or click the right stick). Direction from the
+	# movement stick.
+	#
+	# The chord overlaps two other bindings and Godot's input map cannot
+	# separate them: an action bound to plain Space ALSO matches Ctrl+Space
+	# (modifiers are not required to match when the binding declares none),
+	# and Ctrl on its own is the crouch key. So jump and crouch are
+	# suppressed in code — see _physics_process. Verified, not assumed:
+	# Ctrl+Space reports is_action("jump") == true.
 	if event.is_action_pressed(&"dodge"):
 		_try_dodge()
 
@@ -4800,8 +4812,19 @@ func _physics_process(delta: float) -> void:
 			_attack_input_buffer = 0.0
 			_do_attack()
 	# Crouch: held stance — slower, braced (25% less damage), body lowered.
+	#
+	# Ctrl is both the crouch key and half the roll chord, so rolling engages
+	# the crouch and — because crouch is a HOLD — leaves the character
+	# crouched for the whole roll and afterwards, until the hand comes off a
+	# key the player is still legitimately holding. Latch it off instead: a
+	# roll cancels crouch, and crouch stays cancelled until Ctrl is actually
+	# released, so the roll ends standing.
+	if is_rolling:
+		_crouch_locked_out = true
+	elif _crouch_locked_out and not Input.is_action_pressed(&"crouch"):
+		_crouch_locked_out = false
 	is_crouching = _ai_crouch if is_ai_companion \
-			else Input.is_action_pressed(&"crouch")
+			else (Input.is_action_pressed(&"crouch") and not _crouch_locked_out)
 	if _character_model:
 		var want_squash: float = 0.74 if is_crouching else 1.0
 		_crouch_scale_y = lerpf(_crouch_scale_y, want_squash, 12.0 * delta)
@@ -4878,8 +4901,15 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor():
 		if is_jumping:
 			is_jumping = false
+		# `not just-pressed dodge`: the roll chord is Ctrl+SPACE and jump is
+		# SPACE, so every roll is also a jump press as far as the input map
+		# is concerned. `not is_rolling` covers a roll that happens; this
+		# covers one that is REFUSED — out of stamina, mid-swing, airborne —
+		# where the jump would otherwise fire in its place and the button
+		# would feel like it did something random.
 		if not is_ai_companion and Input.is_action_just_pressed(&"jump") and not is_attacking \
-				and not is_rolling and not is_reviving:
+				and not is_rolling and not is_reviving \
+				and not Input.is_action_just_pressed(&"dodge"):
 			velocity.y = JUMP_VELOCITY
 			is_jumping = true
 			_play_footstep(_footstep_jump, -3.0, 0.06)
