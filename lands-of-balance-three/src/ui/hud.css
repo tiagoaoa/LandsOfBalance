@@ -1,0 +1,448 @@
+/*
+ * Port of ui/gothic_hud.gd's StyleBoxFlat look, in CSS.
+ *
+ * The Godot HUD is hand-crafted: dark near-black panels, double bronze
+ * borders, corner diamonds and parchment-tinted text, targeting the Dark
+ * Souls / Elder-Scrolls reference the project pinned. The palette constants
+ * below are the same RGB values, converted to hex.
+ */
+:root {
+  --bg: rgba(10, 9, 8, 0.9);
+  --bg-deep: rgba(5, 4, 3, 0.94);
+  --border-outer: #856625; /* tarnished bronze */
+  --border-inner: #241c14; /* near-black metal */
+  --gem: #bf9438; /* brighter gold accent */
+  --text: #e0cc99; /* aged parchment */
+  --text-dim: #947a4d;
+  --text-deep: #f2e0ad;
+  --hp: #b81f1a;
+  --hp-dark: #470a08;
+  --stamina: #518f2e;
+  --stamina-dark: #14290a;
+  --red-bar: rgba(122, 26, 20, 0.85);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #05060a;
+  font-family: 'Times New Roman', Georgia, serif;
+  color: var(--text);
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+}
+
+/* Every HUD island shares the double-bronze ornate frame. */
+.panel {
+  position: absolute;
+  background: var(--bg);
+  border: 2px solid var(--border-outer);
+  outline: 1px solid var(--border-inner);
+  outline-offset: 2px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.75), inset 0 0 26px rgba(0, 0, 0, 0.55);
+  padding: 10px 12px;
+}
+
+/* Corner diamonds, drawn with rotated pseudo-elements. */
+.panel::before,
+.panel::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: var(--gem);
+  transform: rotate(45deg);
+}
+.panel::before {
+  top: -4px;
+  left: -4px;
+}
+.panel::after {
+  bottom: -4px;
+  right: -4px;
+}
+
+/* ── Top-left: emblem + HP/Stamina ─────────────────────────────────────── */
+#stats {
+  top: 18px;
+  left: 18px;
+  width: 330px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#emblem {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  border-radius: 50%;
+  border: 2px solid var(--border-outer);
+  background: radial-gradient(circle at 35% 30%, #2c2419, #0b0906 70%);
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  color: var(--gem);
+  text-shadow: 0 0 10px rgba(191, 148, 56, 0.5);
+}
+
+.bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bar {
+  position: relative;
+  height: 17px;
+  border: 1px solid var(--border-inner);
+  background: #0b0806;
+  overflow: hidden;
+}
+
+.bar > .fill {
+  height: 100%;
+  width: 100%;
+  transition: width 90ms linear;
+}
+
+#hp-fill {
+  background: linear-gradient(180deg, var(--hp) 0%, var(--hp-dark) 100%);
+}
+
+#stamina-fill {
+  background: linear-gradient(180deg, var(--stamina) 0%, var(--stamina-dark) 100%);
+}
+
+.bar > .label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-deep);
+  text-shadow: 0 1px 2px #000;
+}
+
+/* ── Top-right: COMBATANTS ─────────────────────────────────────────────── */
+#combatants {
+  top: 18px;
+  right: 18px;
+  width: 250px;
+}
+
+#combatants h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-align: center;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.foe {
+  margin-bottom: 5px;
+}
+
+.foe-name {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.foe-bar {
+  height: 7px;
+  border: 1px solid var(--border-inner);
+  background: #0b0806;
+  margin-top: 2px;
+}
+
+.foe-bar > div {
+  height: 100%;
+  background: var(--red-bar);
+}
+
+.foe.locked .foe-name {
+  color: var(--gem);
+}
+
+/* ── Bottom-left: ability slots ────────────────────────────────────────── */
+#abilities {
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.slot {
+  width: 52px;
+  height: 52px;
+  border: 2px solid var(--border-outer);
+  outline: 1px solid var(--border-inner);
+  outline-offset: 1px;
+  background: linear-gradient(180deg, #1a1410, #0a0806);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.slot .rune {
+  font-size: 22px;
+  color: var(--gem);
+}
+
+.slot .key {
+  position: absolute;
+  bottom: 1px;
+  right: 3px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.slot.active {
+  border-color: var(--gem);
+  box-shadow: 0 0 12px rgba(191, 148, 56, 0.55);
+}
+
+.slot.spent .rune {
+  color: #3d342a;
+}
+
+/* ── Bottom-right: estus + buff ────────────────────────────────────────── */
+#estus {
+  bottom: 18px;
+  right: 18px;
+  width: 150px;
+  text-align: center;
+}
+
+#estus .count {
+  font-size: 22px;
+  color: var(--text-deep);
+}
+
+#estus .caption,
+#buff .caption {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+#buff {
+  bottom: 96px;
+  right: 18px;
+  width: 150px;
+  text-align: center;
+}
+
+/* ── Minimap ───────────────────────────────────────────────────────────── */
+#minimap {
+  top: 96px;
+  left: 18px;
+  width: 220px;
+  height: 250px;
+  padding: 8px;
+}
+
+#minimap canvas {
+  width: 100%;
+  height: 216px;
+  display: block;
+  background: #07090d;
+  border: 1px solid var(--border-inner);
+}
+
+#minimap .place {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 3px;
+}
+
+/* ── Centre feedback ───────────────────────────────────────────────────── */
+#centre-label {
+  position: absolute;
+  top: 30%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 34px;
+  letter-spacing: 0.1em;
+  color: var(--text-deep);
+  text-shadow: 0 3px 10px #000;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+
+#crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(224, 204, 153, 0.55);
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.9);
+}
+
+#damage-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(160, 20, 15, 0) 40%, rgba(160, 20, 15, 0.55) 100%);
+  opacity: 0;
+  transition: opacity 260ms ease-out;
+}
+
+/* ── Lock-on reticle ───────────────────────────────────────────────────── */
+#reticle {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 2px solid var(--gem);
+  transform: rotate(45deg);
+  display: none;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Overlays ──────────────────────────────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, #14100c 0%, #05060a 75%);
+  color: var(--text);
+  text-align: center;
+}
+
+.overlay h1 {
+  font-size: 46px;
+  letter-spacing: 0.16em;
+  margin: 0 0 6px;
+  color: var(--text-deep);
+  text-shadow: 0 4px 18px #000;
+}
+
+.overlay .sub {
+  color: var(--text-dim);
+  letter-spacing: 0.2em;
+  font-size: 13px;
+  text-transform: uppercase;
+  margin-bottom: 30px;
+}
+
+.choices {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  margin-bottom: 26px;
+}
+
+.choice {
+  pointer-events: auto;
+  cursor: pointer;
+  width: 220px;
+  padding: 18px;
+  background: var(--bg-deep);
+  border: 2px solid var(--border-outer);
+  outline: 1px solid var(--border-inner);
+  outline-offset: 2px;
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms;
+}
+
+.choice:hover {
+  transform: translateY(-3px);
+  border-color: var(--gem);
+  box-shadow: 0 0 22px rgba(191, 148, 56, 0.35);
+}
+
+.choice .name {
+  font-size: 22px;
+  color: var(--text-deep);
+  margin-bottom: 6px;
+}
+
+.choice .desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+
+#loading-bar {
+  width: 320px;
+  height: 6px;
+  margin: 16px auto 0;
+  border: 1px solid var(--border-inner);
+  background: #0b0806;
+}
+
+#loading-bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--gem);
+  transition: width 160ms;
+}
+
+/* ── Controls card ─────────────────────────────────────────────────────── */
+#controls {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  background: var(--bg-deep);
+  border: 2px solid var(--border-outer);
+  padding: 14px 22px;
+  columns: 2;
+  column-gap: 34px;
+  font-size: 12px;
+  color: var(--text-dim);
+  display: none;
+}
+
+#controls.show {
+  display: block;
+}
+
+#controls b {
+  color: var(--text);
+  font-weight: normal;
+}
+
+#controls div {
+  break-inside: avoid;
+  margin: 2px 0;
+}

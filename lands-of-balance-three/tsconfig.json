@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      // Mirror the Vite alias so the type checker sees the same (superset)
+      // build the bundler does — otherwise node materials and the WebGPU
+      // renderer would type-error while working fine at runtime.
+      "three": ["./node_modules/@types/three/src/Three.WebGPU.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1968,9 +1968,12 @@ func _stop_fire_circle_spell() -> void:
 	if _fire_circle_light:
 		fade_tween.tween_property(_fire_circle_light, "light_energy", 0.0, 0.5).set_ease(Tween.EASE_IN)
 
-	# Stop all fire emitters
+	# Stop all fire emitters. Validity-checked: the fire circle node sits in
+	# the "ground_fire" group, so anything that sweeps that group can free it
+	# out from under the caster, and writing to a freed emitter throws.
 	for fire in _fire_circle_particles:
-		fire.emitting = false
+		if is_instance_valid(fire):
+			fire.emitting = false
 
 
 func _stop_spell_effects() -> void:
@@ -3299,11 +3302,14 @@ func take_damage(amount: float) -> void:
 	print("Player: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, current_health])
 
 
-## Take a percentage of max HP as damage (e.g. arrow = 0.05, ground fire tick = 0.05/sec).
-func take_damage_pct(pct: float) -> void:
+## Flat HP damage from a source that is not a weapon swing — an arrow, a
+## burning patch of ground. Absolute, like every other damage number in the
+## game: see the note on Arrow.DIRECT_HIT_DAMAGE for why this stopped being a
+## percentage of max HP.
+func take_damage_flat(amount: float) -> void:
 	if is_spawn_immune():
 		return
-	_health.damage_pct(pct)
+	_health.damage_flat(amount)
 
 
 ## Heal the player (from spells, potions, etc.)

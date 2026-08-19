@@ -371,11 +371,13 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false,
 		_die()
 
 
-## Arrows and DoT auras.
-func take_damage_pct(pct: float) -> void:
+## Arrows and DoT auras. Flat HP, so MAX_HP's own comment - "two paladin
+## combo hits, or ~5 arrows" - is finally true; under percent damage it took
+## twenty, and raising MAX_HP would not have changed that by one arrow.
+func take_damage_flat(amount: float) -> void:
 	if is_dead_skeleton:
 		return
-	hp -= MAX_HP * pct
+	hp -= amount
 	_show_hp()
 	if hp <= 0.0:
 		_die()

@@ -984,13 +984,13 @@ func take_damage(amount: float) -> void:
 	print("Bobba: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, health])
 
 
-## Take a percentage of max HP as damage (used by DoT spell effects).
+## Flat HP damage from arrows and DoT auras.
 ## Server-authoritative: skipped on non-host clients (health is synced from the
 ## server via apply_network_state).
-func take_damage_pct(pct: float) -> void:
+func take_damage_flat(amount: float) -> void:
 	if _is_network_controlled:
 		return
-	_health.damage_pct(pct)
+	_health.damage_flat(amount)
 
 
 ## Called when Bobba dies
@@ -1087,7 +1087,7 @@ func _apply_bone_euler(bone_idx: int, euler_deg: Vector3) -> void:
 
 
 func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
-	# NOTE: Damage is now the arrow's responsibility (take_damage_pct 5%).
+	# NOTE: Damage is now the arrow's responsibility (take_damage_flat).
 	# The HP label is also driven by the HealthComponent.damaged signal.
 	# This method only handles the visual reaction and retreat behavior.
 

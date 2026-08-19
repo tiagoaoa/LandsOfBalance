@@ -9,9 +9,16 @@ const DamageAuraAreaClass := preload("res://combat/damage_aura_area.gd")
 const ARROW_SPEED: float = 50.0
 const GRAVITY: float = 9.8
 const LIFETIME: float = 10.0
-## Direct-hit damage, expressed as a percentage of the target's max HP.
-## Fully negated when the target is blocking.
-const DIRECT_HIT_DAMAGE_PCT: float = 0.05
+## Direct-hit damage, in HP. Fully negated when the target is blocking.
+##
+## ABSOLUTE, not a percentage of the target's max HP, which is what this was.
+## Percent damage quietly made every health bar in the game meaningless to
+## archery: an arrow did 5 to the archer and 50 to Bobba, and EVERY enemy died
+## in exactly twenty arrows however its HP was tuned. Raising a boss's health
+## bought it nothing against a bow. 35 restores the intent already written
+## into SkeletonWarrior.MAX_HP ("~5 arrows") and makes a boss's 1000 HP mean
+## what it says.
+const DIRECT_HIT_DAMAGE: float = 35.0
 # A shot loosed mid-air has no planted stance behind it: its flame runs
 # at half brightness and the hit carries only this fraction of the damage.
 const AIRBORNE_SHOT_DAMAGE_MULT: float = 0.5
@@ -19,9 +26,12 @@ var airborne_shot: bool = false
 # Launch force multiplier: 1.0 for a planted loose, 0.5 when shot on the
 # move (half force → ~quarter ballistic range; damage scales with it).
 var shot_power: float = 1.0
-## Ground fire DoT: 5% max HP per second to any character inside the radius,
-## for as long as the fire burns.
-const GROUND_FIRE_DAMAGE_PCT_PER_SEC: float = 0.05
+## Ground fire DoT, in HP per second, to any character inside the radius for
+## as long as the fire burns. Also absolute now, and deliberately modest: at
+## 5% of max HP it was doing 50 a second to Bobba, which made a patch of
+## burning grass the strongest weapon in the game against bosses. Fire is
+## area denial and light - see combat/fire_glow.gd - not a damage race.
+const GROUND_FIRE_DAMAGE_PER_SEC: float = 18.0
 const GROUND_FIRE_RADIUS: float = 5.0
 const GROUND_FIRE_LIFETIME: float = 30.0
 
@@ -217,16 +227,12 @@ func _setup_collision() -> void:
 	add_child(_collision)
 
 
-## Return the arrow's 5%-of-max-HP damage converted to flat HP, for the
-## network damage message and for routing through the Player's take_hit path
-## (which takes a flat amount). Falls back to 5.0 if the target exposes no
-## recognizable max-HP field.
-func _compute_flat_arrow_damage(body: Node) -> float:
-	if "max_health" in body:
-		return float(body.max_health) * DIRECT_HIT_DAMAGE_PCT
-	if "MAX_HEALTH" in body:
-		return float(body.MAX_HEALTH) * DIRECT_HIT_DAMAGE_PCT
-	return 5.0  # Fallback for unknown bodies
+## The arrow's damage in HP. It used to have to read the target's max-HP field
+## and multiply, with a fallback for bodies that exposed neither - all of that
+## existed only to turn a percentage back into the flat number the network
+## message and Player.take_hit already wanted.
+func _compute_flat_arrow_damage(_body: Node) -> float:
+	return DIRECT_HIT_DAMAGE
 
 
 func _on_body_entered(body: Node) -> void:
@@ -252,7 +258,7 @@ func _on_body_entered(body: Node) -> void:
 
 	# Deal damage. Arrow direct hit = 5% of target max HP.
 	# * Players: route through take_hit so block fully negates the hit.
-	# * NPCs: direct take_damage_pct (they don't block).
+	# * NPCs: direct take_damage_flat (they don't block).
 	# Also call take_arrow_hit on Bobba for its "flee from arrows" reaction.
 	var hit_entity_id: int = 0
 	if "entity_id" in body:
@@ -268,9 +274,9 @@ func _on_body_entered(body: Node) -> void:
 		impulse.y = 0.1
 		var blocked: bool = bool(body.is_blocking)
 		body.take_hit(flat_damage_for_network * shot_mult, impulse, blocked, shooter, true)
-	elif body.has_method("take_damage_pct"):
+	elif body.has_method("take_damage_flat"):
 		# NPC — percent-based damage, doesn't block.
-		body.take_damage_pct(DIRECT_HIT_DAMAGE_PCT * shot_mult)
+		body.take_damage_flat(DIRECT_HIT_DAMAGE * shot_mult)
 		# Dry bones catch: a landed fire arrow sets skeletons alight —
 		# a weaker mid-air shot clings for a shorter burn.
 		if body.has_method("ignite"):
@@ -333,7 +339,7 @@ func _create_ground_fire() -> void:
 		var aura: DamageAuraAreaClass = DamageAuraAreaClass.new()
 		aura.name = "GroundFireAura"
 		aura.radius = GROUND_FIRE_RADIUS
-		aura.damage_pct_per_sec = GROUND_FIRE_DAMAGE_PCT_PER_SEC
+		aura.damage_per_sec = GROUND_FIRE_DAMAGE_PER_SEC
 		aura.tick_interval = 1.0
 		aura.lifetime = GROUND_FIRE_LIFETIME
 		# Excludes the shooter AND everyone on his side — this is the fire the
@@ -341,8 +347,8 @@ func _create_ground_fire() -> void:
 		aura.source_node = shooter
 		aura.ticked.connect(func(damaged: Array) -> void:
 			for b in damaged:
-				print("Arrow fire DoT tick: %s took %.1f%% of max HP" % [
-					b.name, GROUND_FIRE_DAMAGE_PCT_PER_SEC * 100.0
+				print("Arrow fire DoT tick: %s took %.1f HP" % [
+					b.name, GROUND_FIRE_DAMAGE_PER_SEC
 				]))
 		fire_node.add_child(aura)
 	# (FireFX.create_ground_fire owns the burn-down and auto-free.)

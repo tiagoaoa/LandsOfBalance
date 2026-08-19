@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "blender": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["blender-mcp"]
+    },
+    "godot": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/home/talves/.local/lib/gopeak/node_modules/gopeak/build/index.js"],
+      "env": {
+        "GODOT_PATH": "/home/talves/bin/godot",
+        "GODOT_BRIDGE_PORT": "6505",
+        "GODOT_BRIDGE_HOST": "127.0.0.1",
+        "GODOT_RUNTIME_PORT": "7777",
+        "GOPEAK_BRIDGE_HOST": "127.0.0.1",
+        "GOPEAK_TOOL_PROFILE": "compact",
+        "GOPEAK_TOOLS_PAGE_SIZE": "33",
+        "LOG_MODE": "lite"
+      }
+    }
+  }
+}

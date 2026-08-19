@@ -49,6 +49,9 @@ var _noff_ally_hp: float = 0.0
 var _noff_bobba_hp: float = 0.0
 var _noff_paladin_hp: float = 0.0
 var _noff_enemy_hurt: bool = false
+var _noff_fire: Node = null
+var _noff_bobba_hp_arrow: float = 0.0
+var _noff_arrow_dealt: float = -1.0
 ## Where DARKSIM parks the player: outside moonlight (8 m) and outside the
 ## reach of a fire lit at his own feet, but inside the glow of one lit ON the
 ## pack (18 m). The whole mechanic lives in that gap.
@@ -1211,14 +1214,15 @@ func _drive_noff(_delta: float) -> void:
 		print("[CombatTest] NOFF: after sword   ally hp=%.0f (was %.0f)" % [
 				float(comp.current_health), _noff_ally_hp])
 
-	if once.call("fire", 8.0):
+	if once.call("fire", 11.0):
 		var fire_pos: Vector3 = comp.global_position
 		var fire := FireFX.create_ground_fire(get_tree().current_scene, fire_pos,
 				"NoffGroundFire", 30.0, false)
+		_noff_fire = fire
 		var aura = load("res://combat/damage_aura_area.gd").new()
 		aura.name = "GroundFireAura"
 		aura.radius = 5.0
-		aura.damage_pct_per_sec = 0.05
+		aura.damage_per_sec = 18.0
 		aura.tick_interval = 1.0
 		aura.lifetime = 30.0
 		aura.source_node = comp     # the ARCHER's fire, as if he had shot it
@@ -1232,11 +1236,11 @@ func _drive_noff(_delta: float) -> void:
 	if _coop_fire_dropped and _bobba != null and is_instance_valid(_bobba) \
 			and float(_bobba.health) < _noff_bobba_hp - 0.01:
 		_noff_enemy_hurt = true
-	if once.call("fire_check", 15.0):
+	if once.call("fire_check", 18.0):
 		print("[CombatTest] NOFF: after 7s fire ally hp=%.0f (was %.0f)  enemy_took_damage=%s" % [
 				float(comp.current_health), _noff_ally_hp, _noff_enemy_hurt])
 
-	if once.call("arrow", 16.0):
+	if once.call("arrow", 19.0):
 		var arrow = load("res://player/arrow.tscn").instantiate()
 		arrow.shooter = comp        # the ARCHER's arrow, aimed through the paladin
 		arrow.is_local = true
@@ -1247,13 +1251,56 @@ func _drive_noff(_delta: float) -> void:
 		_noff_paladin_hp = float(_player.current_health)
 		print("[CombatTest] NOFF: arrow loosed at the paladin from %.1fm" % aim.length())
 
+	# Now that the control is latched, pull Bobba clear of the flames and put
+	# one arrow into him — the damage model check. Absolute damage means this
+	# number must be DIRECT_HIT_DAMAGE exactly, whatever his max HP is; under
+	# percent damage it was 5% of 1000 = 50, and would have changed the day
+	# anyone retuned his health bar.
+	# The damage-model check runs BEFORE anything is set alight. Measuring it
+	# afterwards read 89, then 71, because the ground-fire aura keeps a body
+	# in its list until Area3D reports the exit and queue_free lands at the
+	# end of the frame - both readings were the arrow plus stray 18 HP ticks.
+	# Ordering the phases costs nothing and removes the interference entirely.
+	if once.call("enemy_arrow", 7.0) and _bobba != null:
+		# Silence every fire on the field first, and zero their auras rather
+		# than only freeing them (queue_free lands at end of frame, a tick
+		# can still get in). The COMPANION IS AN AI ARCHER: left to itself it
+		# llooses fire arrows into the dark on its own initiative, and its
+		# ground fires were landing 18 HP ticks in the middle of the reading.
+		# Zero the auras rather than free the fires: the archer's fire-circle
+		# node is in this group AND is a child of the caster, so freeing group
+		# members tears out a live player's own spell.
+		for gf in get_tree().get_nodes_in_group("ground_fire"):
+			for ch in gf.get_children():
+				if "damage_per_sec" in ch:
+					ch.damage_per_sec = 0.0
+		_noff_bobba_hp_arrow = float(_bobba.health)
+		var ea = load("res://player/arrow.tscn").instantiate()
+		ea.shooter = comp
+		ea.is_local = true
+		get_tree().current_scene.add_child(ea)
+		ea.global_position = (_bobba as Node3D).global_position + Vector3(-2.0, 1.2, 0)
+		ea.launch(Vector3(1, 0, 0))
+		print("[CombatTest] NOFF: arrow into Bobba (hp %.0f before)" % _noff_bobba_hp_arrow)
+		# +0.6 s, not +2 s. A fire arrow lights a ground fire WHERE IT LANDS, so
+	# a target standing in the flames it just started keeps taking 18 HP a
+	# second - the first two readings here (89, then 89 again with no other
+	# fire on the field) were the direct hit plus its own DoT. The aura's
+	# first tick is a full second out, so a short window isolates the hit.
+	if once.call("enemy_arrow_check", 7.6) and _bobba != null:
+		var dealt: float = _noff_bobba_hp_arrow - float(_bobba.health)
+		_noff_arrow_dealt = dealt
+		print("[CombatTest] NOFF: arrow dealt %.1f HP to Bobba (expect 35.0 flat; it was 50 = 5%% of 1000)"
+				% dealt)
+
 	if once.call("verdict", 24.0):
 		var ally_ok: bool = float(comp.current_health) >= _noff_ally_hp - 0.01
 		var paladin_ok: bool = float(_player.current_health) >= _noff_paladin_hp - 0.01
 		var bobba_hurt: bool = _noff_enemy_hurt
-		print("[CombatTest] NOFF ally_unharmed=%s paladin_unharmed=%s enemy_still_burns=%s verdict=%s" % [
-				ally_ok, paladin_ok, bobba_hurt,
-				"PASS" if (ally_ok and paladin_ok and bobba_hurt) else "FAIL"])
+		var flat_ok: bool = absf(_noff_arrow_dealt - 35.0) < 0.51
+		print("[CombatTest] NOFF ally_unharmed=%s paladin_unharmed=%s enemy_still_burns=%s arrow_flat=%s verdict=%s" % [
+				ally_ok, paladin_ok, bobba_hurt, flat_ok,
+				"PASS" if (ally_ok and paladin_ok and bobba_hurt and flat_ok) else "FAIL"])
 
 ## DARKSIM: does the archer's fire actually FIND anything? Runs at NIGHT —
 ## the only skeleton scenario that does, since SKEL forces daylight so its

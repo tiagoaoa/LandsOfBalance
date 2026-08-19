@@ -2,10 +2,15 @@ extends Area3D
 
 ## A time-ticking damage-over-time aura.
 ##
-## Any CharacterBody3D inside this area that exposes a `take_damage_pct(pct)`
-## method takes a percent-HP hit every `tick_interval` seconds, equal to
-## `damage_pct_per_sec * tick_interval`. The area despawns after `lifetime`
-## seconds (or lives forever if `lifetime == 0`).
+## Any CharacterBody3D inside this area that exposes a `take_damage_flat(hp)`
+## method takes `damage_per_sec * tick_interval` HP every `tick_interval`
+## seconds. The area despawns after `lifetime` seconds (or lives forever if
+## `lifetime == 0`).
+##
+## Flat HP, not a fraction of the target's max: a percentage made one burning
+## patch of grass hit a 1000 HP boss twenty times harder than a 50 HP mob, and
+## made every health bar in the game irrelevant to how long anything survived
+## standing in fire.
 ##
 ## Used by the archer's landed-arrow ground fire (step 3) and can be reused
 ## for any area DoT effect later.
@@ -23,7 +28,7 @@ signal ticked(damaged_bodies: Array)
 signal expired()
 
 @export var radius: float = 5.0
-@export var damage_pct_per_sec: float = 0.05
+@export var damage_per_sec: float = 18.0
 @export var tick_interval: float = 1.0
 @export var lifetime: float = 30.0
 @export var exclude_node: Node3D = null
@@ -67,9 +72,9 @@ func _physics_process(delta: float) -> void:
 
 
 func _apply_tick() -> void:
-	if damage_pct_per_sec <= 0.0:
+	if damage_per_sec <= 0.0:
 		return
-	var damage_this_tick: float = damage_pct_per_sec * tick_interval
+	var damage_this_tick: float = damage_per_sec * tick_interval
 	var damaged: Array = []
 	for body in _bodies_inside:
 		if not is_instance_valid(body):
@@ -78,16 +83,16 @@ func _apply_tick() -> void:
 			continue
 		if Factions.is_ally(source_node, body):
 			continue
-		if body.has_method("take_damage_pct"):
-			body.take_damage_pct(damage_this_tick)
+		if body.has_method("take_damage_flat"):
+			body.take_damage_flat(damage_this_tick)
 			damaged.append(body)
 	if not damaged.is_empty():
 		ticked.emit(damaged)
 
 
 func _on_body_entered(body: Node3D) -> void:
-	# Only track bodies that can actually receive percent-HP damage.
-	if not body.has_method("take_damage_pct"):
+	# Only track bodies that can actually receive flat HP damage.
+	if not body.has_method("take_damage_flat"):
 		return
 	if not _bodies_inside.has(body):
 		_bodies_inside.append(body)

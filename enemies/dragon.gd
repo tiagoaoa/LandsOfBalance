@@ -363,13 +363,13 @@ func take_damage(amount: float) -> void:
 	print("Dragon: take_damage(%.1f) - HP: %.1f/%.1f" % [amount, health, MAX_HEALTH])
 
 
-## Take damage as a percentage of max HP (e.g. arrows, DoT aura ticks).
+## Flat HP damage from arrows and DoT aura ticks.
 ## Server-authoritative: skipped on non-host clients (health is synced from the
 ## server via apply_network_state).
-func take_damage_pct(pct: float) -> void:
+func take_damage_flat(amount: float) -> void:
 	if _is_network_controlled:
 		return
-	_health.damage_pct(pct)
+	_health.damage_flat(amount)
 
 
 ## Uniform hit entry point for all damage sources. The dragon does not block,
