@@ -884,6 +884,13 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 	if _has_hit_this_attack:
 		return
 
+	# No friendly fire, same rule as the main player script. This path is
+	# only reached from game_animtree.tscn / the FIFO test harness, but a
+	# damage source that answers the question differently is exactly how the
+	# rule rots.
+	if Factions.is_ally(self, body):
+		return
+
 	if body.has_method("take_hit"):
 		_has_hit_this_attack = true
 		var knockback_dir := (body.global_position - global_position).normalized()

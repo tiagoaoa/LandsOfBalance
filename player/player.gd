@@ -4180,6 +4180,12 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 	if character_class == CharacterClass.PALADIN and not is_on_floor():
 		return
 
+	# No friendly fire. A swing that clips an ally does nothing at all — it
+	# does not even consume the swing, so brawling shoulder to shoulder
+	# around a fire costs the party nothing.
+	if Factions.is_ally(self, body):
+		return
+
 	# Check if we hit an enemy with take_hit method
 	if body.has_method("take_hit"):
 		_has_hit_this_attack = true

@@ -45,6 +45,10 @@ var _scripted_test_started: bool = false  # one-shot latch for PARRY/BACKSTAB/ES
 var _coop_fire_dropped: bool = false  # spare one-shot latch (COOP/SKEL scripted events)
 var _skel_arrow_shot: bool = false
 var _darksim_haunt: Vector3 = Vector3.ZERO
+var _noff_ally_hp: float = 0.0
+var _noff_bobba_hp: float = 0.0
+var _noff_paladin_hp: float = 0.0
+var _noff_enemy_hurt: bool = false
 ## Where DARKSIM parks the player: outside moonlight (8 m) and outside the
 ## reach of a fire lit at his own feet, but inside the glow of one lit ON the
 ## pack (18 m). The whole mechanic lives in that gap.
@@ -289,6 +293,12 @@ func _process(delta: float) -> void:
 		_drive_lockon(delta)
 		if _elapsed > 9.0:
 			_finish("LOCKON_DONE")
+		return
+
+	if scenario == "NOFF":
+		_drive_noff(delta)
+		if _elapsed > 26.0:
+			_finish("NOFF_DONE")
 		return
 
 	if scenario == "DARKSIM":
@@ -1157,6 +1167,93 @@ func _drive_skel(_delta: float) -> void:
 		print("[CombatTest] SKEL t=%d alive=%d nearest=%.1f player_hp=%.0f" % [
 				int(_elapsed), alive, nearest, float(_player.current_health)])
 
+
+## NOFF: there is no friendly fire. Spawns an archer ally beside the paladin
+## and turns every player-owned damage source on him in turn, checking his HP
+## never moves — then turns the SAME ground fire on Bobba and checks that it
+## does, because a rule that suppresses everything is indistinguishable from
+## a test that fires nothing.
+##
+##   t=2   ally parked next to the paladin, and Bobba next to the ally
+##   t=4   paladin swings, ally inside the sword hitbox
+##   t=8   ground fire planted ON the ally (and reaching Bobba)
+##   t=16  arrow loosed straight through the ally
+##   t=24  verdict
+func _drive_noff(_delta: float) -> void:
+	var comp := _find_in_group("companion")
+	if comp == null:
+		if int(_elapsed) % 3 == 0 and int(_elapsed) != int(_elapsed - _delta):
+			print("[CombatTest] NOFF: waiting for the companion")
+		return
+	var once := func(key: String, t: float) -> bool:
+		if _elapsed >= t and not _bowsim_flags.has(key):
+			_bowsim_flags[key] = true
+			return true
+		return false
+
+	if once.call("setup", 2.0):
+		comp.global_position = _player.global_position + Vector3(1.6, 0.5, 0.0)
+		comp.set_physics_process(false)          # hold him in the blast
+		_noff_ally_hp = float(comp.current_health)
+		if _bobba:
+			_bobba.set_physics_process(false)    # the control subject, held too
+			_bobba.global_position = _player.global_position + Vector3(3.6, 0.0, 0.0)
+			_noff_bobba_hp = float(_bobba.health)
+		print("[CombatTest] NOFF: ally at %.1fm, bobba at %.1fm — ally hp=%.0f bobba hp=%.0f" % [
+				_player.global_position.distance_to(comp.global_position),
+				_player.global_position.distance_to((_bobba as Node3D).global_position) if _bobba else -1.0,
+				_noff_ally_hp, _noff_bobba_hp])
+
+	if once.call("sword", 4.0):
+		_player._do_attack()
+		print("[CombatTest] NOFF: paladin swung with the ally inside the hitbox")
+	if once.call("sword_check", 6.0):
+		print("[CombatTest] NOFF: after sword   ally hp=%.0f (was %.0f)" % [
+				float(comp.current_health), _noff_ally_hp])
+
+	if once.call("fire", 8.0):
+		var fire_pos: Vector3 = comp.global_position
+		var fire := FireFX.create_ground_fire(get_tree().current_scene, fire_pos,
+				"NoffGroundFire", 30.0, false)
+		var aura = load("res://combat/damage_aura_area.gd").new()
+		aura.name = "GroundFireAura"
+		aura.radius = 5.0
+		aura.damage_pct_per_sec = 0.05
+		aura.tick_interval = 1.0
+		aura.lifetime = 30.0
+		aura.source_node = comp     # the ARCHER's fire, as if he had shot it
+		fire.add_child(aura)
+		_coop_fire_dropped = true
+		print("[CombatTest] NOFF: archer ground fire planted ON the ally")
+	# Latch the control the moment it is observable. Bobba REGENERATES, and
+	# the fire is strong enough to kill him outright — sampling his HP at the
+	# verdict read 1000 again and reported the control as "never fired",
+	# which would have looked exactly like the suppression being too broad.
+	if _coop_fire_dropped and _bobba != null and is_instance_valid(_bobba) \
+			and float(_bobba.health) < _noff_bobba_hp - 0.01:
+		_noff_enemy_hurt = true
+	if once.call("fire_check", 15.0):
+		print("[CombatTest] NOFF: after 7s fire ally hp=%.0f (was %.0f)  enemy_took_damage=%s" % [
+				float(comp.current_health), _noff_ally_hp, _noff_enemy_hurt])
+
+	if once.call("arrow", 16.0):
+		var arrow = load("res://player/arrow.tscn").instantiate()
+		arrow.shooter = comp        # the ARCHER's arrow, aimed through the paladin
+		arrow.is_local = true
+		get_tree().current_scene.add_child(arrow)
+		arrow.global_position = comp.global_position + Vector3(0, 1.4, 0)
+		var aim: Vector3 = (_player.global_position + Vector3(0, 1.2, 0)) - arrow.global_position
+		arrow.launch(aim.normalized())
+		_noff_paladin_hp = float(_player.current_health)
+		print("[CombatTest] NOFF: arrow loosed at the paladin from %.1fm" % aim.length())
+
+	if once.call("verdict", 24.0):
+		var ally_ok: bool = float(comp.current_health) >= _noff_ally_hp - 0.01
+		var paladin_ok: bool = float(_player.current_health) >= _noff_paladin_hp - 0.01
+		var bobba_hurt: bool = _noff_enemy_hurt
+		print("[CombatTest] NOFF ally_unharmed=%s paladin_unharmed=%s enemy_still_burns=%s verdict=%s" % [
+				ally_ok, paladin_ok, bobba_hurt,
+				"PASS" if (ally_ok and paladin_ok and bobba_hurt) else "FAIL"])
 
 ## DARKSIM: does the archer's fire actually FIND anything? Runs at NIGHT —
 ## the only skeleton scenario that does, since SKEL forces daylight so its

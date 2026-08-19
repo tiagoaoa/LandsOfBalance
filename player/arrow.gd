@@ -237,6 +237,13 @@ func _on_body_entered(body: Node) -> void:
 	if body == shooter:
 		return
 
+	# No friendly fire. An arrow PASSES THROUGH a teammate rather than
+	# stopping dead in him: the archer shoots into a brawl constantly, and
+	# an ally's back soaking arrows would make the class unplayable in the
+	# one formation the game asks the party to hold.
+	if Factions.is_ally(shooter, body):
+		return
+
 	_has_hit = true
 	Sfx.play3d("arrow_impact", global_position, -4.0)
 
@@ -329,7 +336,9 @@ func _create_ground_fire() -> void:
 		aura.damage_pct_per_sec = GROUND_FIRE_DAMAGE_PCT_PER_SEC
 		aura.tick_interval = 1.0
 		aura.lifetime = GROUND_FIRE_LIFETIME
-		aura.exclude_node = shooter
+		# Excludes the shooter AND everyone on his side — this is the fire the
+		# paladin is being asked to stand next to so he can see.
+		aura.source_node = shooter
 		aura.ticked.connect(func(damaged: Array) -> void:
 			for b in damaged:
 				print("Arrow fire DoT tick: %s took %.1f%% of max HP" % [

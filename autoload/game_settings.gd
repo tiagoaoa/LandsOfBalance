@@ -90,7 +90,7 @@ func _ready() -> void:
 			# and the AI companion takes the other one — force nothing here.
 			# ARCHER is the one scripted bow-user run; every other scenario
 			# drives the melee kit.
-			if combat_scenario == "COOP" or combat_scenario == "REVIVE":
+			if combat_scenario in ["COOP", "REVIVE", "NOFF"]:
 				coop_mode = true
 			if combat_scenario == "COOP":
 				pass  # menu picks the class

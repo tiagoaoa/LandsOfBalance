@@ -95,6 +95,14 @@ const PALADIN_ANIM_PATHS: Dictionary = {
 
 
 func _ready() -> void:
+	# Join the party group. Nothing ever did, so every group-based check in
+	# the game silently skipped networked allies: Perception.all_characters
+	# could not see them, Bobba's own is_in_group("remote_players") test was
+	# dead code, lock-on would not target them, and no friendly-fire rule
+	# could recognise them. The group name was in use in five places and
+	# populated in none.
+	add_to_group("remote_players")
+
 	# Setup collision
 	collision_layer = 8  # Layer 4 for remote players
 	collision_mask = 1   # Collide with world

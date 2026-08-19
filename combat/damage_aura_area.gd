@@ -10,8 +10,14 @@ extends Area3D
 ## Used by the archer's landed-arrow ground fire (step 3) and can be reused
 ## for any area DoT effect later.
 ##
-## The `exclude_node` optional parameter lets the caller prevent the aura
-## from damaging a specific body (e.g. the shooter of the arrow).
+## Set `source_node` to whoever created the aura: it and everyone on its side
+## are immune (Factions.is_ally). `exclude_node` remains for a one-off
+## exemption that has nothing to do with sides.
+##
+## Excluding only the caster was not enough. The archer's ground fire is the
+## party's light source — the whole night design pushes the paladin toward
+## standing in it — and it was burning him 5% of max HP a second for doing
+## exactly what the fire is for.
 
 signal ticked(damaged_bodies: Array)
 signal expired()
@@ -21,6 +27,8 @@ signal expired()
 @export var tick_interval: float = 1.0
 @export var lifetime: float = 30.0
 @export var exclude_node: Node3D = null
+## Whoever this aura belongs to. Anyone allied with it takes no damage.
+@export var source_node: Node3D = null
 
 var _age: float = 0.0
 var _tick_timer: float = 0.0
@@ -66,7 +74,9 @@ func _apply_tick() -> void:
 	for body in _bodies_inside:
 		if not is_instance_valid(body):
 			continue
-		if body == exclude_node:
+		if body == exclude_node or body == source_node:
+			continue
+		if Factions.is_ally(source_node, body):
 			continue
 		if body.has_method("take_damage_pct"):
 			body.take_damage_pct(damage_this_tick)
