@@ -309,8 +309,10 @@ func _process(delta: float) -> void:
 						print("[CombatTest] WATCH t=%d %s" % [int(_elapsed), brain_node.debug_line()])
 			if scenario == "WATCH":
 				var other := _find_in_group("companion")
-				print("[CombatTest] WATCH t=%d apart=%.0fm bobba=%.0fm/%.0fm linked=%s found=%s" % [
+				print("[CombatTest] WATCH t=%d pal=(%.0f,%.0f,%.0f) bob=(%.0f,%.0f,%.0f) apart=%.0fm bobba=%.0fm/%.0fm linked=%s found=%s" % [
 						int(_elapsed),
+						_player.global_position.x, _player.global_position.y, _player.global_position.z,
+						_bobba.global_position.x, _bobba.global_position.y, _bobba.global_position.z,
 						_player.global_position.distance_to(other.global_position) if other else -1.0,
 						_player.global_position.distance_to(_bobba.global_position),
 						other.global_position.distance_to(_bobba.global_position) if other else -1.0,

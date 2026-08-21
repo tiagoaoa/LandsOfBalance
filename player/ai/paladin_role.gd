@@ -436,7 +436,14 @@ func _sweep(delta: float) -> void:
 		if _sweep_goal != Vector3.ZERO and pos().distance_to(_sweep_goal) < 8.0:
 			_mark_checked(_sweep_goal)
 		_sweep_goal = _pick_sweep_goal()
-		_sweep_left = randf_range(4.0, 7.0)
+		# COMMIT TO THE WALK. A fixed 4-7 s leg is fine for stepping between
+		# beacons 20 m apart and useless for a trail 120 m away: the timer
+		# expired, the goal was recomputed against a boss who had roamed on,
+		# and the party spent five minutes re-aiming instead of arriving.
+		# Long goals get the time they actually take (~6 m/s), short ones keep
+		# the old cadence so a stale beacon is never walked to forever.
+		var leg: float = pos().distance_to(_sweep_goal) / 6.0
+		_sweep_left = clampf(leg, 4.0, 30.0)
 	if _sweep_goal == Vector3.ZERO:
 		explore(delta)
 		return
