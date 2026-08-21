@@ -34,11 +34,11 @@ const DECIDE_INTERVAL := 0.12
 const RETREAT_HP := 0.35        # break off below this fraction of max HP
 const REENGAGE_HP := 0.6        # ...and rejoin only once back above this
 const ESTUS_SAFE_DIST := 9.0    # a hit mid-drink wastes the charge
-const DEFENSE_COOLDOWN := 0.9   # min seconds between parry/roll reactions
-## Bobba's fist connects roughly this far into a swing. The parry commitment
-## window is 0.33 s wide (PARRY_WINDOW_START..END), so an estimate this coarse
-## is still comfortably inside it.
-const BOBBA_CONTACT_TIME := 0.45
+## Minimum gap between committed reactions. It used to be 0.9 s, which is
+## longer than the gap between the steps of Bobba's own three-hit chain
+## (~0.7 s at the tightest): one roll and the next two blows arrived while the
+## AI was still on cooldown, unable to answer either.
+const DEFENSE_COOLDOWN := 0.5
 
 var body: Player = null
 var brain: SquadBrain = null
@@ -111,6 +111,18 @@ func roll_dir(away: Vector3) -> Vector3:
 	return away
 
 
+## Is this blow worth WAITING on rather than rolling away from it now?
+##
+## The two reactions do not open at the same moment: the roll is live from
+## 0.45 s out, the paladin's parry only from 0.34. So an unconditional roll
+## always fires first, spends the reaction cooldown, and the better answer
+## never gets its turn — which is exactly why the AI paladin parried zero
+## times in a 112 s fight. A class that has something better coming says so
+## here, and the base sits on its hands for those hundred milliseconds.
+func hold_for_special(_eta: float) -> bool:
+	return false
+
+
 # ------------------------------------------------------------------- state --
 
 func pos() -> Vector3:
@@ -147,9 +159,10 @@ func retreating() -> bool:
 
 ## Seconds until the next blade/fist lands on US, and what is throwing it.
 ## Read from the attacker's OWN clip timing, not guessed: a skeleton's blade
-## falls at ATTACK_HIT_TIME into its swing, Bobba's fist about
-## BOBBA_CONTACT_TIME in. That is what lets the AI parry on time instead of
-## flipping a coin and hoping.
+## falls at ATTACK_HIT_TIME into its swing, and Bobba's fist or axe lands at
+## the start of whichever damage window the clip he is actually playing
+## declares. That is what lets the AI parry on time instead of flipping a coin
+## and hoping.
 func soonest_strike() -> Dictionary:
 	var best := INF
 	var who: Node3D = null
@@ -176,7 +189,22 @@ func strike_eta(enemy: Node3D) -> float:
 		var b := enemy as Bobba
 		if int(b.state) != int(Proto.BobbaState.ATTACKING):
 			return INF
-		return maxf(0.0, BOBBA_CONTACT_TIME - float(b._attack_state_time))
+		# Off the CLIP, like the skeleton above — not a constant. Bobba has two
+		# weapons with contact points nearly half a second apart (the fist
+		# chain lands at 0.30 of its clip, the axe at 0.34 of a clip that is
+		# twice as long), and he now jitters his playback speed on every swing.
+		# The old flat 0.45 s guess was early by 300-500 ms against the axe,
+		# which is a parry window and a half: the shield went up and came down
+		# before the blade arrived, every single time.
+		var ap: AnimationPlayer = b._anim_player
+		if ap == null or ap.current_animation_length <= 0.0:
+			return INF
+		var speed: float = ap.get_playing_speed()
+		if speed <= 0.01:
+			return INF   # the swing is being HELD at the top: no contact to time yet
+		var win: Vector2 = b._current_attack_data()["window"]
+		return maxf(0.0, (win.x * ap.current_animation_length
+				- ap.current_animation_position) / speed)
 	return INF
 
 
@@ -198,6 +226,9 @@ func defend() -> bool:
 	if special_defence(eta):
 		_defense_cd = DEFENSE_COOLDOWN
 		return true
+	# ...and if it is still COMING, wait for it instead of rolling it away.
+	if hold_for_special(eta):
+		return false
 	# Roll i-frames run 0.09–0.51 s into the roll.
 	if eta >= 0.12 and eta <= 0.45 and stamina() > 0.3 and body.has_method("_try_dodge"):
 		var enemy: Node3D = strike.enemy

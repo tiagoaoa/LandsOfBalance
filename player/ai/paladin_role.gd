@@ -52,6 +52,10 @@ const LIGHT_FIGHT_RANGE := 26.0  # a fire this close is worth backing into
 const PARRY_OPEN := 0.10
 const PARRY_SHUT := 0.34
 const PARRY_STAMINA := 0.15
+## Stop swinging this long before a blow lands, so the hands are free to
+## parry it. Wide enough to cover the parry window (0.10-0.34 s) plus the
+## fraction of a second it takes a click to become a raised shield.
+const PARRY_HOLD_ETA := 0.55
 
 var _spell_cd := 6.0
 var _rite_left := 0.0          # seconds left in a rite attempt before giving up
@@ -94,7 +98,23 @@ func special_defence(eta: float) -> bool:
 			or stamina() <= PARRY_STAMINA or not body.has_method("_try_parry"):
 		return false
 	body._try_parry()
-	return true
+	# The game can still refuse it (mid-swing, mid-roll, stunned, airborne).
+	# Reporting a refusal as a parry would spend the defence cooldown on
+	# nothing AND skip the roll that was the fallback — so ask the body what
+	# actually happened rather than assuming the button worked.
+	return body.is_parrying
+
+
+## A blow he can still parry is not a blow to roll away from. The parry cancels
+## it outright and opens the riposte; the roll only avoids it and gives up the
+## ground. So between 0.34 s and 0.55 s out he stands his ground and waits for
+## the window — provided the parry is actually available when it opens.
+func hold_for_special(eta: float) -> bool:
+	if eta <= PARRY_SHUT or eta > PARRY_HOLD_ETA:
+		return false
+	return int(body.combat_mode) == int(Player.CombatMode.ARMED) \
+			and stamina() > PARRY_STAMINA and not body.is_attacking \
+			and body.has_method("_try_parry")
 
 
 ## He rolls THROUGH the swing rather than out of the fight: he comes up beside
@@ -287,6 +307,17 @@ func _brawl(c: SquadBrain.Contact, delta: float) -> void:
 	_chase_stall = 0.0
 	_chase_prev = INF
 	stop()
+	# HOLD THE SWING WHEN A BLOW IS COMING. _try_parry is refused outright
+	# while is_attacking, and a paladin combo is up to 2.7 s long — so a swing
+	# started here is precisely why the parry window never arrives. Measured:
+	# zero parries in a 112 s live fight. Keeping his hands free for the last
+	# half-second before contact is what gives him back the only defence in
+	# the game that cancels a hit outright.
+	var incoming: float = float(soonest_strike()["eta"])
+	if incoming < PARRY_HOLD_ETA:
+		guard(true)          # shield up meanwhile; a block only chips
+		_combo_left = 0      # and drop the rest of the chain, not just this click
+		return
 	# The 3-hit chain: fast consecutive clicks bank combo steps (player.gd's
 	# COMBO_CLICK_WINDOW), then a breather so stamina and poise recover.
 	if _combo_left > 0:
@@ -294,7 +325,12 @@ func _brawl(c: SquadBrain.Contact, delta: float) -> void:
 			body._do_attack()
 			_combo_left -= 1
 			_click_gap = 0.32
-	elif _attack_timer <= 0.0 and stamina() > 0.25:
+	elif _attack_timer <= 0.0 and stamina() > 0.25 and incoming == INF:
+		# SWING IN HIS RECOVERY, NOT INTO HIS SWING. A paladin combo runs up to
+		# 2.7 s and _try_parry is refused for every frame of it, so a chain
+		# opened while the boss is already winding up costs the parry AND eats
+		# the hit. `incoming == INF` means nothing is mid-swing at us right
+		# now — the punish window, which is when a player attacks a boss too.
 		_combo_left = 3
 		_click_gap = 0.0
 		_attack_timer = randf_range(2.0, 3.0)
