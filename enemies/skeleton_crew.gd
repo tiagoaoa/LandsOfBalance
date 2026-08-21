@@ -35,7 +35,11 @@ func _ready() -> void:
 	var gs := get_node_or_null("/root/GameSettings")
 	if gs and "combat_scenario" in gs:
 		var sc := String(gs.combat_scenario)
-		if sc != "" and sc not in ["SKEL", "DARKSIM", "COOP", "PLAY", "ARCHER", "POSTER"]:
+		# WATCH belongs on this list: it is a real night session that happens
+		# to have bots on both sides, and a search with nothing in the dark to
+		# find is not a test of anything.
+		if sc != "" and sc not in ["SKEL", "DARKSIM", "COOP", "PLAY", "ARCHER",
+				"POSTER", "WATCH"]:
 			print("SkeletonCrew: standing down for scenario '%s'" % sc)
 			return
 	# Wait for the stage (terrain collision) before ground-probing spawns.

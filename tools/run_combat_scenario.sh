@@ -5,6 +5,7 @@
 #   tools/run_combat_scenario.sh A        # Paladin expected to win
 #   tools/run_combat_scenario.sh B        # Paladin expected to lose
 #   tools/run_combat_scenario.sh A 45     # override max wall-clock seconds
+#   tools/run_combat_scenario.sh WATCH    # two bots play, you watch (windowed)
 #
 # Screenshots land in /tmp/combat_test/, the full client log in
 # /tmp/lob_combat_<scenario>.log.
@@ -13,8 +14,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SCENARIO="${1:-A}"
-# PLAY, ARCHER and COOP are human-driven: long leash unless the caller overrides.
-if [ "$SCENARIO" = "PLAY" ] || [ "$SCENARIO" = "ARCHER" ] || [ "$SCENARIO" = "COOP" ]; then
+# PLAY, ARCHER and COOP are human-driven and WATCH is a two-bot showcase you
+# sit and watch: long leash on all of them unless the caller overrides.
+if [ "$SCENARIO" = "PLAY" ] || [ "$SCENARIO" = "ARCHER" ] || [ "$SCENARIO" = "COOP" ] \
+        || [ "$SCENARIO" = "WATCH" ]; then
     TIMEOUT_SEC="${2:-3600}"
 else
     TIMEOUT_SEC="${2:-75}"
@@ -22,12 +25,13 @@ fi
 GODOT="${GODOT:-/home/talves/bin/godot}"
 
 case "$SCENARIO" in
-    A|B|GRASS|PROMO|LOCKON|DODGE|PARRY|BACKSTAB|ESTUS|SOULS|MOVE|COMBO|PLAY|ARROW|ARCHER|RIVER|DRAGON|COOP|SKEL|POSTER|BOWSIM|REVIVE|MOBSIM|PALSIM|BLOCKSIM|ANIMSIM|GEARSIM|DARKSIM|NOFF) ;;
-    *) echo "Scenario must be A, B, GRASS, PROMO, LOCKON, DODGE, PARRY, BACKSTAB, ESTUS, SOULS, MOVE, COMBO, PLAY, ARROW, ARCHER, RIVER, DRAGON, COOP, SKEL, POSTER, BOWSIM, REVIVE, MOBSIM, PALSIM, BLOCKSIM, ANIMSIM, GEARSIM, DARKSIM, or NOFF (got: $SCENARIO)"; exit 1 ;;
+    A|B|GRASS|PROMO|LOCKON|DODGE|PARRY|BACKSTAB|ESTUS|SOULS|MOVE|COMBO|PLAY|ARROW|ARCHER|RIVER|DRAGON|COOP|COOPSIM|WATCH|SKEL|POSTER|BOWSIM|REVIVE|MOBSIM|PALSIM|BLOCKSIM|ANIMSIM|GEARSIM|DARKSIM|NOFF) ;;
+    *) echo "Scenario must be A, B, GRASS, PROMO, LOCKON, DODGE, PARRY, BACKSTAB, ESTUS, SOULS, MOVE, COMBO, PLAY, ARROW, ARCHER, RIVER, DRAGON, COOP, COOPSIM, WATCH, SKEL, POSTER, BOWSIM, REVIVE, MOBSIM, PALSIM, BLOCKSIM, ANIMSIM, GEARSIM, DARKSIM, or NOFF (got: $SCENARIO)"; exit 1 ;;
 esac
 
 DEFAULT_HEADLESS=1
-if [ "$SCENARIO" = "PLAY" ] || [ "$SCENARIO" = "ARCHER" ] || [ "$SCENARIO" = "COOP" ]; then
+if [ "$SCENARIO" = "PLAY" ] || [ "$SCENARIO" = "ARCHER" ] || [ "$SCENARIO" = "COOP" ] \
+        || [ "$SCENARIO" = "WATCH" ]; then
     DEFAULT_HEADLESS=0
 fi
 HEADLESS="${LOB_HEADLESS:-$DEFAULT_HEADLESS}"
@@ -50,6 +54,12 @@ mkdir -p /tmp/combat_test
 
 GODOT_ARGS=("--path" "$PWD")
 GAME_ARGS=(--singleplayer "--combat-scenario=$SCENARIO")
+# Extra client flags for a run, e.g. LOB_EXTRA_ARGS=--character-class=archer to
+# flip which class the human takes (and therefore which one the AI plays).
+if [ -n "${LOB_EXTRA_ARGS:-}" ]; then
+    # shellcheck disable=SC2206
+    GAME_ARGS+=(${LOB_EXTRA_ARGS})
+fi
 case "${GODOT_MCP_RUNTIME_ENABLED,,}" in
     1|true|yes|on)
         GAME_ARGS+=("--mcp-runtime-port=${GODOT_MCP_RUNTIME_PORT:-7777}")

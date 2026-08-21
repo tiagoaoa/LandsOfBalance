@@ -208,6 +208,12 @@ var character_class: CharacterClass = CharacterClass.ARCHER
 # the Input singleton would normally be polled) and calls the action
 # methods directly. See player/companion_ai.gd.
 @export var is_ai_companion: bool = false
+## True when a brain — not a human — supplies this body's input. Always true
+## for the companion; also true for the PLAYER slot in spectate mode, where
+## both classes are bots and the viewport just watches (GameSettings.spectate).
+## `is_ai_companion` stays a question of IDENTITY (which half of the party am
+## I); this one is a question of CONTROL, and every Input poll keys off it.
+var ai_driven: bool = false
 var companion_class_override: int = -1
 var _ai_move_vec: Vector2 = Vector2.ZERO
 var _ai_run: bool = false
@@ -220,6 +226,10 @@ var is_reviving: bool = false
 var _revive_progress: float = 0.0
 var _ai_revive_intent: bool = false  # CompanionAI's "E held"
 var _ai_crouch: bool = false
+## CompanionAI's "block button held". The AI raises the shield for an
+## incoming swing it cannot parry or roll: a block only chips, and chipped
+## is a great deal better than clean.
+var _ai_block: bool = false
 var _death_marker: Node3D = null
 var _revive_bar_layer: CanvasLayer = null
 var _revive_bar: ProgressBar = null
@@ -515,7 +525,8 @@ var _force_field_material: ShaderMaterial  # Bubble shader with noise distortion
 
 
 func _ready() -> void:
-	print("Player: _ready() starting (ai_companion=%s)" % is_ai_companion)
+	ai_driven = is_ai_companion or _spectating()
+	print("Player: _ready() starting (ai_companion=%s, ai_driven=%s)" % [is_ai_companion, ai_driven])
 	if is_ai_companion:
 		add_to_group("companion")
 	else:
@@ -685,7 +696,7 @@ func _update_revive(delta: float) -> void:
 		if is_reviving:
 			_cancel_revive("ally gone")
 		return
-	var wants: bool = _ai_revive_intent if is_ai_companion \
+	var wants: bool = _ai_revive_intent if ai_driven \
 			else Input.is_action_pressed(&"revive")
 	var in_range: bool = global_position.distance_to(other.global_position) <= REVIVE_RANGE
 	if wants and in_range:
@@ -872,6 +883,23 @@ func _spawn_companion_if_coop() -> void:
 	comp.add_child(ai)
 	print("Player: Co-op companion spawned (%s)" % (
 			"Archer" if comp.companion_class_override == CharacterClass.ARCHER else "Paladin"))
+	if _spectating():
+		# Nobody is at the keyboard: this half of the party gets a brain of
+		# its own, and the view moves out of both heads into a chase rig.
+		var mine := CompanionAI.new()
+		mine.name = "CompanionAI"
+		mine.body = self
+		add_child(mine)
+		var rig := SpectateCam.new()
+		rig.name = "SpectateCam"
+		get_tree().current_scene.add_child(rig)
+		rig.watch(self)
+		print("Player: SPECTATE — both classes are bots (TAB switches view)")
+
+
+## Nobody is playing: both classes are bots and the viewport is a spectator.
+func _spectating() -> bool:
+	return GameSettings != null and "spectate" in GameSettings and GameSettings.spectate
 
 
 func _setup_fifo() -> void:
@@ -2421,14 +2449,15 @@ func _play_anim(anim_name: StringName) -> void:
 ## — the button is still held, and only an edge would ever have restored
 ## it. The AI companion keeps its own state; human input must not leak in.
 func _update_block_state() -> void:
-	if is_ai_companion:
-		return
 	# A parry REPLACES the guard for its duration; death, the downed state
 	# and a revive channel all drop it entirely.
 	if is_parrying or is_dead or is_reviving:
 		is_blocking = false
 		return
-	is_blocking = Input.is_action_pressed(&"block")
+	# The companion's "button" is _ai_block, written by its role each frame —
+	# same re-derived-every-frame rule as the human's, so a guard raised for a
+	# swing that never came cannot strand the shield up.
+	is_blocking = _ai_block if ai_driven else Input.is_action_pressed(&"block")
 
 
 ## Clips that _update_animation itself owns — if one of these is running,
@@ -2766,7 +2795,12 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 	health_changed.emit(current_health, max_health)
 
 
-func _shoot_arrow() -> void:
+## `aim_override`, when non-zero, replaces the camera aim with an explicit
+## launch direction. The AI archer uses it to fire a real ballistic solution
+## (see AIRole.arrow_dir_to): its whole contribution is putting fire on a
+## CHOSEN patch of ground, and the camera-plus-fixed-loft aim a human gets to
+## correct by eye lands an AI's illumination tens of metres short.
+func _shoot_arrow(aim_override: Vector3 = Vector3.ZERO) -> void:
 	Sfx.play3d("bow_release", global_position + Vector3(0, 1.4, 0), -4.0)
 	# Create arrow instance
 	var arrow = ArrowScene.instantiate()
@@ -2789,6 +2823,9 @@ func _shoot_arrow() -> void:
 
 	# Add some upward arc for parabolic trajectory
 	aim_direction.y += 0.15
+
+	if aim_override.length_squared() > 0.001:
+		aim_direction = aim_override.normalized()
 
 	# Broadcast arrow spawn to network
 	if has_node("/root/NetworkManager"):
@@ -2881,7 +2918,7 @@ func _update_bow_draw(delta: float) -> void:
 	# is drawn, perform the release that never arrived. All bindings
 	# (touch button, mouse, F key, gamepad) live inside the "attack"
 	# action, so the action state is authoritative for every input path.
-	if (is_drawing_bow or is_holding_bow) and not is_ai_companion:
+	if (is_drawing_bow or is_holding_bow) and not ai_driven:
 		if not Input.is_action_pressed(&"attack"):
 			_lost_release_grace += delta
 			if _lost_release_grace > 0.25:
@@ -3208,6 +3245,14 @@ func take_hit(damage: float, knockback: Vector3, blocked: bool,
 		print("Player: PARRY! deflected %.1f damage from %s (t=%.2f)" % [
 			damage, attacker.name, _parry_timer])
 		return false
+
+	# CALL IT OUT. A hit that lands is the party's best intelligence in a
+	# field where nothing is visible past eight metres: it posts a BEARING on
+	# the attacker for every co-op AI (SquadBrain), which is what sends the
+	# archer's next fire arrow onto the thing punching us out of the dark.
+	# Deliberately after the negations above — a hit that never landed
+	# (i-frames, spawn immunity, a parry) tells us nothing.
+	SquadBrain.note_attack(self, attacker)
 
 	# Airborne mitigation: jumping over a swing halves the damage. The
 	# player "sells" the dodge visually by being off the floor when the
@@ -4352,7 +4397,7 @@ func _update_attack_hitbox_timing() -> void:
 	# late to matter on the 2.7s finisher.)
 	if _attack_anim_progress > COMBO_CHAIN_POINT and _combo_clicks_buffered == 0 \
 			and character_class == CharacterClass.PALADIN:
-		var move_in: Vector2 = _ai_move_vec if is_ai_companion \
+		var move_in: Vector2 = _ai_move_vec if ai_driven \
 				else Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
 		if move_in.length() > 0.4:
 			is_attacking = false
@@ -4529,7 +4574,7 @@ func _try_dodge() -> void:
 
 	# Direction from the movement stick, converted to world space via camera
 	# yaw (same convention as walking). No input → roll straight backward.
-	var raw: Vector2 = _ai_move_vec if is_ai_companion \
+	var raw: Vector2 = _ai_move_vec if ai_driven \
 			else Input.get_vector(&"move_left", &"move_right",
 			&"move_forward", &"move_back", 0.15)
 	var cam_yaw: float = _camera_pivot.rotation.y
@@ -4675,6 +4720,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+	# A brain is driving this body — the only human keys left are the window
+	# ones handled above. The view lives in spectate_cam.gd and takes the
+	# rest (TAB, mouse look, wheel) for itself.
+	if ai_driven:
+		return
 
 	# Toggle combat mode with Tab, middle mouse button, or gamepad Back button
 	if event.is_action_pressed(&"toggle_combat"):
@@ -4835,7 +4886,7 @@ func _physics_process(delta: float) -> void:
 		_crouch_locked_out = true
 	elif _crouch_locked_out and not Input.is_action_pressed(&"crouch"):
 		_crouch_locked_out = false
-	is_crouching = _ai_crouch if is_ai_companion \
+	is_crouching = _ai_crouch if ai_driven \
 			else (Input.is_action_pressed(&"crouch") and not _crouch_locked_out)
 	if _character_model:
 		var want_squash: float = 0.74 if is_crouching else 1.0
@@ -4874,9 +4925,9 @@ func _physics_process(delta: float) -> void:
 	_update_spell_effects(delta)
 
 	# Gamepad camera control (right stick)
-	var look_x: float = 0.0 if is_ai_companion \
+	var look_x: float = 0.0 if ai_driven \
 			else Input.get_action_strength(&"camera_look_right") - Input.get_action_strength(&"camera_look_left")
-	var look_y: float = 0.0 if is_ai_companion \
+	var look_y: float = 0.0 if ai_driven \
 			else Input.get_action_strength(&"camera_look_down") - Input.get_action_strength(&"camera_look_up")
 	if abs(look_x) > 0.01 or abs(look_y) > 0.01:
 		camera_rotation.x -= look_x * GAMEPAD_SENSITIVITY * delta
@@ -4902,7 +4953,7 @@ func _physics_process(delta: float) -> void:
 		_spring_arm.spring_length = lerpf(_spring_arm.spring_length, want_len, 10.0 * delta)
 		_camera.fov = lerpf(_camera.fov, want_fov, 10.0 * delta)
 
-	if (not is_ai_companion and Input.is_action_pressed(&"reset_position")) or global_position.y < -12:
+	if (not ai_driven and Input.is_action_pressed(&"reset_position")) or global_position.y < -12:
 		_spawn_at_tower()
 		velocity = Vector3.ZERO
 		reset_physics_interpolation()
@@ -4919,7 +4970,7 @@ func _physics_process(delta: float) -> void:
 		# covers one that is REFUSED — out of stamina, mid-swing, airborne —
 		# where the jump would otherwise fire in its place and the button
 		# would feel like it did something random.
-		if not is_ai_companion and Input.is_action_just_pressed(&"jump") and not is_attacking \
+		if not ai_driven and Input.is_action_just_pressed(&"jump") and not is_attacking \
 				and not is_rolling and not is_reviving \
 				and not Input.is_action_just_pressed(&"dodge"):
 			velocity.y = JUMP_VELOCITY
@@ -4943,7 +4994,7 @@ func _physics_process(delta: float) -> void:
 
 	# Get movement input with analog stick support (includes touch joystick)
 	# Don't normalize yet - we need the raw length to determine run vs walk
-	var input_dir_raw := _ai_move_vec if is_ai_companion \
+	var input_dir_raw := _ai_move_vec if ai_driven \
 			else Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
 	# Reviving roots the medic: no walking mid-channel. Crouching halves pace.
 	if is_reviving:
@@ -4962,7 +5013,7 @@ func _physics_process(delta: float) -> void:
 	# scenarios. Treat headless as "captured".
 	var mouse_owned := Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED \
 			or DisplayServer.get_name() == "headless"
-	var keyboard_run := _ai_run if is_ai_companion \
+	var keyboard_run := _ai_run if ai_driven \
 			else (Input.is_action_pressed(&"run") if mouse_owned else false)
 
 	# Check if using gamepad (joy axis)

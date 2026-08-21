@@ -38,6 +38,11 @@ var performance_mode: bool = false
 # character select menu, or forced with --coop / the COOP scenario.
 var coop_mode: bool = false
 
+# Spectate mode: NOBODY is human. Both classes spawn as bots and the
+# viewport rides a free chase camera (player/ai/spectate_cam.gd) instead of
+# either character's own. Set with --spectate or the WATCH scenario.
+var spectate: bool = false
+
 # Combat scenario driver — when non-empty, enemies/combat_test.gd runs an
 # automated Paladin-vs-Bobba fight. Set via --combat-scenario=A or =B.
 # "A" tunes the Paladin to win while taking a couple of hits.
@@ -81,6 +86,10 @@ func _ready() -> void:
 		elif arg == "--performance-mode":
 			performance_mode = true
 			print("GameSettings: Performance mode enabled")
+		elif arg == "--spectate":
+			spectate = true
+			coop_mode = true
+			print("GameSettings: Spectate mode enabled (both classes are bots)")
 		elif arg == "--coop":
 			coop_mode = true
 			print("GameSettings: Co-op mode enabled (AI companion)")
@@ -90,8 +99,11 @@ func _ready() -> void:
 			# and the AI companion takes the other one — force nothing here.
 			# ARCHER is the one scripted bow-user run; every other scenario
 			# drives the melee kit.
-			if combat_scenario in ["COOP", "REVIVE", "NOFF"]:
+			if combat_scenario in ["COOP", "COOPSIM", "REVIVE", "NOFF", "WATCH"]:
 				coop_mode = true
+			# WATCH is the two-bot showcase: nobody drives, we just watch.
+			if combat_scenario == "WATCH":
+				spectate = true
 			if combat_scenario == "COOP":
 				pass  # menu picks the class
 			elif combat_scenario == "ARCHER" or combat_scenario == "BOWSIM" \

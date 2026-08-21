@@ -213,6 +213,63 @@ const AXE_END_COOLDOWN: float = 1.8
 
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
 const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
+
+# ------------------------------------------------------------ fighting skill --
+#
+# What separates a boss from a damage-dealing shape is not his numbers, it is
+# what he does with what he can SEE you doing. Everything below reads the
+# target's own committed states — the same flags the player's animations are
+# driven by — and spends his openings on them. None of it changes a hitbox, a
+# damage window or a telegraph: he still shows you every swing before it lands
+# (the golden rule), he is simply harder to be careless in front of.
+#
+# The five habits, in the order a player meets them:
+#
+#   FOOTWORK   he circles in rather than walking down the middle, and steps
+#              back out of your sword after a swing instead of standing in it.
+#   PUNISH     drinking, casting, drawing a bow, reviving, or the tail of your
+#              own combo is an opening, and he commits from further out to
+#              reach it. Healing in his face is no longer free.
+#   PATIENCE   he will not swing into your roll's invulnerable frames — he
+#              holds the blow and lands it on your recovery.
+#   FEINT      wind-ups are jittered, and against a player who keeps parrying
+#              he HOLDS the blow at the top of the swing. Memorised timing
+#              stops working; the tell stays fully visible, just longer.
+#   PRESSURE   a blocked hit shortens his next cooldown — he leans on a guard
+#              instead of politely resetting — and a runner gets charged down.
+const CHARGE_SPEED_MULT: float = 1.55  # 5.0 -> 7.75 m/s, just over a sprint (7.0)
+const CHARGE_TIME: float = 1.9         # ...for this long, then he has to breathe
+const CHARGE_COOLDOWN: float = 6.0
+const CHARGE_MIN_DIST: float = 8.0     # only worth it against someone running
+const STRAFE_INSIDE: float = 7.0       # circle once inside this, walk straight outside
+const STRAFE_WEIGHT: float = 0.55      # how much of the approach is sideways
+const STRAFE_FLIP_MIN: float = 2.0     # seconds before he changes hands
+const STRAFE_FLIP_MAX: float = 4.5
+const SPACING_STEP_TIME: float = 0.55  # back off for this long after a spent swing
+const SPACING_DIST: float = 3.3        # ...to just outside a paladin's 2.4 m sword
+const ROLL_BAIT_TIME: float = 0.40     # a roll is 0.72 s, invulnerable 0.09-0.51
+const WINDUP_JITTER: float = 0.12      # +/- playback speed on every swing
+const FEINT_HOLD_MIN: float = 0.22     # the held swing, against a parry habit
+const FEINT_HOLD_MAX: float = 0.45
+const PRESSURE_COOLDOWN_MULT: float = 0.55
+const OPENING_REACH_BONUS: float = 1.6 # metres of extra commit range on an opening
+const HABIT_FADE: float = 0.06         # a habit is forgotten over ~15 s per count
+
+var _strafe_sign: float = 1.0
+var _strafe_left: float = 0.0
+var _charge_left: float = 0.0
+var _charge_cd: float = 0.0
+var _spacing_left: float = 0.0
+var _bait_left: float = 0.0            # holding off while the target is invulnerable
+var _hold_left: float = 0.0            # the feint: swing frozen at the top
+var _hold_spent: float = 0.0           # ...counted off the stuck-state watchdog
+var _last_swing_blocked: bool = false
+var _target_was_rolling: bool = false
+## What this opponent keeps doing. Decaying counts, not a log — he learns
+## within a fight and forgets between them.
+var _habit_parry: float = 0.0
+var _habit_roll: float = 0.0
+var _habit_block: float = 0.0
 var _combo_step: int = 0
 ## True while the axe swing owns the attack state, so every read of the
 ## current attack's data resolves to AXE_ATTACK instead of a chain step.
@@ -774,8 +831,13 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		if player_is_blocking:
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.45)  # hitstop + shake weight 0.45
+			# Noted: this one turtles. It shortens his next cooldown and puts
+			# the heavier weapon in his hand.
+			_habit_block += 1.0
+			_last_swing_blocked = true
 			print("Bobba: HIT BLOCKED by player (push-back applied)")
 		else:
+			_last_swing_blocked = false
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.8)
 			print("Bobba: HIT LANDED on player (combo step %d, %.0f dmg)" % [_combo_step, step_damage])
@@ -905,6 +967,13 @@ func on_parried(parrier: Node3D) -> void:
 	velocity = Vector3.ZERO
 	disable_attack_hitbox()
 	_has_hit_this_attack = true  # the deflected swing can't also deal damage
+	# He remembers being parried. Enough of them and his swings start
+	# arriving late (_roll_feint) — the shield goes up on the old count and
+	# the blow lands after it comes down.
+	_habit_parry += 1.0
+	_hold_left = 0.0
+	if _anim_player != null:
+		_anim_player.speed_scale = 1.0
 	_flash_hit(Color(1.0, 0.85, 0.2))  # gold, matching the parrier's flash
 	if parrier:
 		_set_attacker_as_target(parrier)
@@ -1751,6 +1820,9 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		disable_attack_hitbox()
 		_current_anim = &""  # Clear so attack can replay
 		_attack_state_time = 0.0  # Reset attack timer
+		_hold_left = 0.0
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
 		# Chain the combo: target still in reach, this wasn't the finisher,
 		# and nothing (parry stun, death, fire panic) broke the chain.
 		if state == State.ATTACKING and not _axe_attack_active \
@@ -1765,6 +1837,17 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		print("Bobba: Attack chain finished at step %d, cooldown and state=CHASING" % _combo_step)
 		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \
 				else (COMBO_END_COOLDOWN if _combo_step > 0 else 0.7)
+		# PRESSURE. A blow that landed on a shield is a blow that is working:
+		# a block still takes chip and still shoves, and every one of them
+		# denies a cast and a drink. So he leans on the guard rather than
+		# stepping back and politely resetting the fight.
+		if _last_swing_blocked:
+			attack_cooldown *= PRESSURE_COOLDOWN_MULT
+			_last_swing_blocked = false
+		else:
+			# SPACING. Otherwise the recovery is spent OUT of the counter's
+			# reach, not standing in it.
+			_spacing_left = SPACING_STEP_TIME
 		_combo_step = 0
 		_axe_attack_active = false
 		if state == State.ATTACKING:
@@ -1855,6 +1938,9 @@ func _physics_process(delta: float) -> void:
 		_handle_fleeing(delta)
 		move_and_slide()
 		return
+
+	# Footwork timers, habit decay and "what is he doing right now".
+	_tick_fight_skill(delta)
 
 	# Check distance to target
 	var distance_to_target: float = INF
@@ -2100,6 +2186,85 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 	_play_anim(_carry_anim(&"Walk"))
 
 
+# --------------------------------------------------------------- reading you --
+
+## Once a frame: age the timers, fade the habits, and watch what the target is
+## doing. Everything here is a read of ONE node — no scans, no queries.
+func _tick_fight_skill(delta: float) -> void:
+	_charge_cd = maxf(_charge_cd - delta, 0.0)
+	_charge_left = maxf(_charge_left - delta, 0.0)
+	_spacing_left = maxf(_spacing_left - delta, 0.0)
+	_bait_left = maxf(_bait_left - delta, 0.0)
+	_strafe_left -= delta
+	if _strafe_left <= 0.0:
+		_strafe_left = randf_range(STRAFE_FLIP_MIN, STRAFE_FLIP_MAX)
+		_strafe_sign = -_strafe_sign
+	_habit_parry = move_toward(_habit_parry, 0.0, HABIT_FADE * delta)
+	_habit_roll = move_toward(_habit_roll, 0.0, HABIT_FADE * delta)
+	_habit_block = move_toward(_habit_block, 0.0, HABIT_FADE * delta)
+	# A safety net for the feint: the held swing freezes the AnimationPlayer,
+	# so a swing that ends any other way (parried, fire panic, death) must
+	# never leave the whole rig frozen behind it.
+	if state != State.ATTACKING and _anim_player != null and _anim_player.speed_scale != 1.0:
+		_anim_player.speed_scale = 1.0
+		_hold_left = 0.0
+	if target == null or not is_instance_valid(target):
+		_target_was_rolling = false
+		return
+	# A roll he can see is a roll he can wait out — and one more data point
+	# about a player who answers everything with the same button.
+	var rolling: bool = "is_rolling" in target and target.is_rolling
+	if rolling:
+		_bait_left = ROLL_BAIT_TIME
+		if not _target_was_rolling \
+				and global_position.distance_to(target.global_position) < 6.0:
+			_habit_roll += 1.0
+	_target_was_rolling = rolling
+
+
+## How wide open the target is right now, 0.0 (nothing doing) to 1.0 (helpless).
+##
+## These are the same flags that drive his animations, so everything Bobba
+## punishes is something the player can SEE themselves doing — a drink, a
+## channel, a draw, the tail of their own swing. Nothing here is hidden state.
+func _target_opening() -> float:
+	if target == null or not is_instance_valid(target):
+		return 0.0
+	var w: float = 0.0
+	if "is_drinking" in target and target.is_drinking:
+		w = maxf(w, 1.0)       # the estus punish — a wasted charge AND the hit
+	if "is_reviving" in target and target.is_reviving:
+		w = maxf(w, 1.0)       # kneeling over a body, five seconds, no guard
+	if "is_casting" in target and target.is_casting:
+		w = maxf(w, 0.9)
+	if ("is_drawing_bow" in target and target.is_drawing_bow) \
+			or ("is_holding_bow" in target and target.is_holding_bow):
+		w = maxf(w, 0.85)      # a planted archer is a standing target
+	if "_is_stunned" in target and target._is_stunned:
+		w = maxf(w, 0.7)
+	if "is_attacking" in target and target.is_attacking:
+		w = maxf(w, 0.6)       # into the recovery of their own combo
+	return w
+
+
+## Wind-ups are never twice the same length, and against someone who keeps
+## parrying he holds the blow at the top of the swing. A parry window is
+## 0.33 s wide: a swing that arrives a quarter-second late walks straight
+## through where the shield used to be.
+func _pick_windup(base_speed: float) -> float:
+	return base_speed * randf_range(1.0 - WINDUP_JITTER, 1.0 + WINDUP_JITTER)
+
+
+func _roll_feint() -> void:
+	_hold_left = 0.0
+	if _habit_parry < 1.0:
+		return
+	if randf() < clampf(0.20 + 0.18 * _habit_parry, 0.0, 0.65):
+		_hold_left = randf_range(FEINT_HOLD_MIN, FEINT_HOLD_MAX)
+		_hold_spent += _hold_left
+		print("Bobba: HELD swing — he has parried %.0f times, so this one is late" % _habit_parry)
+
+
 func _handle_chasing(delta: float, distance_to_target: float) -> void:
 	# FIRE PANIC CHECK - if too close to fire, flee even while chasing!
 	if _is_in_fire_panic_zone():
@@ -2136,44 +2301,106 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 			print("Bobba: Won't attack - too close to fire, backing off")
 			return
 
+	# ---- COMMIT? ---------------------------------------------------------
+	#
+	# An opening buys him reach: he will start a swing from further out to
+	# catch a drink, a channel or a drawn bow than he ever would against
+	# someone standing ready. And a roll buys the PLAYER nothing — he simply
+	# waits it out (_bait_left) and swings into the recovery instead of
+	# feeding the invulnerable frames.
+	var opening: float = _target_opening()
+	var reach_bonus: float = OPENING_REACH_BONUS * opening
+	var may_swing: bool = attack_cooldown <= 0.0 and _bait_left <= 0.0
+
 	# The axe outreaches the fists, so it is what he uses at the range where
 	# only it can land — a punch chain there would swing at empty air. Inside
 	# fist range he still prefers the chain, which keeps close quarters fast
 	# and keeps the slow swing as the thing you see coming from further out.
-	if attack_cooldown <= 0 and not _last_attack_was_axe \
-			and distance_to_target > FIST_PREFERRED_RANGE \
-			and _can_axe_attack(distance_to_target):
+	# Two exceptions to the alternation: an opening is worth taking with
+	# whatever reaches it, and a shield he is already chipping through wants
+	# the heavier weapon.
+	var axe_now: bool = not _last_attack_was_axe or opening > 0.5 or _habit_block > 2.0
+	if may_swing and axe_now and distance_to_target > FIST_PREFERRED_RANGE \
+			and _can_axe_attack(distance_to_target + reach_bonus):
 		_start_axe_attack()
 		return
 
 	# If close enough, open the combo chain
-	if distance_to_target <= ATTACK_DISTANCE and attack_cooldown <= 0:
-		print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
+	if may_swing and distance_to_target <= ATTACK_DISTANCE + reach_bonus:
+		if opening > 0.5:
+			print("Bobba: PUNISH — he is busy (%.0f%%) at %.1fm" % [opening * 100.0, distance_to_target])
+		else:
+			print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
 		_start_combo_attack(0)
 		return
 
-	# Chase the target with fire avoidance
+	# ---- FOOTWORK --------------------------------------------------------
 	var direction: Vector3 = (target.global_position - global_position).normalized()
 	direction.y = 0
 
+	# SPACING. A swing that just ended leaves him standing inside a sword's
+	# reach with nothing to answer with; the whole of his cooldown is the
+	# player's free damage. So he gives ground first and comes back in on his
+	# own terms — unless the target is helpless, in which case he stays on top
+	# of them.
+	var backing_off: bool = _spacing_left > 0.0 and distance_to_target < SPACING_DIST \
+			and opening < 0.5
+	if backing_off:
+		direction = -direction
+
+	# CHARGE. Someone who simply runs is faster than his walk (7.0 against
+	# 5.0), so a burst that just beats a sprint is the difference between a
+	# boss and a bad memory of one. Never into a fire, and never while giving
+	# ground.
+	var speed: float = CHASE_SPEED
+	if not backing_off and _charge_left > 0.0:
+		speed = CHASE_SPEED * CHARGE_SPEED_MULT
+	elif not backing_off and distance_to_target > CHARGE_MIN_DIST and _charge_cd <= 0.0 \
+			and not _is_near_fire(global_position):
+		_charge_left = CHARGE_TIME
+		_charge_cd = CHARGE_COOLDOWN
+		speed = CHASE_SPEED * CHARGE_SPEED_MULT
+		print("Bobba: CHARGE — closing %.0fm" % distance_to_target)
+
+	# CIRCLING. Walking straight down the middle is what makes a big enemy
+	# easy: you learn one line and hold it. Inside striking distance he comes
+	# in on an arc and changes hands every few seconds, which also means the
+	# player has to keep re-earning the angle behind him for a backstab.
+	var move_dir: Vector3 = direction
+	if not backing_off and _charge_left <= 0.0 and distance_to_target < STRAFE_INSIDE:
+		var side: Vector3 = direction.cross(Vector3.UP) * _strafe_sign
+		move_dir = (direction + side * STRAFE_WEIGHT).normalized()
+
 	# Check for fire in the path and avoid it
 	var fire_avoid: Vector3 = _get_fire_avoidance_direction()
-	var move_dir: Vector3 = direction
 	if fire_avoid.length() > 0.1:
 		# Blend chase direction with fire avoidance
 		# Fire avoidance is now much stronger (3x weight)
-		move_dir = (direction + fire_avoid * 3.0).normalized()
+		move_dir = (move_dir + fire_avoid * 3.0).normalized()
 
-	var horizontal_velocity = move_dir * CHASE_SPEED
+	var horizontal_velocity = move_dir * speed
 	velocity.x = horizontal_velocity.x
 	velocity.z = horizontal_velocity.z
 
-	# Rotate to face movement direction (not target, since we might be dodging fire)
-	if _model and move_dir.length() > 0.1:
-		var target_rot = atan2(move_dir.x, move_dir.z)
-		_model.rotation.y = lerp_angle(_model.rotation.y, target_rot, ROTATION_SPEED * delta)
+	# FACING. He turns toward the TARGET, not his own feet, and the further
+	# round the side they get the harder he turns — sliding round behind a
+	# distracted animal is no longer a free backstab. (While backing off he
+	# keeps his eyes on them too: he retreats facing forward.)
+	if _model:
+		var look_dir: Vector3 = target.global_position - global_position
+		look_dir.y = 0.0
+		if look_dir.length() > 0.1:
+			look_dir = look_dir.normalized()
+			var facing: Vector3 = _model.global_transform.basis.z
+			facing.y = 0.0
+			var off: float = 0.0
+			if facing.length() > 0.01:
+				off = facing.normalized().angle_to(look_dir) / PI  # 0 ahead, 1 behind
+			var target_rot: float = atan2(look_dir.x, look_dir.z)
+			_model.rotation.y = lerp_angle(_model.rotation.y, target_rot,
+					ROTATION_SPEED * (1.0 + 1.8 * off) * delta)
 
-	_play_anim(_carry_anim(&"Run"))
+	_play_anim(_carry_anim(&"Walk" if backing_off else &"Run"))
 
 
 var _attack_state_time: float = 0.0
@@ -2219,7 +2446,9 @@ func _start_axe_attack() -> void:
 	_combo_step = 0
 	state = State.ATTACKING
 	_current_anim = &""
-	_play_anim(AXE_ATTACK["anim"], AXE_ATTACK["speed"])
+	_hold_spent = 0.0
+	_roll_feint()
+	_play_anim(AXE_ATTACK["anim"], _pick_windup(AXE_ATTACK["speed"]))
 	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.8, 0), -1.0)
 	enable_attack_hitbox()
 	velocity.x = 0
@@ -2245,7 +2474,10 @@ func _start_combo_attack(step: int) -> void:
 	if _anim_player == null or not _anim_player.has_animation(attack_anim):
 		attack_anim = &"bobba/Attack"  # clip failed to load — fall back to the swipe
 	_current_anim = &""  # force replay even if the same clip
-	_play_anim(attack_anim, COMBO_ATTACKS[step].get("speed", 1.0))
+	if step == 0:
+		_hold_spent = 0.0
+		_roll_feint()   # only the opener is held — a chain that stalls mid-way reads as a bug
+	_play_anim(attack_anim, _pick_windup(COMBO_ATTACKS[step].get("speed", 1.0)))
 	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.5, 0),
 			-2.0 if step == COMBO_ATTACKS.size() - 1 else -5.0)
 	enable_attack_hitbox()  # fresh swing — each chain step can land its own hit
@@ -2259,12 +2491,36 @@ func _handle_attacking(delta: float) -> void:
 	if _is_in_fire_panic_zone():
 		print("Bobba: ABORTING ATTACK - fire too close!")
 		disable_attack_hitbox()
+		_hold_left = 0.0
+		if _anim_player != null:
+			_anim_player.speed_scale = 1.0
 		_combo_step = 0
 		_axe_attack_active = false
 		attack_cooldown = 0.2  # Short cooldown after abort
 		state = State.CHASING
 		_current_anim = &""
 		_attack_state_time = 0.0
+		return
+
+	# THE HELD SWING. Frozen at the top of the wind-up, telegraph still
+	# burning, facing tracking the target — then it falls. The tell is longer
+	# than usual, not shorter: what breaks is the memorised COUNT, not the
+	# player's ability to see it coming.
+	if _hold_left > 0.0:
+		_hold_left -= delta
+		_attack_state_time += delta
+		if _anim_player != null:
+			_anim_player.speed_scale = 0.0
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if _model and target != null and is_instance_valid(target):
+			var hold_dir: Vector3 = target.global_position - global_position
+			hold_dir.y = 0.0
+			if hold_dir.length() > 0.1:
+				_model.rotation.y = lerp_angle(_model.rotation.y,
+						atan2(hold_dir.x, hold_dir.z), ROTATION_SPEED * delta)
+		if _hold_left <= 0.0 and _anim_player != null:
+			_anim_player.speed_scale = 1.0
 		return
 
 	# Stay in attacking state until animation finishes. Early in the swing
@@ -2289,7 +2545,7 @@ func _handle_attacking(delta: float) -> void:
 	# failed to finish, animation_finished lost to a blend, etc.), RECOVER —
 	# end the chain exactly like _on_animation_finished's chain-over branch —
 	# instead of printing forever while Bobba stands frozen.
-	if _attack_state_time > 3.0:
+	if _attack_state_time > 3.0 + _hold_spent:
 		print("Bobba: WARNING - Stuck in ATTACKING state for %.1f seconds! Animation: %s — force-ending attack" % [_attack_state_time, _current_anim])
 		disable_attack_hitbox()
 		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \

@@ -103,11 +103,39 @@ var _bowsim_noaim: int = 0
 var _screenshots_enabled: bool = true
 
 
+# COOPSIM scenario state — headless measurement of the co-op AI loop.
+var _coopsim_setup: bool = false
+var _coopsim_center: Vector3 = Vector3.ZERO
+var _coopsim_first_hit: float = -1.0    # the party first learns something is there
+var _coopsim_first_lit: float = -1.0    # ...and the archer's fire shows it what
+var _coopsim_first_melee: float = -1.0  # ...and the paladin reaches it
+var _coopsim_arrows: int = 0
+var _coopsim_casts: int = 0
+var _coopsim_brain_us: float = 0.0
+var _coopsim_proc_ms: float = 0.0
+var _coopsim_worst_ms: float = 0.0
+var _coopsim_samples: int = 0
+var _coopsim_topups: int = 0
+var _coopsim_seen_fires: Dictionary = {}
+var _coopsim_was_casting: bool = false
+var _coopsim_swing: float = 0.0
+var _coopsim_wounded: bool = false
+var _coopsim_pinned: bool = false
+
 # SOULS scenario state — full live duel using the whole kit.
 var _souls_parries: int = 0          # deflects that opened a riposte window
 var _souls_ripostes: int = 0         # crits >= 250 dmg in one frame
 var _souls_backstabs: int = 0        # crits 150..250 dmg in one frame
 var _souls_estus_start: int = -1     # charges at fight start
+var _watch_setup: bool = false
+var _watch_player_id: int = 0
+## The staging circle: the party and the boss go to three corners of it,
+## 120 degrees apart, which on this radius is ~140 m between any two of them.
+const WATCH_CENTER := Vector3(0.0, 0.0, -100.0)
+const WATCH_RADIUS := 80.0
+var _watch_linked: float = -1.0   # when the two bots found each other
+var _watch_found: float = -1.0    # ...and when the party first knew where Bobba was
+var _watch_center: Vector3 = Vector3.ZERO
 var _souls_prev_riposte: bool = false
 var _souls_prev_bobba_hp: float = -1.0
 var _souls_parried_this_attack: bool = false
@@ -170,7 +198,8 @@ func _process(delta: float) -> void:
 		# alongside the script and corrupt the measurements. PLAY and the
 		# ARCHER playtest are the exceptions — there the human IS the driver.
 		if _player != null and scenario != "PLAY" and scenario != "ARCHER" \
-				and scenario != "COOP" and scenario != "MOBSIM" and scenario != "PALSIM" \
+				and scenario != "COOP" and scenario != "WATCH" \
+				and scenario != "MOBSIM" and scenario != "PALSIM" \
 				and scenario != "BLOCKSIM" and scenario != "ANIMSIM":
 			_player.set_process_input(false)
 	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
@@ -183,7 +212,7 @@ func _process(delta: float) -> void:
 	var need_bobba: bool = not solo
 	if _player == null or (need_bobba and _bobba == null):
 		# COOP waits on the human in the character menu — no spawn timeout.
-		if scenario != "COOP":
+		if scenario != "COOP" and scenario != "WATCH":
 			_start_wait_timer += delta
 			if _start_wait_timer > 20.0:
 				_finish("TIMEOUT_SPAWN")
@@ -253,7 +282,12 @@ func _process(delta: float) -> void:
 	# inputs; the AI companion plays the other class. No scripted driving —
 	# only the first seconds are captured (spawn verification) plus a light
 	# telemetry heartbeat so perception behavior can be reviewed from logs.
-	if scenario == "COOP":
+	# WATCH is COOP with nobody at the keyboard: both classes are bots
+	# (GameSettings.spectate) and the viewport rides SpectateCam. Same
+	# hands-off arena, same heartbeat — this one is for watching.
+	if scenario == "COOP" or scenario == "WATCH":
+		if scenario == "WATCH":
+			_setup_watch_arena()
 		var prev_elapsed := _elapsed
 		_elapsed += delta
 		if _elapsed < 3.0:
@@ -265,8 +299,24 @@ func _process(delta: float) -> void:
 			var comp := _find_in_group("companion")
 			var tname: String = str(_bobba.target.name) \
 					if ("target" in _bobba and _bobba.target != null) else "none"
-			print("[CombatTest] COOP t=%d player=%s(hp %.0f) companion=%s bobba_target=%s bobba_hp=%.0f" % [
-					int(_elapsed),
+			if scenario == "WATCH":
+				for who in [_player, _find_in_group("companion")]:
+					if who == null or not is_instance_valid(who):
+						continue
+					var brain_node: Node = who.get_node_or_null("CompanionAI")
+					if brain_node != null and brain_node.has_method("debug_line"):
+						print("[CombatTest] WATCH t=%d %s" % [int(_elapsed), brain_node.debug_line()])
+			if scenario == "WATCH":
+				var other := _find_in_group("companion")
+				print("[CombatTest] WATCH t=%d apart=%.0fm bobba=%.0fm/%.0fm linked=%s found=%s" % [
+						int(_elapsed),
+						_player.global_position.distance_to(other.global_position) if other else -1.0,
+						_player.global_position.distance_to(_bobba.global_position),
+						other.global_position.distance_to(_bobba.global_position) if other else -1.0,
+						"%.0fs" % _watch_linked if _watch_linked >= 0.0 else "no",
+						"%.0fs" % _watch_found if _watch_found >= 0.0 else "no"])
+			print("[CombatTest] %s t=%d player=%s(hp %.0f) companion=%s bobba_target=%s bobba_hp=%.0f" % [
+					scenario, int(_elapsed),
 					"Paladin" if _player.character_class == _player.CharacterClass.PALADIN else "Archer",
 					float(_player.current_health),
 					("dead" if comp.is_dead else "hp %.0f" % float(comp.current_health)) if comp else "missing",
@@ -308,6 +358,12 @@ func _process(delta: float) -> void:
 		_drive_darksim(delta)
 		if _elapsed > 34.0:
 			_finish("DARKSIM_DONE")
+		return
+
+	if scenario == "COOPSIM":
+		_drive_coopsim(delta)
+		if _elapsed > 60.0:
+			_finish_coopsim()
 		return
 
 	if scenario == "DODGE":
@@ -1010,6 +1066,85 @@ func _setup_play_arena() -> void:
 	print("[CombatTest]   X roll | T lock-on | H estus | Space jump | Shift run | L day/night")
 
 
+## WATCH: stage a night encounter the two bots can actually find.
+##
+## The arena's own spawn points scatter the party across a big dark map, and a
+## pair of bots with no contact and no light can wander for minutes without
+## bumping into anything — fine for a playtest, dull to watch. So the party
+## starts APART but inside call-out range (they still have to link up), and
+## after a few seconds Bobba is set hunting from out in the dark, which opens
+## the fight the way the night design intends: a punch from nowhere, a bearing
+## called to the party, and an arrow to light up whatever threw it.
+func _setup_watch_arena() -> void:
+	var comp := _find_in_group("companion")
+	if comp == null:
+		return
+	# A round ended (boss down, or the party wiped) and the scene reloaded
+	# under us — the bodies are new, so the encounter has to be staged again
+	# or the next round is two bots alone on an empty map.
+	if _watch_setup and _player.get_instance_id() != _watch_player_id:
+		_watch_setup = false
+		_elapsed = 0.0
+		_watch_linked = -1.0
+		_watch_found = -1.0
+		print("[CombatTest] WATCH — new round")
+	if not _watch_setup:
+		_watch_setup = true
+		_watch_player_id = _player.get_instance_id()
+		_watch_center = WATCH_CENTER
+		# THREE CORNERS, 120 degrees apart. Nobody starts anywhere near
+		# anybody: the party has to find EACH OTHER before it can look for
+		# anything else, and the only tool either of them has for looking is
+		# the archer's fire. This is the whole co-op strategy under test, with
+		# the harness doing nothing but placing them.
+		_watch_place(_player, 90.0)
+		_watch_place(comp, 210.0)
+		_watch_place(_bobba, 330.0)
+		print("[CombatTest] WATCH: three corners of the map, nobody at the keyboard — %s at %s, %s %.0fm away, Bobba %.0fm from the knight and %.0fm from the archer" % [
+				"Paladin" if _player.character_class == _player.CharacterClass.PALADIN else "Archer",
+				str(_player.global_position.snapped(Vector3.ONE)),
+				"Paladin" if comp.character_class == comp.CharacterClass.PALADIN else "Archer",
+				_player.global_position.distance_to(comp.global_position),
+				_player.global_position.distance_to(_bobba.global_position),
+				comp.global_position.distance_to(_bobba.global_position)])
+		print("[CombatTest]   nothing is staged from here on — no walk-in, no handed target")
+		print("[CombatTest]   TAB switch bot | mouse look | wheel zoom | H hide overlay | Q quit")
+		return
+	# ---- the two things this scenario measures --------------------------
+	if _watch_linked < 0.0 and _player.global_position.distance_to(comp.global_position) < 15.0:
+		_watch_linked = _elapsed
+		print("[CombatTest] WATCH t=%.0f LINKED UP — the two of them found each other" % _elapsed)
+	if _watch_found < 0.0:
+		var brain: SquadBrain = SquadBrain.get_brain(self)
+		if brain != null:
+			for c in brain.contacts:
+				if c.confidence(brain.now) > 0.35:
+					_watch_found = _elapsed
+					print("[CombatTest] WATCH t=%.0f FOUND HIM — %s, %.0fm out, %s" % [
+							_elapsed, c.node.name,
+							_player.global_position.distance_to(c.pos),
+							"lit by the archer" if c.lit else "in the dark"])
+					break
+
+
+## Drop a body on the ground at one corner of the staging circle. The height
+## comes from a raycast, not a guess — these corners are out in open terrain,
+## not the flat shelf the other scenarios use.
+func _watch_place(who: Node3D, degrees: float) -> void:
+	if who == null or not is_instance_valid(who):
+		return
+	var a: float = deg_to_rad(degrees)
+	var spot := Vector3(
+			WATCH_CENTER.x + cos(a) * WATCH_RADIUS,
+			0.0,
+			WATCH_CENTER.z + sin(a) * WATCH_RADIUS)
+	var hit: Dictionary = _raycast_ground(spot)
+	spot.y = (float(hit["position"].y) + 0.4) if hit.has("position") else 2.0
+	who.global_position = spot
+	if "velocity" in who:
+		who.velocity = Vector3.ZERO
+
+
 ## ARCHER playtest: find the highest ground within bow range of Bobba's
 ## spawn by raycasting a ring of candidate points, and perch the archer
 ## there facing him. Bobba stays at his natural spawn so the fight starts
@@ -1385,6 +1520,201 @@ func _drive_darksim(_delta: float) -> void:
 		print("[CombatTest] DARKSIM t=%d fire=%s ai_sees=%d lit=%d nearest=%.1f" % [
 				int(_elapsed), "yes" if _coop_fire_dropped else "no",
 				sees, lit, nearest])
+
+
+## COOPSIM: the co-op AI loop, measured in the dark with nobody at the wheel.
+##
+## The human character is a PROP here — it stands still and takes punches. The
+## subject is the AI companion, and the run answers the four questions the
+## whole design rests on:
+##
+##   1. Does a punch out of the dark become PARTY KNOWLEDGE? (SquadBrain
+##      bearing — printed as BEARING.)
+##   2. Does the archer turn that bearing into LIGHT, on ground that was black,
+##      without being told where to shoot? (LIT, and how long it took.)
+##   3. Does the paladin then FIND and REACH the thing? (MELEE.)
+##   4. Does any of it cost frame time? (brain tick + process time, per frame.)
+##
+## Run it twice — the AI plays whichever class the human did not take:
+##   tools/run_combat_scenario.sh COOPSIM                        # AI archer
+##   LOB_EXTRA_ARGS=--character-class=archer \
+##       tools/run_combat_scenario.sh COOPSIM                    # AI paladin
+func _drive_coopsim(delta: float) -> void:
+	var comp := _find_in_group("companion")
+	if comp == null:
+		return
+	if not _coopsim_setup:
+		_coopsim_setup = true
+		_coopsim_center = Vector3(120.0, _player.global_position.y, -140.0)
+		_player.global_position = _coopsim_center
+		_player.velocity = Vector3.ZERO
+		# The companion starts well out of the fight, in the dark, knowing
+		# nothing — everything it does from here it worked out for itself.
+		comp.global_position = _coopsim_center + Vector3(22.0, 0.5, -14.0)
+		# Bobba inside his own 10 m sense of smell, so he opens the fight the
+		# way the night design says he should: he finds the human by scent,
+		# and nobody can see him.
+		var bp: Vector3 = _coopsim_center + Vector3(0.0, 0.0, 9.0)
+		bp.y = _bobba.global_position.y
+		_bobba.global_position = bp
+		print("[CombatTest] COOPSIM: night duel staged — human %s stands at %s, AI %s at %.0fm, Bobba at %.0fm, no light anywhere" % [
+				"Paladin" if _player.character_class == _player.CharacterClass.PALADIN else "Archer",
+				str(_coopsim_center.snapped(Vector3.ONE)),
+				"Paladin" if comp.character_class == comp.CharacterClass.PALADIN else "Archer",
+				_player.global_position.distance_to(comp.global_position),
+				_player.global_position.distance_to(_bobba.global_position)])
+
+	# The human is a PROP, driven only as much as the measurement needs:
+	#  * as the archer (AI plays paladin) he stands still and shoots nothing,
+	#    so every scrap of light in the run is the AI's doing;
+	#  * as the paladin (AI plays archer) he walks in and swings, because the
+	#    archer's most important judgement — hold your fire while your knight
+	#    has it pinned — cannot be observed against a knight who never fights.
+	# Either way he is kept on his feet: a 65-damage punch would otherwise end
+	# the run in two hits.
+	if _player.character_class == _player.CharacterClass.PALADIN:
+		_coopsim_drive_prop_paladin(delta)
+	else:
+		_player.global_position.x = _coopsim_center.x
+		_player.global_position.z = _coopsim_center.z
+	# Read the damage BEFORE the harness heals it away, or the "something is
+	# hitting me out of the dark" moment is erased by the prop's own top-up.
+	if _coopsim_first_hit < 0.0 and float(_player.current_health) < float(_player.max_health):
+		_coopsim_first_hit = _elapsed
+		print("[CombatTest] COOPSIM t=%.1f BEARING — the human is being hit by something nobody can see" % _elapsed)
+	# Topped up early and often: Bobba punches for 65 and the prop has no
+	# defence at all, so anything less than this and the run turns into a
+	# revive test instead of the fire-discipline test it is meant to be.
+	# Before the wound he is kept near full; after it he is PEGGED at 60% —
+	# the state both spells are written for. A band would be nicer, but Bobba
+	# punches for 43% of this prop's health, so anything with room in it is a
+	# corpse inside two swings and the run turns into a revive test instead.
+	var want_frac: float = 0.6 if _coopsim_wounded else 0.95
+	if not _player.is_dead and _player.has_method("heal_pct"):
+		var frac: float = float(_player.current_health) / maxf(float(_player.max_health), 1.0)
+		if frac < want_frac - 0.02:
+			_player.heal_pct(want_frac - frac)
+			_coopsim_topups += 1
+
+	# t=30: WOUND THE PARTY. Both spells in the game are conditional on someone
+	# being hurt — the paladin's rite is a heal aura he must disengage to cast,
+	# the archer's ring is a rescue for a pressured knight — so a run where
+	# everyone stays healthy never exercises either decision. One scripted cut
+	# at the half-way mark does.
+	if _elapsed >= 30.0 and not _coopsim_wounded:
+		_coopsim_wounded = true
+		if not comp.is_dead:
+			comp.take_hit(float(comp.max_health) * 0.5, Vector3.ZERO, false)
+		if not _player.is_dead:
+			_player.take_hit(float(_player.max_health) * 0.4, Vector3.ZERO, false)
+		print("[CombatTest] COOPSIM t=30 WOUNDED — party cut to roughly half; watching for spells")
+
+	# t=32..44: PIN. The two rescue behaviours in the game — the archer's ring
+	# and the paladin's peel — only exist when an enemy is ON a wounded ally
+	# and stays there. Left to himself Bobba flees, kites, or dies first, so
+	# for twelve seconds the harness holds him at the prop's shoulder and keeps
+	# him on his feet (same movie-set pinning the POSTER scenario uses).
+	if _elapsed >= 32.0 and _elapsed < 44.0 and not _player.is_dead \
+			and _bobba != null and is_instance_valid(_bobba) and float(_bobba.health) > 0.0:
+		if not _coopsim_pinned:
+			_coopsim_pinned = true
+			print("[CombatTest] COOPSIM t=32 PIN — Bobba held on the wounded prop for 12s")
+		var hold: Vector3 = _player.global_position + Vector3(2.2, 0.0, 0.0)
+		hold.y = _bobba.global_position.y
+		_bobba.global_position = hold
+		# He now has footwork of his own — spacing steps, circling, charges.
+		# Zero it for the twelve seconds the harness needs him standing on
+		# the wounded prop, or he walks out of his own pin.
+		_bobba.velocity.x = 0.0
+		_bobba.velocity.z = 0.0
+		_bobba.target = _player
+		if float(_bobba.health) < 300.0:
+			_bobba.health = 300.0
+
+	var brain: SquadBrain = SquadBrain.get_brain(self)
+	var bobba_lit: bool = Perception.is_lit_by_fire(_bobba)
+	if _coopsim_first_lit < 0.0 and bobba_lit:
+		_coopsim_first_lit = _elapsed
+		print("[CombatTest] COOPSIM t=%.1f LIT — fire reveals Bobba (%.1fs after the party first felt him)" % [
+				_elapsed, _coopsim_first_lit - maxf(_coopsim_first_hit, 0.0)])
+	if _coopsim_first_melee < 0.0 \
+			and comp.global_position.distance_to(_bobba.global_position) < 3.0:
+		_coopsim_first_melee = _elapsed
+		print("[CombatTest] COOPSIM t=%.1f MELEE — the AI reached him" % _elapsed)
+	# Distinct fires lit over the whole run — the archer's actual output, not
+	# how many happen to be burning at this instant.
+	for f in get_tree().get_nodes_in_group("ground_fire"):
+		var fid: int = f.get_instance_id()
+		if not _coopsim_seen_fires.has(fid):
+			_coopsim_seen_fires[fid] = true
+			_coopsim_arrows += 1
+	if comp.is_casting and not _coopsim_was_casting:
+		_coopsim_casts += 1
+	_coopsim_was_casting = comp.is_casting
+
+	# Cost. The brain reports its own tick; the frame reports the whole game.
+	if brain != null:
+		_coopsim_brain_us += float(brain.last_tick_usec)
+	var frame_ms: float = float(Performance.get_monitor(Performance.TIME_PROCESS)) * 1000.0 \
+			+ float(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS)) * 1000.0
+	# Skip the first seconds: scene load, grass placement and the first fire's
+	# particle allocation are not what this scenario is measuring.
+	if _elapsed > 5.0:
+		_coopsim_proc_ms += frame_ms
+		_coopsim_worst_ms = maxf(_coopsim_worst_ms, frame_ms)
+		_coopsim_samples += 1
+
+	if int(_elapsed) != int(_elapsed - delta):
+		var ai: Node = comp.get_node_or_null("CompanionAI")
+		var line: String = ai.debug_line() if ai != null and ai.has_method("debug_line") else "?"
+		print("[CombatTest] COOPSIM t=%d %s | bobba %s hp=%.0f d_human=%.1f d_ai=%.1f | fires=%d | human_hp=%.0f ai_hp=%.0f | frame=%.2fms" % [
+				int(_elapsed), line,
+				"LIT" if bobba_lit else "dark", float(_bobba.health),
+				_player.global_position.distance_to(_bobba.global_position),
+				comp.global_position.distance_to(_bobba.global_position),
+				get_tree().get_nodes_in_group("ground_fire").size(),
+				float(_player.current_health), float(comp.current_health),
+				frame_ms])
+
+
+## The prop knight: close on Bobba and swing on a human-ish rhythm. He is not
+## an AI — he has no perception, no defence and no plan. He exists so the AI
+## archer has a melee ally to hold fire for.
+func _coopsim_drive_prop_paladin(delta: float) -> void:
+	var to_bobba: Vector3 = _bobba.global_position - _player.global_position
+	to_bobba.y = 0.0
+	var dist := to_bobba.length()
+	var pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
+	if pivot:
+		pivot.rotation.y = atan2(-to_bobba.x, -to_bobba.z)
+	if dist > 2.2:
+		# 6 m/s, between a walk and a sprint. It used to be 4, which was
+		# slower than anything a human paladin does — and once Bobba learned
+		# to circle, charge and step out of sword range after a swing, a prop
+		# that slow could not close at all and the run measured nothing.
+		var step: float = minf(6.0 * delta, dist - 2.0)
+		_player.global_position += to_bobba.normalized() * step
+	_coopsim_swing -= delta
+	if dist < 3.0 and _coopsim_swing <= 0.0:
+		_coopsim_swing = 2.4
+		_player._do_attack()
+
+
+func _finish_coopsim() -> void:
+	if _outcome_logged:
+		return
+	var comp := _find_in_group("companion")
+	var role: String = "?"
+	if comp != null:
+		role = "Paladin" if comp.character_class == comp.CharacterClass.PALADIN else "Archer"
+	var n: float = maxf(float(_coopsim_samples), 1.0)
+	print("[CombatTest] COOPSIM SUMMARY ai=%s first_hit=%.1fs first_light=%.1fs melee=%.1fs bobba_hp=%.0f fires_lit=%d spells=%d brain_avg=%.0fus frame_avg=%.2fms frame_worst=%.2fms topups=%d" % [
+			role, _coopsim_first_hit, _coopsim_first_lit, _coopsim_first_melee,
+			float(_bobba.health) if _bobba else -1.0,
+			_coopsim_arrows, _coopsim_casts,
+			_coopsim_brain_us / n, _coopsim_proc_ms / n, _coopsim_worst_ms,
+			_coopsim_topups])
+	_finish("COOPSIM_DONE")
 
 
 ## REVIVE: co-op revive + crouch simulation. Kills the AI companion,
