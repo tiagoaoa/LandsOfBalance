@@ -790,6 +790,7 @@ func _spawn_death_marker() -> void:
 	beam.position = Vector3(0, 1.5, 0)
 	marker.add_child(beam)
 	_death_marker = marker
+	print("Player(%s): revive beacon up" % name)
 
 
 func _clear_death_marker() -> void:

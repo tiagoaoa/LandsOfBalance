@@ -121,6 +121,7 @@ var _coopsim_was_casting: bool = false
 var _coopsim_swing: float = 0.0
 var _coopsim_wounded: bool = false
 var _coopsim_pinned: bool = false
+var _coopsim_spiking: bool = false
 
 # SOULS scenario state — full live duel using the whole kit.
 var _souls_parries: int = 0          # deflects that opened a riposte window
@@ -1543,6 +1544,13 @@ func _drive_coopsim(delta: float) -> void:
 	var comp := _find_in_group("companion")
 	if comp == null:
 		return
+	# The party winning also ends the run — Bobba dying restarts the game,
+	# and a scene reload mid-measurement costs ~2.5 s in a single frame and
+	# hands the summary a brand new full-health Bobba to report.
+	if _bobba == null or not is_instance_valid(_bobba) or float(_bobba.health) <= 0.0:
+		print("[CombatTest] COOPSIM t=%.1f — Bobba is down; ending the run here" % _elapsed)
+		_finish_coopsim()
+		return
 	if not _coopsim_setup:
 		_coopsim_setup = true
 		_coopsim_center = Vector3(120.0, _player.global_position.y, -140.0)
@@ -1594,6 +1602,29 @@ func _drive_coopsim(delta: float) -> void:
 		var frac: float = float(_player.current_health) / maxf(float(_player.max_health), 1.0)
 		if frac < want_frac - 0.02:
 			_player.heal_pct(want_frac - frac)
+			_coopsim_topups += 1
+	# ...and so is the AI, for a harder reason than fairness: when BOTH halves
+	# of the party go down the game restarts, and a scene reload in the middle
+	# of a measurement run costs ~2.6 s in one frame, resets Bobba to full, and
+	# turns every number in the summary into a lie. (That is exactly what the
+	# "bobba_hp=1000, frame_worst=2300ms" runs were.) The scenario measures the
+	# archer's fire discipline and the rescue behaviours, not who survives —
+	# WATCH is where survival is the question.
+	# A floor is not enough on its own: the archer has 100 HP and Bobba's axe
+	# takes 95 of it, so any floor short of full can still be one-shot. Anyone
+	# who does go down is put straight back on their feet.
+	for who in [_player, comp]:
+		if who == null or not is_instance_valid(who):
+			continue
+		if who.is_dead and who.has_method("revive_from_death"):
+			who.revive_from_death()
+			_coopsim_topups += 1
+			print("[CombatTest] COOPSIM t=%.1f — %s went down; back up (a wipe would reload the scene)" % [
+					_elapsed, who.name])
+	if comp != null and not comp.is_dead and comp.has_method("heal_pct"):
+		var ai_frac: float = float(comp.current_health) / maxf(float(comp.max_health), 1.0)
+		if ai_frac < 0.6:
+			comp.heal_pct(0.6 - ai_frac)
 			_coopsim_topups += 1
 
 	# t=30: WOUND THE PARTY. Both spells in the game are conditional on someone
@@ -1663,6 +1694,15 @@ func _drive_coopsim(delta: float) -> void:
 		_coopsim_proc_ms += frame_ms
 		_coopsim_worst_ms = maxf(_coopsim_worst_ms, frame_ms)
 		_coopsim_samples += 1
+		# A frame this long is a bug, not jitter — say WHEN, so the log around
+		# it can be read instead of guessed at. Edge-triggered: these are
+		# rolling Performance monitors, so a spike reads high for many frames
+		# after the event and would otherwise print hundreds of times.
+		if frame_ms > 300.0 and not _coopsim_spiking:
+			_coopsim_spiking = true
+			print("[CombatTest] COOPSIM t=%.1f FRAME SPIKE %.0fms" % [_elapsed, frame_ms])
+		elif frame_ms < 100.0:
+			_coopsim_spiking = false
 
 	if int(_elapsed) != int(_elapsed - delta):
 		var ai: Node = comp.get_node_or_null("CompanionAI")

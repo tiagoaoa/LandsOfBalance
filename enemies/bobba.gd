@@ -146,6 +146,7 @@ const TELEGRAPH_COLOR := Color(1.0, 0.55, 0.12)
 const TELEGRAPH_ENERGY: float = 2.2    # on the axe alone, so it can be bright
 var _stun_timer: float = 0.0
 var _hit_label: Label3D
+var _warned_no_health_label: bool = false
 var _attack_anim_progress: float = 0.0
 const HAND_HITBOX_START: float = 0.3  # Enable hitbox at 30% of attack animation
 const HAND_HITBOX_END: float = 0.7    # Disable hitbox at 70% of attack animation
@@ -270,6 +271,12 @@ var _target_was_rolling: bool = false
 var _habit_parry: float = 0.0
 var _habit_roll: float = 0.0
 var _habit_block: float = 0.0
+## He does not hunt in silence. Roaring gives the party a bearing they can
+## search — which is the point: a boss nobody can ever find is not difficult,
+## he is absent. See SquadBrain.note_roar.
+const ROAR_MIN_GAP: float = 22.0
+const ROAR_MAX_GAP: float = 38.0
+var _roar_left: float = 12.0
 var _combo_step: int = 0
 ## True while the axe swing owns the attack state, so every read of the
 ## current attack's data resolves to AXE_ATTACK instead of a chain step.
@@ -1078,15 +1085,21 @@ func _on_death() -> void:
 		_right_hand_hitbox.monitoring = false
 
 
-## Update health label when health changes
+## Update health label when health changes.
+##
+## NO PRINTING HERE. Regeneration moves his health every physics frame, so the
+## two debug lines this used to emit were 60 Hz of synchronous file I/O — half
+## of every scenario log, and multi-second frame stalls in the runs where he
+## disengaged and healed back up. Measured: 4840 of 9529 lines in one COOPSIM
+## log, frame_avg 20 ms against 8, one 2.2 s frame.
 func _on_health_label_update(current: float, _maximum: float) -> void:
-	print("Bobba: _on_health_label_update called with HP=%.1f" % current)
 	var health_label = get_node_or_null("HealthLabel")
 	if health_label == null:
-		print("Bobba: WARNING - HealthLabel not found!")
+		if not _warned_no_health_label:
+			_warned_no_health_label = true
+			push_warning("Bobba: HealthLabel not found — health text will not update")
 		return
 	health_label.text = "%.0f / %.0f" % [current, MAX_HEALTH]
-	print("Bobba: Updated health label to: ", health_label.text)
 	# Change color based on health
 	var health_pct = current / MAX_HEALTH
 	if health_pct > 0.5:
@@ -1855,9 +1868,12 @@ func _on_animation_finished(anim_name: StringName) -> void:
 	elif anim_name == &"bobba/Roar":
 		# After roar finishes, start chasing — unless we're mid-stun
 		# (poise stagger or parry riposte window): there the stun timer in
-		# _handle_stunned owns the state transition, not the animation.
-		if state != State.STUNNED:
+		# _handle_stunned owns the state transition, not the animation — or
+		# there is nobody to chase, which is the case for a roam-time roar.
+		if state != State.STUNNED and target != null and is_instance_valid(target):
 			state = State.CHASING
+		elif state != State.STUNNED:
+			state = State.ROAMING
 		_current_anim = &""  # Clear so next animation can play
 	# Note: Dying animation should not auto-recover - handled separately when health system is added
 
@@ -2199,6 +2215,15 @@ func _tick_fight_skill(delta: float) -> void:
 	if _strafe_left <= 0.0:
 		_strafe_left = randf_range(STRAFE_FLIP_MIN, STRAFE_FLIP_MAX)
 		_strafe_sign = -_strafe_sign
+	# Out roaming with nobody to eat, he announces himself. Never mid-fight:
+	# the wind-up glow is the tell in combat, and a roar there would just be
+	# noise on top of it.
+	_roar_left -= delta
+	if _roar_left <= 0.0:
+		_roar_left = randf_range(ROAR_MIN_GAP, ROAR_MAX_GAP)
+		if target == null and not _is_fleeing \
+				and (state == State.ROAMING or state == State.IDLE):
+			_roar()
 	_habit_parry = move_toward(_habit_parry, 0.0, HABIT_FADE * delta)
 	_habit_roll = move_toward(_habit_roll, 0.0, HABIT_FADE * delta)
 	_habit_block = move_toward(_habit_block, 0.0, HABIT_FADE * delta)
@@ -2220,6 +2245,18 @@ func _tick_fight_skill(delta: float) -> void:
 				and global_position.distance_to(target.global_position) < 6.0:
 			_habit_roll += 1.0
 	_target_was_rolling = rolling
+
+
+## Throw his head back and let the whole field know something is out here.
+## The party hears a bearing, not a position — SquadBrain turns it into a
+## circle of ground to search, which is exactly as much as a sound deserves.
+func _roar() -> void:
+	if _anim_player != null and _anim_player.has_animation(&"bobba/Roar"):
+		_current_anim = &""
+		_play_anim(&"bobba/Roar")
+	Sfx.play3d("bobba_roar", global_position + Vector3(0, 2.0, 0), -1.0)
+	SquadBrain.note_roar(self)
+	print("Bobba: ROAR at %s" % str(global_position.snapped(Vector3.ONE)))
 
 
 ## How wide open the target is right now, 0.0 (nothing doing) to 1.0 (helpless).

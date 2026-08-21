@@ -66,6 +66,15 @@ var _giveup_left := 0.0        # cooling-off after abandoning an uncatchable run
 var _checked: Array = []       # beacons already walked to (Vector3), newest last
 var _sweep_goal := Vector3.ZERO
 var _sweep_left := 0.0         # how long to keep walking at the current goal
+## The search pattern. A random wander re-walks the same ground and misses the
+## rest; an outward spiral covers it once, in rings, from wherever the party
+## started looking.
+const SPIRAL_R0 := 26.0        # the first ring
+const SPIRAL_GROWTH := 34.0    # metres added per full turn
+const SPIRAL_ARC := 22.0       # ...and how far along the ring each leg goes
+const SPIRAL_MAX_R := 150.0    # past this the pattern restarts where he stands
+var _spiral_centre := Vector3.ZERO
+var _spiral_theta := 0.0
 
 
 func _init() -> void:
@@ -150,7 +159,10 @@ func choose_tactic() -> String:
 
 	# THE SEARCH. Nothing is known, so the party goes and finds it instead of
 	# waiting to be found: down the trail if there is one, otherwise beacon to
-	# beacon through the archer's light. Must clear patrol's 5 + 8 commitment.
+	# beacon through the archer's light and outward on the spiral. Must clear
+	# patrol's 5 + 8 commitment.
+	if not brain.blind():
+		_spiral_centre = Vector3.ZERO   # found something — the pattern is done
 	if brain.blind() and _giveup_left <= 0.0:
 		var sweep := 20.0
 		if brain.best_lead() != null:
@@ -408,6 +420,8 @@ func _sweep(delta: float) -> void:
 func _pick_sweep_goal() -> Vector3:
 	var lead := brain.best_lead()
 	if lead != null:
+		# A trail — including one a roar opened — beats any pattern.
+		_spiral_centre = Vector3.ZERO
 		var aim: Vector3 = lead.predict(brain.now)
 		# Prefer a fire burning inside the search circle: same search, but done
 		# somewhere he can actually see when he gets there.
@@ -416,6 +430,31 @@ func _pick_sweep_goal() -> Vector3:
 	var beacon := _nearest_unchecked_fire(pos(), 70.0)
 	if beacon != Vector3.ZERO:
 		return beacon
+	return _spiral_next()
+
+
+## The next leg of the outward spiral. Radius grows with the angle, and the
+## angular step shrinks as it grows, so every leg walks about the same distance
+## and no ring is skipped — a field gets covered rather than sampled.
+func _spiral_next() -> Vector3:
+	if _spiral_centre == Vector3.ZERO:
+		_spiral_centre = pos()
+		_spiral_theta = randf() * TAU   # start the sweep in a random quarter
+		print("CompanionAI[paladin]: nothing known — searching outward from %s" % [
+				str(_spiral_centre.snapped(Vector3.ONE))])
+	for _attempt in 8:
+		var r: float = SPIRAL_R0 + SPIRAL_GROWTH * (_spiral_theta / TAU)
+		if r > SPIRAL_MAX_R:
+			# The pattern is spent. Start a fresh one from where he stands.
+			_spiral_centre = pos()
+			_spiral_theta = randf() * TAU
+			r = SPIRAL_R0
+		var goal: Vector3 = _spiral_centre \
+				+ Vector3(cos(_spiral_theta), 0.0, sin(_spiral_theta)) * r
+		_spiral_theta += SPIRAL_ARC / maxf(r, 1.0)
+		# Stay on the map: skip legs that would walk him off the edge of it.
+		if absf(goal.x) < 190.0 and absf(goal.z) < 210.0:
+			return goal
 	return Vector3.ZERO
 
 

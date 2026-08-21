@@ -34,6 +34,9 @@ const PARTY_SIGHT := 40.0         # allies keep voice contact this far apart
 const HEAR_RANGE := 18.0          # a charging, roaring enemy is audible
 const LIGHT_WANT_RANGE := 32.0    # dark enemies this near an ally want light
 const MELEE_RANGE := 3.2
+const ROAR_HEARING := 140.0       # a roar in a night field carries this far
+const ROAR_SCATTER := 12.0        # ...and places him only this accurately
+const ROAR_CIRCLE := 25.0         # the search circle a roar opens
 const LEAD_FADE := 75.0           # how long a lost enemy stays worth searching for
 const LEAD_SPREAD := 3.0          # m/s the search circle grows once he is loose
 const LEAD_RADIUS_MAX := 45.0
@@ -166,6 +169,46 @@ static func note_attack(victim: Node, attacker: Node) -> void:
 	if not Factions.is_party(victim) or Factions.is_party(attacker):
 		return
 	_instance._felt(attacker as Node3D, victim as Node3D)
+
+
+## "Something out there just made a noise." A roar is not a sighting — it does
+## not say where he IS, it says roughly where he WAS and that he is out there
+## at all. So it opens a LEAD with a wide circle rather than a contact: the
+## archer combs it, the paladin walks it down, and neither of them can fight
+## something they have not actually found yet.
+##
+## The player hears the same roar the AI does, from the same 3D source. This
+## is information the boss gives away, not information the party is handed.
+static func note_roar(source: Node3D) -> void:
+	if _instance == null or not is_instance_valid(_instance):
+		return
+	if source == null or not is_instance_valid(source):
+		return
+	_instance._heard_roar(source)
+
+
+func _heard_roar(source: Node3D) -> void:
+	if pos_dist_to_party(source.global_position) > ROAR_HEARING:
+		return   # nobody close enough to hear it
+	var l: Lead = _lead_for(source)
+	# A roar is worth less than actually having seen him: if the party already
+	# holds a fresher trail, keep it.
+	var implied_age: float = ROAR_CIRCLE / LEAD_SPREAD
+	if l != null and l.lost_at > now - implied_age:
+		return
+	if l == null:
+		l = Lead.new()
+		l.node = source
+		leads.append(l)
+	var ang := randf() * TAU
+	l.pos = source.global_position \
+			+ Vector3(cos(ang), 0.0, sin(ang)) * randf_range(0.0, ROAR_SCATTER)
+	l.dir = Vector3.ZERO          # a noise has no heading
+	l.lost_at = now - implied_age  # ...so it starts as a circle, not a point
+	l.boss = source.is_in_group("bobba") or source.is_in_group("dragon")
+	l.swept = 0
+	print("SquadBrain: a roar out of the dark — searching %.0fm of ground around %s" % [
+			l.radius(now), str(l.pos.snapped(Vector3.ONE))])
 
 
 func _ready() -> void:
