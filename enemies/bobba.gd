@@ -44,6 +44,9 @@ const RETREAT_SPEED: float = 3.0  # Speed when retreating from arrows
 const DETECTION_RADIUS: float = 10.0   # smell — characters this close are detected
 const LOSE_RADIUS: float = 50.0        # tracked targets escape at this distance
 const FLEE_HP_FRACTION: float = 0.22   # badly wounded → disengage and run
+## ...and he stays gone until he is worth fighting again. Ending the flight on
+## distance alone put him straight back into it at the same low health.
+const FLEE_RECOVER_FRACTION: float = 0.55
 const REGEN_DELAY: float = 5.0         # seconds without damage before healing starts
 const REGEN_PCT_PER_SEC: float = 0.03  # out-of-combat recovery — fleeing has a payoff
 const ATTACK_DISTANCE: float = 2.0  # Distance to start attack animation
@@ -115,6 +118,9 @@ var _flee_dir: Vector3 = Vector3.ZERO
 var _flee_route_timer: float = 0.0
 var _flee_cornered_timer: float = 0.0
 var _flee_given_up: bool = false  # cornered once → fights to the end
+var _lying_low: bool = false      # out of reach, healing, not running any more
+var _panicking: bool = false      # edge-trigger for the fire-panic log line
+var _fire_shy: bool = false       # ...and for the "won't attack" one
 var _all_players: Array[Node3D] = []  # All players in scene
 var roam_direction: Vector3 = Vector3.ZERO
 var roam_timer: float = 0.0
@@ -492,6 +498,10 @@ func _find_remote_players(node: Node) -> void:
 
 
 func _select_target() -> void:
+	# A boss in flight is not shopping for targets. Leaving this on is what
+	# let him re-acquire at 55.1 m the frame after escaping at 55 m.
+	if _is_fleeing:
+		return
 	# Select which player to follow based on rules:
 	# 1. Keep current target if still valid and within LOSE_RADIUS
 	# 2. Otherwise, pick first player within DETECTION_RADIUS
@@ -2096,14 +2106,39 @@ func _handle_fleeing(delta: float) -> void:
 	for p in _all_players:
 		if is_instance_valid(p) and not ("is_dead" in p and p.is_dead):
 			nearest = minf(nearest, global_position.distance_to(p.global_position))
+	# BREAKING CONTACT IS NOT THE SAME AS BEING SAFE. This used to end the
+	# flight the moment nobody was within 55 m — but he is still under the
+	# 22% line that started it, and the party is lit by their own fires, so
+	# he re-acquired on the very next frame ("escaped into the dark (55m)"
+	# followed immediately by "New target acquired at 55.1m") and fled again.
+	# Measured: 266 flights and 265 escapes in one 600 s session, roughly one
+	# every two seconds. He was not fighting anybody; he was oscillating.
+	#
+	# So the run ends where the design always said it did — once he is WHOLE
+	# again. Out of reach he stops sprinting and lies low in the dark, which
+	# is where his 3%/s knits him back together; he is hunting again at
+	# FLEE_RECOVER_FRACTION, and back on his feet as an ambush rather than as
+	# a boss jogging in circles.
 	if nearest > LOSE_RADIUS + 5.0:
-		_is_fleeing = false
-		_flee_given_up = false
-		target = null
-		state = State.ROAMING
-		_pick_new_roam_direction()
-		print("Bobba: escaped into the dark (nearest character %.0fm)" % nearest)
+		if health >= MAX_HEALTH * FLEE_RECOVER_FRACTION:
+			_is_fleeing = false
+			_lying_low = false
+			_flee_given_up = false
+			target = null
+			state = State.ROAMING
+			_pick_new_roam_direction()
+			print("Bobba: recovered in the dark at %.0f hp — hunting again" % health)
+			return
+		if not _lying_low:
+			_lying_low = true
+			print("Bobba: out of reach at %.0fm and %.0f hp — lying low to heal" % [
+					nearest, health])
+		# Not running any more, just keeping out of the way while he knits.
+		velocity.x = move_toward(velocity.x, 0.0, 12.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 12.0 * delta)
+		_play_anim(_carry_anim(&"Idle"))
 		return
+	_lying_low = false
 	# Cornered check: a faster pursuer glued to him means flight is
 	# hopeless — the smart move flips to fighting with his back to the wall.
 	if nearest < 5.0:
@@ -2313,8 +2348,11 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
 			_play_anim(_carry_anim(&"Run"))
-			print("Bobba: PANIC while chasing! Fire too close, fleeing!")
+			if not _panicking:
+				_panicking = true
+				print("Bobba: PANIC while chasing — fire too close")
 			return
+		_panicking = false
 
 	# If target escapes beyond LOSE_RADIUS, _select_target will clear it
 	# Here we just check if we lost target
@@ -2335,8 +2373,12 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 				var retreat_rot := atan2(fire_avoid.x, fire_avoid.z)
 				_model.rotation.y = lerp_angle(_model.rotation.y, retreat_rot, ROTATION_SPEED * delta)
 			_play_anim(_carry_anim(&"Walk"))
-			print("Bobba: Won't attack - too close to fire, backing off")
+			if not _fire_shy:
+				_fire_shy = true
+				print("Bobba: won't attack — too close to fire, backing off")
 			return
+
+	_fire_shy = false
 
 	# ---- COMMIT? ---------------------------------------------------------
 	#
