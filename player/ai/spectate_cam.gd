@@ -40,6 +40,7 @@ var _manual_pitch: float = 0.0
 var _manual_left: float = 0.0
 var _zoom: float = 6.5
 var _hud: CanvasLayer = null
+var _panel: PanelContainer = null
 var _label: RichTextLabel = null
 var _hint: Label = null
 var _hud_timer: float = 0.0
@@ -123,8 +124,8 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_TAB:
 			_next_target()
-		elif event.keycode == KEY_H and _hud != null:
-			_hud.visible = not _hud.visible
+		elif event.keycode == KEY_H and _panel != null:
+			_panel.visible = not _panel.visible
 
 
 ## Hand the view to the other half of the party.
@@ -159,6 +160,7 @@ func _build_hud() -> void:
 	_hud.layer = 20
 	add_child(_hud)
 	var panel := PanelContainer.new()
+	_panel = panel
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	panel.position = Vector2(18, 18)
 	panel.custom_minimum_size = Vector2(560, 0)
@@ -194,7 +196,7 @@ func _build_hud() -> void:
 
 ## What each bot is doing and why — the whole point of watching.
 func _refresh_hud() -> void:
-	if _label == null or not _hud.visible:
+	if _label == null or _panel == null or not _panel.visible:
 		return
 	var lines: Array[String] = []
 	for body in _party():

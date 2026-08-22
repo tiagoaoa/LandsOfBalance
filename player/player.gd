@@ -4000,10 +4000,15 @@ func _setup_health_bar() -> void:
 	# (_health_bar, HealthBarUI, CombatHUD) are created below the gothic
 	# layer so any code that reaches into HealthBarUI/Control/... still
 	# finds its nodes — just hidden behind the new frame.
-	var gothic_script := preload("res://ui/gothic_hud.gd")
-	var gothic: CanvasLayer = gothic_script.new()
-	gothic.name = "GothicHUD"
-	add_child(gothic)
+	# SPECTATING: the gothic frame is a PLAYER's HUD — his own HP, his stamina,
+	# his ability slots, his buff counter. With nobody at the keyboard there is
+	# no "his", and it just sits on top of the fight you came to watch. The
+	# spectator reads both bodies out of the tactic overlay instead.
+	if not _spectating():
+		var gothic_script := preload("res://ui/gothic_hud.gd")
+		var gothic: CanvasLayer = gothic_script.new()
+		gothic.name = "GothicHUD"
+		add_child(gothic)
 
 	# Legacy canvas kept for backwards-compat references (HPText path used
 	# by _on_health_changed). Hidden so it doesn't double-render.

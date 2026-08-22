@@ -135,8 +135,25 @@ func choose_tactic() -> String:
 
 	var scores := {"patrol": 5.0}
 
+	# BREAKING OFF HAS TO BE ABLE TO WIN THE ARGUMENT. It could not: brawl
+	# scored 40 + threat*6, and threat runs to ~14.8 against a lit boss that is
+	# hunting you (boss 2.5 x hunting 1.9 x proximity 2.5 x lit 1.25), so a
+	# fight was worth up to 126 against a flat 90 for saving your own life.
+	# Measured: "breaking off at 28% hp" printed four times in one session and
+	# the tactic changed to fallback zero times — he announced the retreat and
+	# then stood there until he died, twice. So the score now scales with how
+	# nearly dead he is, and it has to clear a CAPPED brawl (below).
 	if _retreating:
-		scores["fallback"] = 60.0 + (30.0 if threat_dist < 14.0 else 0.0)
+		# ...but running is about the THREAT BEING CLOSE, not about being hurt
+		# in the abstract. Scoring it purely off missing health traded one
+		# failure for its mirror image: he stopped dying and stopped fighting,
+		# sitting at 22% hp in fallback for 56 straight samples because nothing
+		# heals him out there and re-engaging wants 60%. So the urgency decays
+		# with distance — once he has actually broken contact, more running
+		# buys nothing and the beat passes to the flask and the rite, which are
+		# the only two things that put him back in the fight.
+		var near: float = clampf(1.0 - threat_dist / 20.0, 0.0, 1.0)
+		scores["fallback"] = 60.0 + (30.0 + (1.0 - hp_frac()) * 70.0) * near
 
 	var focus := brain.focus
 	if focus != null and focus.confidence(brain.now) > 0.35:
@@ -146,7 +163,10 @@ func choose_tactic() -> String:
 		# paladin out of the party's light — so once the gap stops closing,
 		# let him go and rejoin the archer, who can still reach him.
 		if _giveup_left <= 0.0 or d < 8.0:
-			scores["brawl"] = 40.0 + focus.threat * 6.0 - d * 0.25
+			# The threat score answers "WHICH of them do I hit", not "do I keep
+			# fighting while I bleed out" — so it is a tie-breaker here, capped,
+			# rather than an unbounded reason to stay.
+			scores["brawl"] = 40.0 + minf(focus.threat, 6.0) * 6.0 - d * 0.25
 
 	# PEEL: something is hunting the other member of the party.
 	if mate != null and not mate.is_dead:
@@ -159,7 +179,15 @@ func choose_tactic() -> String:
 				var urgency: float = 1.0 + (1.0 - mate.hp_frac) * 1.5
 				if not mate.is_paladin:
 					urgency += 0.4
-				scores["peel"] = (52.0 + 12.0 * float(mate.pressure)) * urgency - d * 0.4
+				# ...but scaled by whether he can still DO it. Peel runs to
+				# (52 + 12*pressure) * 2.9, i.e. north of 200, which made it the
+				# single loudest voice in the room — measured: at under 35% hp a
+				# paladin was peeling in 39 samples against 12 spent saving
+				# himself. A knight who dies covering the archer leaves the
+				# archer alone with the thing that killed him, so the offer is
+				# worth what he has left to back it up with.
+				scores["peel"] = (52.0 + 12.0 * float(mate.pressure)) * urgency \
+						* clampf(hp_frac() * 1.6, 0.35, 1.0) - d * 0.4
 
 	# THE RITE. Worth the disengage only when someone is actually hurt, and
 	# worth twice as much when that someone is the archer.
@@ -171,6 +199,22 @@ func choose_tactic() -> String:
 			bonus = 25.0 if not mate.is_paladin else 10.0
 		if worst_missing > 0.35:
 			scores["rite"] = 30.0 + worst_missing * 70.0 + bonus
+			# HE CAN HEAL HIMSELF. The aura is a party heal and he is party —
+			# 5%/s on a knight — so once he is out of reach and out of flasks
+			# this is the ONLY way back above the re-engage line. Worth more
+			# the further he already is from the thing that hurt him, which is
+			# also the condition the game puts on starting the cast (refused
+			# within 8 m of a live enemy).
+			if threat_dist > 12.0:
+				scores["rite"] += 25.0
+
+	# ESTUS. It was unreachable: the only call site is inside _fall_back(), and
+	# fall_back never ran (see above), so in a whole session the AI drank zero
+	# flasks and died with a full belt. It is a five-charge, mid-fight heal —
+	# the single most important survival tool a souls player has — so it gets
+	# its own plan: back off far enough to swallow, then swallow.
+	if hp_frac() < 0.55 and body.estus_charges > 0 and not body.is_drinking:
+		scores["drink"] = 55.0 + (1.0 - hp_frac()) * 45.0
 
 	# A contact that has gone dark is still a lead worth walking down.
 	if focus != null and focus.confidence(brain.now) <= 0.35 \
@@ -232,6 +276,8 @@ func run_tactic(delta: float) -> void:
 			_revive(mate, delta)
 		"fallback":
 			_fall_back()
+		"drink":
+			_drink(delta)
 		"peel":
 			var mate_threat: SquadBrain.Contact = brain.threat_on(mate.node) \
 					if mate != null and not mate.is_dead else null
@@ -334,6 +380,41 @@ func _brawl(c: SquadBrain.Contact, delta: float) -> void:
 		_combo_left = 3
 		_click_gap = 0.0
 		_attack_timer = randf_range(2.0, 3.0)
+
+
+## A flask is not a button, it is a PLAN: the drink takes a moment, any clean
+## hit spends the charge for nothing, and the game refuses to start one inside
+## a swing. So he opens the distance first — using the fires as cover, which
+## nothing hostile crosses — and only tips the flask once nothing can reach
+## him. If a blow is already on its way he defends instead and tries again.
+func _drink(delta: float) -> void:
+	if body.is_drinking:
+		stop()
+		guard(true)          # riding out the channel behind the shield
+		return
+	if defend():
+		return
+	var threat := brain.threat_on(body)
+	if threat == null:
+		threat = brain.focus
+	if threat == null:
+		stop()
+		body._try_estus()
+		return
+	var threat_dist: float = threat.pos.distance_to(pos())
+	if threat_dist > ESTUS_SAFE_DIST:
+		stop()
+		aim_at(threat.pos)
+		body._try_estus()
+		return
+	var mate := brain.neediest_ally(body)
+	var toward: Vector3 = mate.anchor if mate != null else pos()
+	var dir := escape_dir(threat.pos, toward, true)
+	if dir.length_squared() > 0.01:
+		aim_at(pos() + dir * 10.0)
+		move_world(dir, true)
+	else:
+		explore(delta)
 
 
 ## Break contact along a scored route, drinking once there is room. Fires are
