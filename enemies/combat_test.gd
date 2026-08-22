@@ -2288,6 +2288,25 @@ func _drive_gearsim(delta: float) -> void:
 			pivot.rotation.y = _elapsed * (TAU / GEARSIM_PER_CLASS)
 		pivot.rotation.x = 0.0
 		pivot.position.y = _gearsim_height()
+		# PIN THE MODEL so the turntable actually turns. player.gd aims the
+		# mesh at `pivot.rotation.y + PI` every frame — the character is always
+		# facing camera-forward, which is right in play and useless here: the
+		# camera orbits, the model orbits with it, and every angle comes back
+		# as the same view of his back. (Both LOB_GEAR_ANGLE=0 and =180 gave
+		# byte-identical poses, which is what gave it away.) Held here in
+		# _process, after the physics frame that set it.
+		var model: Node3D = _player.get("_character_model") as Node3D
+		if model != null:
+			model.rotation.y = deg_to_rad(_gearsim_model_yaw())
+
+
+## Which way the model faces on the turntable. LOB_GEAR_MODEL_YAW pins it;
+## otherwise it revolves, so one run walks the whole way round the character.
+func _gearsim_model_yaw() -> float:
+	var pinned := OS.get_environment("LOB_GEAR_MODEL_YAW")
+	if pinned.is_valid_float():
+		return float(pinned)
+	return rad_to_deg(_elapsed * (TAU / GEARSIM_PER_CLASS))
 
 
 ## Hold the PLAYER on one clip, pinned at LOB_GEAR_SEEK. The player drives its

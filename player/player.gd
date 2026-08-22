@@ -188,6 +188,9 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 
 var camera_rotation := Vector2.ZERO  # x = yaw, y = pitch
 var _character_model: Node3D  # Container for both characters
+var _spread_skeleton: Skeleton3D = null
+var _spread_left: int = -1
+var _spread_right: int = -1
 var _unarmed_character: Node3D
 var _armed_character: Node3D
 var _archer_character: Node3D
@@ -258,6 +261,11 @@ const COMBO_LUNGE_SPEED: Array[float] = [3.5, 4.0, 6.5]
 ## Per-step clip speed — brisk openers, then the finisher slows down so its
 ## weight reads (souls/GoW heavy-hit pacing: fast light chain, slow payoff).
 const COMBO_ANIM_SPEEDS: Array[float] = [1.25, 1.25, 0.95]
+## How far the upper arms are pushed out from the ribs, in degrees, on top of
+## whatever the clip poses. Tuned by eye on the GEARSIM turntable — see
+## _apply_arm_spread.
+const ARM_SPREAD_DEGREES: float = 20.0
+
 const COMBO_CHAIN_POINT: float = 0.6    # progress at which a buffered step cancels in
 ## How far into a swing a roll or a jump may buy you out of it. Not from zero:
 ## cancelling on the first frames would let a mistimed tap eat the input and
@@ -2467,6 +2475,78 @@ func _play_anim(anim_name: StringName) -> void:
 ## an action cancelled comes back on its own the moment that action ends
 ## — the button is still held, and only an edge would ever have restored
 ## it. The AI companion keeps its own state; human input must not leak in.
+## ARM SPREAD. The authored clips hold the paladin's upper arms clamped
+## against his ribs — no daylight between elbow and torso, the shield folded
+## flat across his chest — which reads as a man hugging himself rather than a
+## knight holding a guard. Widening a whole animation set by hand is not on;
+## this pushes the upper arms out a few degrees AFTER the clip has posed them,
+## so every clip keeps its motion and simply gets room to breathe.
+##
+## ADDITIVE, deliberately: an absolute pose (the trick Bobba's block uses) is
+## fine for one static guard, but applied here it would flatten the swing, the
+## roll and the walk into the same T of a stance. This multiplies whatever the
+## animation asked for by a fixed offset, so a clip that already lifts the arm
+## still lifts it, from further out.
+##
+## Runs late — from _process, after the AnimationMixer has written the frame —
+## because anything applied earlier is simply overwritten by the clip.
+func _apply_arm_spread() -> void:
+	if character_class != CharacterClass.PALADIN:
+		return
+	# Cached hard: this runs every rendered frame, and _find_skeleton_in walks
+	# the model subtree. Re-resolve only when the body swaps its rig (class
+	# change, armed/unarmed toggle), which is what invalidates the handle.
+	var skeleton := _spread_skeleton
+	if skeleton == null or not is_instance_valid(skeleton) \
+			or not skeleton.is_inside_tree():
+		skeleton = _find_skeleton_in(_character_model)
+		if skeleton == null:
+			return
+		_spread_skeleton = skeleton
+		_spread_left = skeleton.find_bone("mixamorig_LeftArm")
+		_spread_right = skeleton.find_bone("mixamorig_RightArm")
+	_abduct(skeleton, _spread_left, -ARM_SPREAD_DEGREES)
+	_abduct(skeleton, _spread_right, ARM_SPREAD_DEGREES)
+
+
+## Swing one upper arm away from the body, by `degrees`, on top of the pose the
+## clip just wrote.
+##
+## The axis comes from the BODY, not from the bone. Euler offsets in bone-local
+## space are a guess at whatever convention the rig was exported with — tried
+## on this skeleton, Z turned out to be flexion (the arm swings forward and up)
+## and X pulled the arms in TIGHTER, which is the opposite of the ask. Rotating
+## about the character's own forward axis is abduction by definition, on any
+## rig, and it stays correct if the model is ever replaced.
+func _abduct(skeleton: Skeleton3D, bone: int, degrees: float) -> void:
+	if bone < 0:
+		return
+	var parent: int = skeleton.get_bone_parent(bone)
+	# The body's forward (+Z in model space), expressed in the parent bone's
+	# frame so the rotation composes with the pose already there.
+	var axis := Vector3(0.0, 0.0, 1.0)
+	if parent >= 0:
+		axis = skeleton.get_bone_global_pose(parent).basis.inverse() * axis
+	if axis.length_squared() < 0.000001:
+		return
+	# Pre-multiplied: the rotation happens in the PARENT's space (about the
+	# body axis), not in the bone's own twisted frame.
+	var offset := Quaternion(axis.normalized(), deg_to_rad(degrees))
+	skeleton.set_bone_pose_rotation(bone, offset * skeleton.get_bone_pose_rotation(bone))
+
+
+func _find_skeleton_in(node: Node) -> Skeleton3D:
+	if node == null:
+		return null
+	if node is Skeleton3D:
+		return node as Skeleton3D
+	for child in node.get_children():
+		var found := _find_skeleton_in(child)
+		if found != null:
+			return found
+	return null
+
+
 func _update_block_state() -> void:
 	# A parry REPLACES the guard for its duration; death, the downed state
 	# and a revive channel all drop it entirely.
@@ -2726,6 +2806,7 @@ func _update_animation(input_dir: Vector2) -> void:
 func _toggle_combat_mode() -> void:
 	if is_sheathing:
 		return
+	_spread_skeleton = null   # armed and unarmed are different rigs
 
 	# Archer class doesn't have unarmed/armed modes
 	if character_class == CharacterClass.ARCHER:
@@ -2765,6 +2846,7 @@ func _toggle_combat_mode() -> void:
 func _switch_character_class(new_class: CharacterClass) -> void:
 	if character_class == new_class:
 		return
+	_spread_skeleton = null   # different rig — the cached arm bones are stale
 
 	# Hide all characters first
 	if _unarmed_character:
@@ -4875,6 +4957,13 @@ func _input(event: InputEvent) -> void:
 
 		_camera_pivot.rotation.y = camera_rotation.x
 		_camera_pivot.rotation.x = camera_rotation.y
+
+
+## Late pass, after the AnimationMixer has posed the skeleton for this frame.
+## Anything that has to sit ON TOP of a clip belongs here — applied in
+## _physics_process it would simply be overwritten.
+func _process(_delta: float) -> void:
+	_apply_arm_spread()
 
 
 func _physics_process(delta: float) -> void:
