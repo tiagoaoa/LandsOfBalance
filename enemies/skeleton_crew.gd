@@ -29,6 +29,14 @@ var haunt_center: Vector3
 
 
 func _ready() -> void:
+	# A CONTROL SWITCH, for asking whether the pack is what is tipping a fight.
+	# The co-op scenarios are balance experiments as much as they are tests, and
+	# the only honest way to read one is against the same run with the variable
+	# taken out of it:
+	#   LOB_NO_SKELETONS=1 tools/run_combat_scenario.sh WATCH
+	if OS.get_environment("LOB_NO_SKELETONS") == "1":
+		print("SkeletonCrew: standing down — LOB_NO_SKELETONS=1 (control run)")
+		return
 	# Scripted combat scenarios (SOULS/COMBO/PARRY...) measure exact duel
 	# numbers — a wandering pack 30 m away would crash every assertion.
 	# The crew rises only in real play modes and its own test scenario.
