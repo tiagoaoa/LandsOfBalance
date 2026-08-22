@@ -264,7 +264,7 @@ const COMBO_ANIM_SPEEDS: Array[float] = [1.25, 1.25, 0.95]
 ## How far the upper arms are pushed out from the ribs, in degrees, on top of
 ## whatever the clip poses. Tuned by eye on the GEARSIM turntable — see
 ## _apply_arm_spread.
-const ARM_SPREAD_DEGREES: float = 20.0
+const ARM_SPREAD_DEGREES: float = 30.0
 
 const COMBO_CHAIN_POINT: float = 0.6    # progress at which a buffered step cancels in
 ## How far into a swing a roll or a jump may buy you out of it. Not from zero:
