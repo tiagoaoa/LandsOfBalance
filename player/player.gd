@@ -259,6 +259,16 @@ const COMBO_LUNGE_SPEED: Array[float] = [3.5, 4.0, 6.5]
 ## weight reads (souls/GoW heavy-hit pacing: fast light chain, slow payoff).
 const COMBO_ANIM_SPEEDS: Array[float] = [1.25, 1.25, 0.95]
 const COMBO_CHAIN_POINT: float = 0.6    # progress at which a buffered step cancels in
+## How far into a swing a roll or a jump may buy you out of it. Not from zero:
+## cancelling on the first frames would let a mistimed tap eat the input and
+## leave the character standing there having done nothing. Early enough that
+## the escape is still worth having — the damage window on the opening swipe
+## does not start until 0.30.
+const ATTACK_CANCEL_POINT: float = 0.12
+## ...and what it costs. Short — the price of bailing out is the swing itself,
+## plus whatever the roll takes in stamina; a long lockout on top would just
+## punish the player for reading the fight correctly.
+const ATTACK_CANCEL_COOLDOWN: float = 0.15
 const COMBO_CHAIN_STAMINA_COST: float = 15.0  # chained swings cost less than the opener
 const COMBO_FINISHER_COOLDOWN: float = 0.45
 ## The chain must be EARNED with fast consecutive clicks: a click only
@@ -2333,10 +2343,18 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String,
 				tracks_to_remove.append(i)
 				continue
 
-		# Verify bone exists
+		# Verify bone exists. A clip retargeted from another rig carries tracks
+		# for bones this one has not got — the paladin's Estus animation names
+		# mixamorig_Sword_joint and mixamorig_Shield_joint, which the archer
+		# skeleton has never heard of, and several `armed/` clips reference
+		# mixamorig_Left_arch1 / mixamorig_RightArmour1. Leaving them in place
+		# meant AnimationMixer failed to resolve each one EVERY TIME the clip
+		# played (25 warnings from a single Estus drink). A track pointing at a
+		# bone that does not exist can never animate anything, so it goes.
 		if skeleton.find_bone(bone_name) == -1:
 			var alt_bone_name: String = bone_name.replace("mixamorig:", "mixamorig_")
 			if skeleton.find_bone(alt_bone_name) == -1:
+				tracks_to_remove.append(i)
 				continue
 			bone_name = alt_bone_name
 
@@ -4564,10 +4582,46 @@ func _make_reticle_texture() -> ImageTexture:
 # Dodge-roll
 # ----------------------------------------------------------------------------
 
+## A swing can be bought out of once it has genuinely STARTED — never on the
+## first frames, or a mistimed tap would eat the input and leave you standing
+## there having done nothing at all.
+func _can_cancel_attack() -> bool:
+	return is_attacking and _attack_anim_progress > ATTACK_CANCEL_POINT
+
+
+## Drop the swing (and the rest of the chain) so something else can happen.
+## The blade stops being dangerous the instant the decision changes — the
+## golden rule cuts both ways, and a hitbox left live through a roll would
+## deal damage from a sword nobody is swinging any more.
+func _cancel_attack_for(what: String) -> void:
+	is_attacking = false
+	disable_attack_hitbox()
+	_combo_step = 0
+	_combo_clicks_buffered = 0
+	_attack_cooldown = ATTACK_CANCEL_COOLDOWN
+	if _sword_trail != null:
+		_sword_trail.emitting = false
+	if _sword_smear != null:
+		_sword_smear.emitting = false
+	print("Player: swing cancelled into a %s" % what)
+
+
 func _try_dodge() -> void:
-	# Can't roll mid-air, mid-attack, mid-roll, while stunned/casting,
-	# drawing, parrying, or drinking.
-	if is_rolling or is_attacking or _is_stunned or is_casting or is_parrying or is_drinking \
+	# THE ROLL CANCELS THE SWING. A committed 2.7 s combo that cannot be
+	# abandoned is the fight playing you rather than the other way round: you
+	# see the axe coming, you press roll, and nothing happens because the
+	# character is still finishing a decision you made a second ago. Souls
+	# games let you buy out of your own attack with stamina, and that is what
+	# makes their combat a conversation. So a swing gives way to a roll, and
+	# the price is the swing.
+	if is_attacking:
+		if _can_cancel_attack():
+			_cancel_attack_for("roll")
+		else:
+			return
+	# Can't roll mid-air, mid-roll, while stunned/casting, drawing, parrying,
+	# or drinking.
+	if is_rolling or _is_stunned or is_casting or is_parrying or is_drinking \
 			or is_reviving or is_dead:
 		return
 	if is_drawing_bow or is_holding_bow:
@@ -4976,6 +5030,12 @@ func _physics_process(delta: float) -> void:
 		# covers one that is REFUSED — out of stamina, mid-swing, airborne —
 		# where the jump would otherwise fire in its place and the button
 		# would feel like it did something random.
+		# A jump cancels the swing too, on the same reasoning as the roll: it is
+		# the other way out of a decision that has stopped being a good one.
+		if not ai_driven and Input.is_action_just_pressed(&"jump") and is_attacking \
+				and not is_rolling and not is_reviving \
+				and not Input.is_action_just_pressed(&"dodge") and _can_cancel_attack():
+			_cancel_attack_for("jump")
 		if not ai_driven and Input.is_action_just_pressed(&"jump") and not is_attacking \
 				and not is_rolling and not is_reviving \
 				and not Input.is_action_just_pressed(&"dodge"):

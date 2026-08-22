@@ -1766,11 +1766,6 @@ func _load_animations() -> void:
 func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton: Skeleton3D) -> void:
 	var tracks_to_remove: Array[int] = []
 
-	# Debug: print skeleton bone names once
-	if skeleton.get_bone_count() > 0:
-		print("Bobba: Skeleton has ", skeleton.get_bone_count(), " bones")
-		print("Bobba: First few bones: ", skeleton.get_bone_name(0), ", ", skeleton.get_bone_name(1) if skeleton.get_bone_count() > 1 else "")
-
 	for i in range(anim.get_track_count()):
 		var track_path: NodePath = anim.track_get_path(i)
 		var path_str: String = str(track_path)
@@ -1796,7 +1791,12 @@ func _retarget_animation(anim: Animation, target_skeleton_path: String, skeleton
 			if skeleton.find_bone(bone_name) != -1:
 				godot_bone_name = bone_name
 			else:
-				print("Bobba: Bone not found: ", bone_name, " / ", godot_bone_name)
+				# Same as the player's retarget: a track aimed at a bone this
+				# rig has not got can never animate anything, and leaving it in
+				# makes AnimationMixer fail to resolve it every time the clip
+				# plays — the axe swing alone accounted for most of 49 warnings
+				# a run. Drop it rather than print about it forever.
+				tracks_to_remove.append(i)
 				continue
 
 		var new_path: String = target_skeleton_path + ":" + godot_bone_name
