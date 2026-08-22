@@ -31,6 +31,10 @@ extends RefCounted
 const Proto = preload("res://multiplayer/protocol.gd")
 
 const DECIDE_INTERVAL := 0.12
+## How long a chosen tactic is protected from being replaced. Long enough to
+## take a few steps and see whether it is working; short enough that the AI
+## still reads as reacting rather than committing to mistakes.
+const MIN_DWELL := 0.8
 const RETREAT_HP := 0.35        # break off below this fraction of max HP
 const REENGAGE_HP := 0.6        # ...and rejoin only once back above this
 const ESTUS_SAFE_DIST := 9.0    # a hit mid-drink wastes the charge
@@ -78,7 +82,18 @@ func update(delta: float) -> void:
 	if _decide_left <= 0.0:
 		_decide_left = DECIDE_INTERVAL
 		var next := choose_tactic()
-		if next != tactic:
+		# A PLAN GETS LONG ENOUGH TO BE A PLAN. Two tactics scoring within a
+		# few points of each other used to swap on every 0.12 s beat — measured
+		# at 45 swaps between peel and fallback in one run — and a paladin
+		# alternating "go to him" with "get away" walks nowhere at all while
+		# being hit. The per-class commitment bonus cannot fix this on its own,
+		# because the scores themselves move as the fight moves.
+		#
+		# This costs no reaction speed: defence is not a tactic. defend() runs
+		# every frame underneath whichever plan is active, so parries, rolls
+		# and the shield are untouched by how long the plan has been held.
+		# A body on the ground is the one thing that cannot wait its turn.
+		if next != tactic and (tactic_age >= MIN_DWELL or next == "revive"):
 			print("CompanionAI[%s]: %s → %s" % [role_name, tactic, next])
 			tactic = next
 			tactic_age = 0.0

@@ -242,6 +242,15 @@ func choose_tactic() -> String:
 		if mate_d > REGROUP_DIST:
 			scores["regroup"] = 15.0 + minf((mate_d - REGROUP_DIST) * 0.3, 10.0)
 
+	# BREAKING OFF IS A COMMITMENT, like the rite below and the archer's buff
+	# run. Capping brawl and peel left them scoring within a hair of fallback,
+	# and the +8 below is not enough to settle it: measured, six flips between
+	# peel and fallback in five seconds while he ate four unanswered hits. A
+	# disengage that turns round half-way is the worst of both — he neither
+	# escapes nor fights. Once started it runs until he is genuinely clear.
+	if tactic == "fallback" and _retreating and threat_dist < 18.0:
+		scores["fallback"] = maxf(float(scores.get("fallback", 0.0)), 95.0)
+
 	# The rite is the same kind of commitment: he has already walked out of the
 	# fight for it, and turning round half-way spends the disengage for nothing.
 	if tactic == "rite" and _rite_left > 0.0 and _spell_cd <= 0.0:
