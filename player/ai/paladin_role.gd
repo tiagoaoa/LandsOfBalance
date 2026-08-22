@@ -169,7 +169,16 @@ func choose_tactic() -> String:
 			scores["brawl"] = 40.0 + minf(focus.threat, 6.0) * 6.0 - d * 0.25
 
 	# PEEL: something is hunting the other member of the party.
-	if mate != null and not mate.is_dead:
+	#
+	# Not while he is BROKEN OFF, though. Retreat and peel pull in opposite
+	# directions and their scores cross as he moves — he backs away, the
+	# distance term decays the retreat, peel wins, he walks back in, the
+	# distance shrinks, retreat wins again. That is a feedback loop, not a
+	# tie-break, and a dwell timer only sets its period: measured at 47 swaps
+	# in one 470 s session, thrashing at 49% health. The retreat hysteresis is
+	# the right authority (out below 35%, back in above 60%) — while it holds,
+	# he is in no state to be anyone's shield, and the offer is simply off.
+	if mate != null and not mate.is_dead and not _retreating:
 		var mate_threat := brain.threat_on(mate.node)
 		if mate_threat != null and mate_threat.confidence(brain.now) > 0.25:
 			var d: float = mate_threat.pos.distance_to(pos())

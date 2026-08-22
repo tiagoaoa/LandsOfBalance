@@ -36,7 +36,13 @@ const DECIDE_INTERVAL := 0.12
 ## still reads as reacting rather than committing to mistakes.
 const MIN_DWELL := 0.8
 const RETREAT_HP := 0.35        # break off below this fraction of max HP
-const REENGAGE_HP := 0.6        # ...and rejoin only once back above this
+## ...and rejoin once back above this. 0.6 was too high to ever come back
+## from: Bobba hits for 65-95 against a 150 hp knight, so two blows put him
+## under the break-off line, and the only ways up are a 40 hp flask and a 5%/s
+## aura. He spent 53 of 85 samples disengaged and the boss never dropped below
+## 428 hp. Half health is still two of Bobba's hits — enough to be worth
+## something to the party, which a knight hiding at 59% is not.
+const REENGAGE_HP := 0.5
 const ESTUS_SAFE_DIST := 9.0    # a hit mid-drink wastes the charge
 ## Minimum gap between committed reactions. It used to be 0.9 s, which is
 ## longer than the gap between the steps of Bobba's own three-hit chain
