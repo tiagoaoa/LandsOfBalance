@@ -35,3 +35,8 @@ lands-of-balance-web/
 # Local tooling scratch
 .codex/
 adblog.txt
+
+# Blender auto-backups and Python bytecode
+*.blend1
+__pycache__/
+*.pyc
