@@ -1,32 +1,74 @@
-:root { color-scheme: dark; --bg:#0d0f12; --fg:#e8e6e1; --muted:#8a8f98; --accent:#c9a227; --danger:#b03a2e; --panel:#161a20; }
+:root { color-scheme: dark; --bg:#0b0e17; --fg:#e8e6e1; --muted:#8a90a3; --accent:#f0a12c; --accent2:#3fa7ff; --danger:#b03a2e; --panel:#141827; --edge:#232a41; }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-#lobby { max-width: 640px; margin: 8vh auto; padding: 0 20px; }
-h1 { font-weight: 700; letter-spacing: .02em; margin: 0 0 8px; }
-h1 span { color: var(--accent); font-weight: 400; font-size: .6em; vertical-align: middle; margin-left: 6px; }
-.lead { color: var(--muted); margin-top: 0; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+
+/* ------------------------------------------------------------- lobby */
+#lobby { position: relative; max-width: 860px; margin: 0 auto; padding: 9vh 24px 40px; }
+
+/* Ambient wash: the game art itself, blown up and blurred behind everything. */
+.backdrop { position: fixed; inset: -20%; z-index: -1; background: url('icon.png') center 12% / 55% no-repeat; filter: blur(100px) saturate(1.7) brightness(.6); opacity: .6; pointer-events: none; }
+.backdrop::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 26%, transparent 0%, rgba(11,14,23,.9) 80%); }
+
+.gamecard { display: flex; gap: 28px; align-items: center; background: linear-gradient(160deg, rgba(28,34,56,.85), rgba(15,18,31,.92)); border: 1px solid var(--edge); border-radius: 18px; padding: 28px; box-shadow: 0 24px 60px rgba(0,0,0,.5); backdrop-filter: blur(6px); }
+.art img { display: block; width: 190px; height: 190px; border-radius: 14px; box-shadow: 0 10px 34px rgba(63,167,255,.25), 0 4px 18px rgba(240,80,20,.25); }
+.details { flex: 1; min-width: 0; }
+
+.titlerow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .02em; margin: 0; }
+.cloudtag { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: #0d1524; background: linear-gradient(90deg, var(--accent2), #7cc4ff); border-radius: 20px; padding: 3px 10px; }
+.lead { color: var(--muted); margin: 8px 0 14px; }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; padding: 0; }
+.chips .chip { font-size: 12px; color: #c6cbdb; background: rgba(255,255,255,.06); border: 1px solid var(--edge); border-radius: 20px; padding: 3px 12px; }
+.chips .chip.ok { color: #9fdcaf; border-color: #2c4a33; }
+.chips .chip.full { color: #ffb3a7; border-color: #55302b; }
+
+.row { display: flex; gap: 12px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+.playrow { margin-top: 14px; }
 .muted { color: var(--muted); }
 .err { color: #ff7b6b; }
-.row { display: flex; gap: 12px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
-input[type=password], input[type=text] { background: var(--panel); color: var(--fg); border: 1px solid #2a2f38; border-radius: 6px; padding: 8px 10px; min-width: 260px; }
-button { background: var(--panel); color: var(--fg); border: 1px solid #2a2f38; border-radius: 6px; padding: 8px 14px; cursor: pointer; font: inherit; }
-button:hover { border-color: #3b424e; }
-button:disabled { opacity: .5; cursor: default; }
-button.primary { background: var(--accent); color: #1a1608; border-color: transparent; font-weight: 600; padding: 10px 28px; }
-button.danger { border-color: var(--danger); color: #ff9c8f; }
-#sessions { list-style: none; padding: 0; margin: 8px 0; }
-#sessions li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid #1f232a; }
-#sessions button { padding: 3px 10px; font-size: 13px; }
-.tag { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: #222831; }
-.tag.streaming { background: #1f4d2a; } .tag.ready, .tag.waiting { background: #4b4217; } .tag.error, .tag.stopped { background: #4d1f1f; }
-details { margin-top: 24px; color: var(--muted); }
-.help { padding-left: 18px; }
-kbd { background: #222831; border-radius: 4px; padding: 0 5px; font-family: ui-monospace, monospace; font-size: .9em; }
 
+input[type=password], input[type=text] { background: var(--panel); color: var(--fg); border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px; min-width: 240px; }
+label { color: var(--muted); font-size: 13px; }
+
+button { background: var(--panel); color: var(--fg); border: 1px solid var(--edge); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
+button:hover { border-color: #39415d; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: linear-gradient(175deg, #ffbb4d, var(--accent) 60%, #d8871a); color: #221604; border: none; font-weight: 700; font-size: 17px; padding: 12px 38px; border-radius: 10px; box-shadow: 0 6px 22px rgba(240,161,44,.35); }
+button.primary:hover:not(:disabled) { filter: brightness(1.07); box-shadow: 0 8px 28px rgba(240,161,44,.5); }
+.playglyph { font-size: 13px; margin-right: 6px; vertical-align: 1px; }
+button.danger { border-color: var(--danger); color: #ff9c8f; }
+
+.sessionsbox { margin-top: 26px; }
+.sessionsbox h2 { font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px 4px; }
+.sessionsbox:has(#sessions:empty) { display: none; }
+#sessions { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+#sessions li { display: flex; gap: 12px; align-items: center; background: rgba(20,24,39,.8); border: 1px solid var(--edge); border-radius: 12px; padding: 10px 14px; }
+#sessions li::before { content: ''; width: 34px; height: 34px; border-radius: 8px; background: url('icon.png') center / cover; flex: none; }
+#sessions code { color: #aeb6cc; font-size: 12px; }
+#sessions button { padding: 4px 14px; font-size: 13px; border-radius: 20px; }
+#sessions li button:not(.danger) { border-color: var(--accent); color: #ffd489; }
+#sessions .grow { flex: 1; color: var(--muted); font-size: 12px; text-align: right; margin-right: 4px; }
+.tag { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 2px 10px; border-radius: 10px; background: #222b3f; }
+.tag.streaming { background: #1f4d2a; color: #a9e8b4; } .tag.ready, .tag.waiting { background: #4b4217; color: #ffe9a8; } .tag.starting { background: #1d3a5c; color: #a8d4ff; } .tag.error, .tag.stopped { background: #4d1f1f; color: #ffb1a6; }
+
+details { margin-top: 26px; color: var(--muted); }
+summary { cursor: pointer; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.help { padding-left: 18px; }
+kbd { background: #222b3f; border-radius: 4px; padding: 0 5px; font-family: ui-monospace, monospace; font-size: .9em; }
+
+@media (max-width: 640px) {
+  .gamecard { flex-direction: column; text-align: center; }
+  .titlerow, .chips, .row { justify-content: center; }
+  .art img { width: 140px; height: 140px; }
+}
+
+/* ------------------------------------------------------------- stage */
 #stage { position: fixed; inset: 0; background: #000; }
 #video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
 .banner { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,.7); padding: 14px 26px; border-radius: 8px; font-size: 18px; pointer-events: none; }
-.hint { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); background: rgba(201,162,39,.9); color: #1a1608; padding: 8px 18px; border-radius: 20px; cursor: pointer; font-weight: 600; }
+.hint { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); background: rgba(240,161,44,.92); color: #221604; padding: 8px 18px; border-radius: 20px; cursor: pointer; font-weight: 600; }
 #hud { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); font-size: 13px; transition: opacity .2s; }
 #hud.collapsed > :not(#hudToggle) { display: none; }
 #hud button { padding: 4px 10px; font-size: 13px; }

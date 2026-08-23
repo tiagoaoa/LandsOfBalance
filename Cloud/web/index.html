@@ -4,22 +4,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lands of Balance — Cloud</title>
+<link rel="icon" type="image/png" href="icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main id="lobby">
-  <h1>Lands of Balance <span>cloud</span></h1>
-  <p class="lead">The game runs on the server and streams here. Keyboard, mouse and gamepad are sent back over WebRTC.</p>
-  <p id="capacity" class="muted"></p>
-  <div id="tokenRow" class="row" hidden>
-    <label for="token">Access token</label>
-    <input id="token" type="password" placeholder="shared secret from the gateway">
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <div class="gamecard">
+    <div class="art">
+      <img src="icon.png" alt="Lands of Balance">
+    </div>
+    <div class="details">
+      <div class="titlerow">
+        <h1>Lands of Balance</h1>
+        <span class="cloudtag">CLOUD</span>
+      </div>
+      <p class="lead">Third-person medieval fantasy. Runs on the server, plays in your browser: keyboard, mouse and gamepad all stream back.</p>
+      <p id="capacity" class="chips"></p>
+      <div id="tokenRow" class="row" hidden>
+        <label for="token">Access token</label>
+        <input id="token" type="password" placeholder="shared secret from the gateway">
+      </div>
+      <div class="row playrow">
+        <button id="play" class="primary" disabled><span class="playglyph">▶</span> Play</button>
+        <span id="status" class="muted">Contacting gateway…</span>
+      </div>
+    </div>
   </div>
-  <div class="row">
-    <button id="play" class="primary" disabled>Play</button>
-    <span id="status" class="muted">Contacting gateway…</span>
-  </div>
-  <ul id="sessions"></ul>
+
+  <section class="sessionsbox">
+    <h2>Continue playing</h2>
+    <ul id="sessions"></ul>
+  </section>
+
   <details>
     <summary>How to play</summary>
     <ul class="help">

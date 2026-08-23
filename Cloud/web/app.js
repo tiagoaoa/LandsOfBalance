@@ -44,7 +44,11 @@ async function loadConfig() {
   try {
     state.cfg = await api('GET', '/api/config');
     els.tokenRow.hidden = !state.cfg.authRequired;
-    els.capacity.textContent = `${state.cfg.sessions}/${state.cfg.capacity} slots in use · ${state.cfg.width}×${state.cfg.height}@${state.cfg.fps}`;
+    const free = state.cfg.capacity - state.cfg.sessions;
+    els.capacity.innerHTML =
+      `<span class="chip">${state.cfg.width}×${state.cfg.height}</span>` +
+      `<span class="chip">${state.cfg.fps} fps</span>` +
+      `<span class="chip ${free > 0 ? 'ok' : 'full'}">${free > 0 ? free + ' slot' + (free === 1 ? '' : 's') + ' free' : 'all slots busy'}</span>`;
     await refreshSessions();
     els.play.disabled = false;
     setStatus('Ready.');
@@ -60,7 +64,7 @@ async function refreshSessions() {
     els.sessions.innerHTML = '';
     for (const s of list) {
       const li = document.createElement('li');
-      li.innerHTML = `<code>${s.id}</code> <span class="tag ${s.state}">${s.state}</span> ${s.peerConnected ? '· player attached' : ''}`;
+      li.innerHTML = `<code>${s.id}</code> <span class="tag ${s.state}">${s.state}</span><span class="grow">${s.peerConnected ? 'player attached' : ''}</span>`;
       if (!s.peerConnected && (s.state === 'ready' || s.state === 'waiting' || s.state === 'starting')) {
         const b = document.createElement('button');
         b.textContent = 'Rejoin';
