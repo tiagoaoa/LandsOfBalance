@@ -4937,7 +4937,7 @@ func _input(event: InputEvent) -> void:
 	# pinned the shield up for good. It is reconciled against the real
 	# button state every physics frame instead: see _update_block_state().
 
-	# Spell cast with C key, gamepad B button, or RB (armed mode only)
+	# Spell cast with C key, gamepad LT, or RB (armed mode only)
 	if event.is_action_pressed(&"spell_cast") or event.is_action_pressed(&"cast_spell_rb"):
 		_do_spell_cast()
 
