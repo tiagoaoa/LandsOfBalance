@@ -261,6 +261,21 @@ const FEINT_HOLD_MAX: float = 0.45
 const PRESSURE_COOLDOWN_MULT: float = 0.55
 const OPENING_REACH_BONUS: float = 1.6 # metres of extra commit range on an opening
 const HABIT_FADE: float = 0.06         # a habit is forgotten over ~15 s per count
+# ---- reading THEIR swing -----------------------------------------------------
+#
+# The co-op AI reads Bobba's clip to time its parries (AIRole.strike_eta); this
+# is the same trick pointed the other way. A player's swing publishes
+# everything needed: is_attacking, _attack_anim_progress, and the damage window
+# the current AttackData declares. So Bobba can see a blade coming and what he
+# does about it is a decision rather than a dice roll.
+const EVADE_REACH: float = 3.4         # inside this a sword can reach him
+const EVADE_LEAD: float = 0.42         # start moving this long before it lands
+const EVADE_SPEED_MULT: float = 1.5    # a sidestep is committed, not a shuffle
+const COUNTER_WINDOW: float = 0.9      # their recovery is worth this long
+const COUNTER_REACH_BONUS: float = 1.1 # ...and he will lunge a little further for it
+var _evading: bool = false
+var _counter_left: float = 0.0
+var _target_was_swinging: bool = false
 
 var _strafe_sign: float = 1.0
 var _strafe_left: float = 0.0
@@ -2259,6 +2274,16 @@ func _tick_fight_skill(delta: float) -> void:
 		if target == null and not _is_fleeing \
 				and (state == State.ROAMING or state == State.IDLE):
 			_roar()
+	# THE COUNTER WINDOW. A swing that has just finished leaves its owner
+	# planted and committed; that is the moment worth taking, and it stays
+	# worth taking for a beat after the clip ends because the recovery does
+	# not stop the instant the animation does.
+	_counter_left = maxf(_counter_left - delta, 0.0)
+	var swinging: bool = target != null and is_instance_valid(target) \
+			and ("is_attacking" in target) and target.is_attacking
+	if _target_was_swinging and not swinging:
+		_counter_left = COUNTER_WINDOW
+	_target_was_swinging = swinging
 	_habit_parry = move_toward(_habit_parry, 0.0, HABIT_FADE * delta)
 	_habit_roll = move_toward(_habit_roll, 0.0, HABIT_FADE * delta)
 	_habit_block = move_toward(_habit_block, 0.0, HABIT_FADE * delta)
@@ -2317,6 +2342,52 @@ func _target_opening() -> float:
 	if "is_attacking" in target and target.is_attacking:
 		w = maxf(w, 0.6)       # into the recovery of their own combo
 	return w
+
+
+## Seconds until the target's blade goes live on us, or INF when nothing is
+## coming. Read off their clip — the same data their own animation is driven
+## by — so this is a read of something visible, never of hidden state.
+func _incoming_swing_eta() -> float:
+	if target == null or not is_instance_valid(target):
+		return INF
+	if not ("is_attacking" in target) or not target.is_attacking:
+		return INF
+	# A swing that has already spent its hit cannot hurt him twice.
+	if "_has_hit_this_attack" in target and target._has_hit_this_attack:
+		return INF
+	var ap: AnimationPlayer = target.get("_current_anim_player") as AnimationPlayer
+	if ap == null or ap.current_animation_length <= 0.0:
+		return INF
+	var speed: float = ap.get_playing_speed()
+	if speed <= 0.01:
+		return INF
+	var win_start: float = 0.15
+	var cur = target.get("_current_attack")
+	if cur != null and "hit_window_start" in cur:
+		win_start = float(cur.hit_window_start)
+	var eta: float = (win_start * ap.current_animation_length
+			- ap.current_animation_position) / speed
+	return eta if eta > -0.05 else INF
+
+
+## True while the target is in the RECOVERY of a swing — blade past its damage
+## window, weight still committed, nothing they can do about what happens next.
+## This is the counter-attack window, and it is the same one a player is taught
+## to look for in Bobba.
+func _target_in_recovery() -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if not ("is_attacking" in target) or not target.is_attacking:
+		return false
+	if "_has_hit_this_attack" in target and target._has_hit_this_attack:
+		return true
+	var prog: float = float(target.get("_attack_anim_progress")) \
+			if "_attack_anim_progress" in target else 0.0
+	var win_end: float = 0.95
+	var cur = target.get("_current_attack")
+	if cur != null and "hit_window_end" in cur:
+		win_end = float(cur.hit_window_end)
+	return prog > win_end
 
 
 ## Wind-ups are never twice the same length, and against someone who keeps
@@ -2390,6 +2461,51 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 	var opening: float = _target_opening()
 	var reach_bonus: float = OPENING_REACH_BONUS * opening
 	var may_swing: bool = attack_cooldown <= 0.0 and _bait_left <= 0.0
+
+	# ---- GET OFF THE LINE ------------------------------------------------
+	#
+	# A blade is coming and he is inside its reach. Standing there to trade is
+	# what a punching bag does; a fighter steps OFF THE LINE OF THE SWING —
+	# sideways, not backwards. Backwards concedes the ground and ends with him
+	# jogging back in through the same arc. Sideways keeps him in his own
+	# range, so the recovery he just bought is a counter rather than a walk.
+	#
+	# He does not do this to a swing that cannot reach him, and he does not do
+	# it twice to the same swing: _has_hit_this_attack retires the threat.
+	var swing_eta: float = _incoming_swing_eta()
+	if swing_eta < EVADE_LEAD and distance_to_target < EVADE_REACH \
+			and not _is_in_fire_panic_zone():
+		if not _evading:
+			_evading = true
+			print("Bobba: stepping off the line — blade lands in %.2fs" % swing_eta)
+		var to_t: Vector3 = target.global_position - global_position
+		to_t.y = 0.0
+		if to_t.length() > 0.1:
+			# Perpendicular to the incoming line, on the side he is already
+			# circling — one decision, not a coin flip every frame.
+			var side: Vector3 = to_t.normalized().cross(Vector3.UP) * _strafe_sign
+			var step: Vector3 = (side + to_t.normalized() * 0.15).normalized()
+			velocity.x = step.x * CHASE_SPEED * EVADE_SPEED_MULT
+			velocity.z = step.z * CHASE_SPEED * EVADE_SPEED_MULT
+			if _model:
+				# Eyes stay on them through the sidestep.
+				var face: float = atan2(to_t.x, to_t.z)
+				_model.rotation.y = lerp_angle(_model.rotation.y, face, ROTATION_SPEED * 2.0 * delta)
+			_play_anim(_carry_anim(&"Run"))
+			return
+	_evading = false
+
+	# ---- COUNTER ---------------------------------------------------------
+	#
+	# Their swing is spent. This is the punish, and it is the same one the
+	# game teaches the player to take against him — so it costs him nothing in
+	# fairness and buys the fight its rhythm: swing, miss, pay.
+	var countering: bool = _counter_left > 0.0 or _target_in_recovery()
+	if countering and may_swing and distance_to_target <= ATTACK_DISTANCE + COUNTER_REACH_BONUS:
+		print("Bobba: COUNTER — his swing is spent, %.1fm" % distance_to_target)
+		_counter_left = 0.0
+		_start_combo_attack(0)
+		return
 
 	# The axe outreaches the fists, so it is what he uses at the range where
 	# only it can land — a punch chain there would swing at empty air. Inside
