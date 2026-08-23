@@ -58,6 +58,7 @@ type Session struct {
 	display   *display
 	sink      *audioSink
 	game      *game
+	bridge    *frameBridge
 	cap       *capture
 	peer      *rtc.Peer
 	lastInput time.Time
@@ -169,7 +170,23 @@ func (s *Session) start(ctx context.Context) {
 	s.sink = sink
 	s.mu.Unlock()
 
-	g, err := startGame(s.cfg, d, sink, s.logDir)
+	// In weston mode the game ships its own frames; give it the socket
+	// before it boots.
+	var bridge *frameBridge
+	framePort := 0
+	if s.cfg.DisplayMode == config.DisplayWeston {
+		bridge, err = newFrameBridge(s.cfg.FPS)
+		if err != nil {
+			fail(fmt.Errorf("frame bridge: %w", err))
+			return
+		}
+		framePort = bridge.Port()
+	}
+	s.mu.Lock()
+	s.bridge = bridge
+	s.mu.Unlock()
+
+	g, err := startGame(s.cfg, d, sink, framePort, s.logDir)
 	if err != nil {
 		fail(fmt.Errorf("game: %w", err))
 		return
@@ -186,7 +203,7 @@ func (s *Session) start(ctx context.Context) {
 	}
 
 	windowID := ""
-	if !d.virtual {
+	if !d.virtual && bridge == nil {
 		wctx, wcancel := context.WithTimeout(ctx, 20*time.Second)
 		windowID, err = findWindow(wctx, d.name, g.proc.Pid())
 		wcancel()
@@ -200,7 +217,7 @@ func (s *Session) start(ctx context.Context) {
 		monitor = sink.monitor()
 	}
 	s.mu.Lock()
-	s.cap = &capture{cfg: s.cfg, logDir: s.logDir, display: d.name, windowID: windowID, monitor: monitor}
+	s.cap = &capture{cfg: s.cfg, logDir: s.logDir, display: d.name, windowID: windowID, monitor: monitor, bridge: bridge}
 	hasPeer := s.peer != nil
 	s.mu.Unlock()
 
@@ -381,7 +398,7 @@ func (s *Session) teardown() {
 	if s.grace != nil {
 		s.grace.Stop()
 	}
-	peer, cap, g, sink, d := s.peer, s.cap, s.game, s.sink, s.display
+	peer, cap, g, sink, d, bridge := s.peer, s.cap, s.game, s.sink, s.display, s.bridge
 	s.peer = nil
 	s.mu.Unlock()
 
@@ -391,6 +408,7 @@ func (s *Session) teardown() {
 	if cap != nil {
 		cap.halt()
 	}
+	bridge.stop()
 	g.stop()
 	sink.stop()
 	d.stop()

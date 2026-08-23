@@ -81,7 +81,7 @@ Every flag has an `LOB_*` environment twin (`lobcloud -h`). The ones that matter
 
 | flag | meaning | default |
 |---|---|---|
-| `--display-mode` | `existing` (your `$DISPLAY`), `xvfb` (one Xvfb per session, Mesa), `xorg` (one headless Xorg per session, NVIDIA) | `existing` |
+| `--display-mode` | `existing` (your `$DISPLAY`), `xvfb` (one Xvfb per session, Mesa), `xorg` (one headless Xorg per session, NVIDIA), `weston` (no X at all: headless Wayland + in-engine frame capture — GPU rendering inside containers, NVIDIA included) | `existing` |
 | `--godot` / `--game-dir` | editor binary + project dir, **or** an exported game binary with an empty `--game-dir` | `godot`, `..` |
 | `--width --height --fps` | stream format; the game window is opened at exactly this size | 1280 720 60 |
 | `--encoder` | `auto` picks nvenc → vaapi → x264 by actually test-encoding a frame | `auto` |
@@ -102,7 +102,8 @@ Every flag has an `LOB_*` environment twin (`lobcloud -h`). The ones that matter
 | **host, NVIDIA** | GPU | NVENC | `--display-mode xorg --xorg-config docker/xorg-nvidia.conf` (set the BusID). Needs the nvidia X driver and an Xorg that may start headless (root, or `needs_root_rights=yes` in Xwrapper). One Xorg per session on the same card is fine. |
 | **host, AMD/Intel** | GPU | VAAPI | `--display-mode xvfb`. Mesa Vulkan has no DRI3 on Xvfb, so the gateway sets `MESA_VK_WSI_DEBUG=sw` and the frame is copied through the CPU once; the render itself is on the GPU. |
 | **host, no GPU** | lavapipe (CPU) | x264 | `--display-mode xvfb`. Works everywhere, slow; drop to 960×540 and 30 fps. |
-| **container** | Mesa (mount `/dev/dri`) or lavapipe | nvenc (`--gpus all`) / vaapi / x264 | `docker compose up`. NVIDIA inside Xvfb does not render (their X11 WSI needs their X driver), so an NVIDIA container is "render on CPU, encode on GPU" — fine for tests, not for 1080p60. |
+| **container** | Mesa (mount `/dev/dri`) or lavapipe | nvenc (`--gpus all`) / vaapi / x264 | `docker compose up`. NVIDIA inside Xvfb does not render (their X11 WSI needs their X driver) — use `weston` mode for NVIDIA in containers. |
+| **container, no X (`weston`)** | any GPU incl. NVIDIA (weston headless `--use-gl` on EGL) | nvenc / vaapi / x264 | The game pushes its own frames to the gateway (CloudFrames autoload + frame bridge), so there is no screen capture and no X anywhere. Verified on a vast.ai unprivileged container with an RTX 4090. |
 
 ### Container
 
@@ -150,6 +151,24 @@ ExecStart=/opt/lob/lobcloud
 Per-session process logs live in `--log-dir` (`godot.log`, `ffmpeg-video.log`,
 `ffmpeg-audio.log`, `xvfb.log`) — the first place to look when a session
 ends in `error`.
+
+## Running on vast.ai (and similar container GPU rentals)
+
+`--display-mode weston` was built for exactly this. Verified recipe (Debian-based image):
+
+```sh
+apt install -y weston pulseaudio pulseaudio-utils libxkbcommon0 libwayland-client0 libdecor-0-0 fontconfig libpulse0
+# ship: bin/lobcloud, web/, and the exported game (scripts/build_game.sh)
+pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit
+LOB_DISPLAY_MODE=weston LOB_GODOT=/workspace/lob_server.x86_64 LOB_GAME_DIR= \
+  LOB_LISTEN=:PORT LOB_PUBLIC_IP=$PUBLIC_IPADDR bin/lobcloud
+```
+
+Hard-won specifics:
+* Rendering works on the GPU (RTX 4090 confirmed) — weston's `--use-gl` is mandatory for NVIDIA, or its Vulkan reports "no present queue".
+* Debian 12's ffmpeg is too old for driver 580+ NVENC; some hosts block the video engines outright (NVENC/NVDEC fail while CUDA and Vulkan work) — `--encoder auto` then falls back to x264, which the big CPU allocations handle easily.
+* Media needs UDP: request **UDP port mappings at instance creation** (`$VAST_UDP_PORT_x` are 1:1 — set `LOB_UDP_MIN/MAX` to that value) or point `--ice` at a TURN server. `--ice-tcp <1:1-port>` offers WebRTC-over-TCP as a last resort for UDP-hostile networks.
+* Check the ping first: a GPU on the wrong continent (180 ms RTT) is unplayable no matter what the pipeline does.
 
 ## Latency notes
 

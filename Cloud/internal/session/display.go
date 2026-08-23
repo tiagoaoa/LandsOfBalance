@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -12,13 +13,16 @@ import (
 	"github.com/talves/lands-of-balance/cloud/internal/config"
 )
 
-// display is the X server a game instance renders into.
+// display is the display server a game instance renders into: an X server,
+// or in weston mode a headless Wayland compositor.
 type display struct {
-	mode    config.DisplayMode
-	name    string // ":101" or the inherited $DISPLAY
-	num     int
-	virtual bool
-	proc    *proc
+	mode       config.DisplayMode
+	name       string // ":101", the inherited $DISPLAY, or the wayland socket
+	num        int
+	virtual    bool
+	wayland    bool
+	runtimeDir string // XDG_RUNTIME_DIR owning the wayland socket
+	proc       *proc
 }
 
 // startDisplay brings up the X display for a session. In `existing` mode it
@@ -37,6 +41,29 @@ func startDisplay(ctx context.Context, cfg *config.Config, num int, logDir strin
 			"+extension", "GLX", "+extension", "RANDR", "+render",
 			"-nolisten", "tcp", "-noreset", "-ac", "-dpi", "96"}
 		p, err := startProc("xvfb", logDir, os.Environ(), argv...)
+		if err != nil {
+			return nil, err
+		}
+		d.proc = p
+	case config.DisplayWeston:
+		d.wayland = true
+		d.virtual = true
+		d.name = fmt.Sprintf("lob-wl-%d", num)
+		d.runtimeDir = filepath.Join(logDir, "xdg")
+		if err := os.MkdirAll(d.runtimeDir, 0o700); err != nil {
+			return nil, err
+		}
+		env := append(os.Environ(), "XDG_RUNTIME_DIR="+d.runtimeDir)
+		argv := []string{"weston",
+			"--backend=headless-backend.so",
+			"--width=" + strconv.Itoa(cfg.Width), "--height=" + strconv.Itoa(cfg.Height),
+			"--socket=" + d.name, "--idle-time=0"}
+		if cfg.WestonGL {
+			// The GL renderer makes weston advertise linux-dmabuf, which is
+			// what NVIDIA's Vulkan needs before it will present on Wayland.
+			argv = append(argv, "--use-gl")
+		}
+		p, err := startProc("weston", logDir, env, argv...)
 		if err != nil {
 			return nil, err
 		}
@@ -64,8 +91,26 @@ func startDisplay(ctx context.Context, cfg *config.Config, num int, logDir strin
 	return d, nil
 }
 
-// waitReady polls the X socket until the server accepts connections.
+// waitReady polls until the display server accepts connections.
 func (d *display) waitReady(ctx context.Context) error {
+	if d.wayland {
+		deadline := time.Now().Add(15 * time.Second)
+		sock := filepath.Join(d.runtimeDir, d.name)
+		for time.Now().Before(deadline) {
+			if ex, err := d.proc.Exited(); ex {
+				return fmt.Errorf("weston died: %v", err)
+			}
+			if _, err := os.Stat(sock); err == nil {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		return fmt.Errorf("weston socket %s not ready after 15s", sock)
+	}
 	sock := fmt.Sprintf("/tmp/.X11-unix/X%d", d.num)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {

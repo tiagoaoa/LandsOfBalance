@@ -29,6 +29,11 @@ const (
 	// (the NVIDIA headless setup). Needs the nvidia X driver and usually
 	// root or a suid Xorg.
 	DisplayXorg DisplayMode = "xorg"
+	// DisplayWeston starts one weston headless compositor per session: no X
+	// at all. The game renders on the GPU (NVIDIA included, via EGL) and
+	// pushes frames to the gateway itself (CloudFrames autoload), so screen
+	// capture disappears too. The mode of choice inside containers.
+	DisplayWeston DisplayMode = "weston"
 )
 
 // Config is the full gateway configuration.
@@ -49,6 +54,7 @@ type Config struct {
 
 	// Display.
 	DisplayMode DisplayMode
+	WestonGL    bool
 	XorgConfig  string
 	BaseDisplay int
 	Width       int
@@ -73,6 +79,7 @@ type Config struct {
 	PublicIP   string
 	UDPPortMin int
 	UDPPortMax int
+	ICETCPPort int
 	ICEServers []string // stun:host:port | turn:user:pass@host:port[?transport=tcp]
 }
 
@@ -145,8 +152,9 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&c.RunGameServer, "game-server", envBool("LOB_GAME_SERVER", false), "also start the C multiplayer game_server so sessions share a world")
 	fs.StringVar(&c.GameServerBin, "game-server-bin", envOr("LOB_GAME_SERVER_BIN", ""), "path to server/game_server (default <game-dir>/server/game_server)")
 
-	fs.StringVar((*string)(&c.DisplayMode), "display-mode", envOr("LOB_DISPLAY_MODE", string(DisplayExisting)), "existing | xvfb | xorg")
+	fs.StringVar((*string)(&c.DisplayMode), "display-mode", envOr("LOB_DISPLAY_MODE", string(DisplayExisting)), "existing | xvfb | xorg | weston")
 	fs.StringVar(&c.XorgConfig, "xorg-config", envOr("LOB_XORG_CONFIG", ""), "xorg.conf for --display-mode xorg")
+	fs.BoolVar(&c.WestonGL, "weston-gl", envBool("LOB_WESTON_GL", true), "run weston with the GL renderer (needed for NVIDIA; Mesa works either way)")
 	fs.IntVar(&c.BaseDisplay, "base-display", envInt("LOB_BASE_DISPLAY", 100), "first X display number for virtual displays")
 	fs.IntVar(&c.Width, "width", envInt("LOB_WIDTH", 1280), "stream width")
 	fs.IntVar(&c.Height, "height", envInt("LOB_HEIGHT", 720), "stream height")
@@ -167,6 +175,7 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&c.PublicIP, "public-ip", envOr("LOB_PUBLIC_IP", ""), "public IP to advertise in ICE candidates (behind 1:1 NAT)")
 	fs.IntVar(&c.UDPPortMin, "udp-min", envInt("LOB_UDP_MIN", 0), "lowest UDP port for WebRTC media (0 = ephemeral)")
 	fs.IntVar(&c.UDPPortMax, "udp-max", envInt("LOB_UDP_MAX", 0), "highest UDP port for WebRTC media")
+	fs.IntVar(&c.ICETCPPort, "ice-tcp", envInt("LOB_ICE_TCP", 0), "also offer WebRTC over TCP on this port (NATs that block UDP; needs --public-ip)")
 	fs.StringVar(&ice, "ice", envOr("LOB_ICE", "stun:stun.l.google.com:19302"), "comma separated ICE servers: stun:host:port, turn:user:pass@host:port")
 
 	if err := fs.Parse(args); err != nil {
@@ -175,7 +184,10 @@ func Parse(args []string) (*Config, error) {
 
 	if gameArgs != "" {
 		c.GameArgs = strings.Fields(gameArgs)
-	} else if !c.RunGameServer {
+	} else {
+		// Boot offline even when the shared game_server is running: the
+		// in-game menu owns the choice now (AI co-op vs multiplayer) and
+		// connects on Play. Auto-connecting at boot would preempt it.
 		c.GameArgs = []string{"--singleplayer"}
 	}
 	if gameEnv != "" {
@@ -197,7 +209,7 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	switch c.DisplayMode {
-	case DisplayExisting, DisplayXvfb, DisplayXorg:
+	case DisplayExisting, DisplayXvfb, DisplayXorg, DisplayWeston:
 	default:
 		return nil, fmt.Errorf("bad --display-mode %q", c.DisplayMode)
 	}

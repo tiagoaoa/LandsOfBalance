@@ -112,13 +112,14 @@ export class InputCapture {
 
   requestLock() {
     if (this.locked || !this.active) return;
-    const el = this.video;
-    try {
-      const p = el.requestPointerLock({ unadjustedMovement: true });
-      if (p && p.catch) p.catch(() => el.requestPointerLock());
-    } catch (_) {
-      el.requestPointerLock();
-    }
+    // Plain request only. Asking for unadjustedMovement (raw input) rejects
+    // on plenty of real setups (Linux Chromium among them, Firefox always),
+    // and once the first call has consumed the user activation no retry in
+    // a .catch can ever succeed — the classic "clicking does nothing" bug,
+    // reproduced here with a real headed browser. OS mouse acceleration is
+    // a price worth paying for capture that actually engages; the HUD's
+    // sensitivity slider covers the rest.
+    try { this.video.requestPointerLock(); } catch (_) {}
   }
 
   // Map a client position onto stream pixels, honouring object-fit: contain.

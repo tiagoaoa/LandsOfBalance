@@ -28,28 +28,43 @@ type proc struct {
 }
 
 func startProc(name, logDir string, env []string, argv ...string) (*proc, error) {
+	p, _, err := startProcStdin(name, logDir, env, false, argv...)
+	return p, err
+}
+
+// startProcStdin also opens a pipe to the child's stdin when asked — the
+// pipe-capture ffmpeg eats raw frames through it.
+func startProcStdin(name, logDir string, env []string, stdin bool, argv ...string) (*proc, io.WriteCloser, error) {
 	if len(argv) == 0 {
-		return nil, fmt.Errorf("%s: empty command", name)
+		return nil, nil, fmt.Errorf("%s: empty command", name)
 	}
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	lf, err := os.OpenFile(filepath.Join(logDir, name+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = env
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	cmd.Stdin = nil
+	var in io.WriteCloser
+	if stdin {
+		if in, err = cmd.StdinPipe(); err != nil {
+			lf.Close()
+			return nil, nil, err
+		}
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	fmt.Fprintf(lf, "\n==== %s: %v\n", time.Now().Format(time.RFC3339), argv)
 	if err := cmd.Start(); err != nil {
 		lf.Close()
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
 	p := &proc{name: name, cmd: cmd, log: lf, done: make(chan struct{})}
+	_ = in
 	go func() {
 		err := cmd.Wait()
 		p.mu.Lock()
@@ -60,7 +75,7 @@ func startProc(name, logDir string, env []string, argv ...string) (*proc, error)
 		lf.Close()
 		close(p.done)
 	}()
-	return p, nil
+	return p, in, nil
 }
 
 // Done is closed when the process has exited.

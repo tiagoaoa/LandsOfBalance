@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/ice/v4"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 
@@ -21,6 +22,26 @@ const (
 	h264Fmtp = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
 	opusFmtp = "minptime=10;useinbandfec=1"
 )
+
+var (
+	tcpMuxOnce sync.Once
+	tcpMux     ice.TCPMux
+	tcpMuxErr  error
+)
+
+// tcpMuxFor lazily opens the single shared ICE-TCP listener.
+func tcpMuxFor(port int) (ice.TCPMux, error) {
+	tcpMuxOnce.Do(func() {
+		ln, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
+		if err != nil {
+			tcpMuxErr = err
+			return
+		}
+		log.Printf("ICE-TCP listening on %s", ln.Addr())
+		tcpMux = webrtc.NewICETCPMux(nil, ln, 8)
+	})
+	return tcpMux, tcpMuxErr
+}
 
 // Callbacks are the hooks the session plugs into a peer.
 type Callbacks struct {
@@ -113,6 +134,19 @@ func NewPeer(cfg *config.Config, cb Callbacks) (*Peer, error) {
 		if err := se.SetEphemeralUDPPortRange(uint16(cfg.UDPPortMin), uint16(cfg.UDPPortMax)); err != nil {
 			return nil, err
 		}
+	}
+	if cfg.ICETCPPort > 0 {
+		// One shared passive-TCP mux for every peer: browsers fall back to
+		// ICE-TCP where the host's UDP is unreachable (vast.ai without UDP
+		// mappings, corporate NAT). Worse for latency than UDP, but a
+		// stream that arrives beats a stream that does not.
+		mux, err := tcpMuxFor(cfg.ICETCPPort)
+		if err != nil {
+			return nil, err
+		}
+		se.SetICETCPMux(mux)
+		se.SetNetworkTypes([]webrtc.NetworkType{
+			webrtc.NetworkTypeUDP4, webrtc.NetworkTypeUDP6, webrtc.NetworkTypeTCP4})
 	}
 	se.SetICETimeouts(8*time.Second, 20*time.Second, 2*time.Second)
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(me), webrtc.WithInterceptorRegistry(ir), webrtc.WithSettingEngine(se))

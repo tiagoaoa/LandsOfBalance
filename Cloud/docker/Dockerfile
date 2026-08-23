@@ -22,6 +22,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       xvfb x11-utils x11-xserver-utils xdotool xauth \
+      weston libdecor-0-0 \
       ffmpeg pulseaudio pulseaudio-utils \
       mesa-vulkan-drivers libvulkan1 libgl1 libegl1 libglu1-mesa vulkan-tools \
       libxcursor1 libxinerama1 libxrandr2 libxi6 libxkbcommon0 libxext6 libxrender1 libx11-6 \

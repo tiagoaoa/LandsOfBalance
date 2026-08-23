@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +36,7 @@ func freeTCPPort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func startGame(cfg *config.Config, d *display, sink *audioSink, logDir string) (*game, error) {
+func startGame(cfg *config.Config, d *display, sink *audioSink, framePort int, logDir string) (*game, error) {
 	port, err := freeTCPPort()
 	if err != nil {
 		return nil, err
@@ -47,25 +49,43 @@ func startGame(cfg *config.Config, d *display, sink *audioSink, logDir string) (
 		"--resolution", fmt.Sprintf("%dx%d", cfg.Width, cfg.Height),
 		"--position", "0,0",
 		"--single-window")
-	if d.virtual {
+	if d.wayland {
+		argv = append(argv, "--display-driver", "wayland")
+	} else if d.virtual {
 		// No window manager on a virtual display: nothing to decorate and
 		// nothing to steal focus. Always-on-top is harmless there.
 		argv = append(argv, "--always-on-top")
 	}
 	argv = append(argv, cfg.GameArgs...)
 
-	env := append([]string{}, os.Environ()...)
+	// In wayland mode a lingering DISPLAY would tempt Godot toward X11.
+	// XDG_RUNTIME_DIR is left alone — PulseAudio's socket lives there —
+	// and the compositor is addressed by absolute socket path instead.
+	env := make([]string, 0, len(os.Environ())+8)
+	for _, kv := range os.Environ() {
+		if d.wayland && (strings.HasPrefix(kv, "DISPLAY=") || strings.HasPrefix(kv, "WAYLAND_DISPLAY=")) {
+			continue
+		}
+		env = append(env, kv)
+	}
 	env = append(env,
-		"DISPLAY="+d.name,
 		"LOB_CLOUD_INPUT_PORT="+strconv.Itoa(port),
 		"LOB_CLOUD=1",
 		// The MCP runtime autoload binds a fixed port; two sessions would clash.
 		"GODOT_MCP_RUNTIME_ENABLED=0",
 	)
+	if d.wayland {
+		env = append(env, "WAYLAND_DISPLAY="+filepath.Join(d.runtimeDir, d.name))
+	} else {
+		env = append(env, "DISPLAY="+d.name)
+	}
+	if framePort > 0 {
+		env = append(env, "LOB_CLOUD_FRAMES_PORT="+strconv.Itoa(framePort))
+	}
 	if sink != nil {
 		env = append(env, "PULSE_SINK="+sink.name)
 	}
-	if d.virtual {
+	if d.virtual && !d.wayland {
 		// Mesa Vulkan drivers need DRI3 to present on X; Xvfb has none.
 		// The software WSI path copies the frame through the CPU instead,
 		// which is exactly what a capture pipeline wants anyway.
