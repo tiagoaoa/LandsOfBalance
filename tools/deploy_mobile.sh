@@ -15,7 +15,12 @@
 #     a kill is reported as such instead of as a mystery failure.
 #   * node_modules under lands-of-balance-*/ used to be packed into the game.
 #     They carry .gdignore now; the size check below is what would catch a
-#     regression of that (it was 495 MB, now ~355 MB).
+#     regression of that (it was 495 MB, now ~355-390 MB).
+#   * adb can only open the phone if the USB device node is writable by us.
+#     Without an Android udev rule it is root:root 664 and adb lists NOTHING,
+#     not even "unauthorized" — it looks exactly like no phone. On this Void
+#     box the fix is the android-udev-rules package (or a one-line rule);
+#     the diagnosis below tells them apart.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -62,8 +67,38 @@ wait_for_device() {
         fi
         sleep 2
     done
-    echo "No device. Plug the phone in, unlock it, and allow USB debugging." >&2
+    diagnose_usb >&2
     return 1
+}
+
+# adb sees nothing: is it really unplugged, or plugged in behind a device
+# node we cannot open? Walk sysfs for an ADB interface (class ff/42/01).
+diagnose_usb() {
+    local iface dev node
+    for iface in /sys/bus/usb/devices/*:*; do
+        [ "$(cat "$iface/bInterfaceClass" 2>/dev/null)" = ff ] || continue
+        [ "$(cat "$iface/bInterfaceSubClass" 2>/dev/null)" = 42 ] || continue
+        [ "$(cat "$iface/bInterfaceProtocol" 2>/dev/null)" = 01 ] || continue
+        dev="${iface%:*}"
+        node=$(printf '/dev/bus/usb/%03d/%03d' "$(cat "$dev/busnum")" "$(cat "$dev/devnum")")
+        echo "A phone IS plugged in: $(cat "$dev/manufacturer" 2>/dev/null) $(cat "$dev/product" 2>/dev/null) at $node"
+        if [ ! -w "$node" ]; then
+            echo "...but $node is $(stat -c '%U:%G %a' "$node") and not writable by $(id -un),"
+            echo "so adb silently skips it. Give yourself access with a udev rule (needs root):"
+            echo
+            echo "    sudo xbps-install -y android-udev-rules && sudo groupadd -f adbusers && sudo usermod -aG adbusers $(id -un)"
+            echo "    # or, without the package:"
+            echo "    echo 'SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$(cat "$dev/idVendor")\", MODE=\"0666\"' | sudo tee /etc/udev/rules.d/51-android.rules"
+            echo "    sudo udevadm control --reload && sudo udevadm trigger"
+            echo
+            echo "Then unplug/replug the phone (log out and in again if you joined a group)."
+        else
+            echo "The node is writable; the phone is probably locked or has not authorized"
+            echo "this computer. Unlock it and accept the USB debugging prompt."
+        fi
+        return 0
+    done
+    echo "No device. Plug the phone in, unlock it, and allow USB debugging."
 }
 
 if [ "$DO_EXPORT" = 1 ]; then
@@ -87,6 +122,12 @@ fi
 
 [ -f "$APK" ] || { echo "No APK at $APK — run without --install first." >&2; exit 1; }
 say "APK: $(du -h "$APK" | cut -f1)  ($(date -r "$APK" '+%H:%M:%S'))"
+APK_MB=$(( $(stat -c %s "$APK") / 1048576 ))
+if [ "$APK_MB" -gt 450 ]; then
+    echo "WARNING: ${APK_MB} MB is far above the usual ~355-390 MB. Something big got"
+    echo "         packed in — check for a missing .gdignore (node_modules?):"
+    echo "         unzip -l $APK | sort -k1 -n -r | head"
+fi
 
 wait_for_device || exit 1
 
