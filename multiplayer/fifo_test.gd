@@ -197,8 +197,8 @@ func _update_status(text: String) -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
-			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		if CloudInput.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)

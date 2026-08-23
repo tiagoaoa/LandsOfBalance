@@ -101,6 +101,8 @@ const UNARMED_ANIM_PATHS: Dictionary = {
 	# Unarmed shipped no evasion clip at all — the roll moved the body and
 	# played whatever it was already playing. Same tumble as armed.
 	"roll": "res://player/character/armed/Roll.fbx",
+	# Crouch stance, shared with armed — same mixamorig retarget as above.
+	"crouch": "res://player/character/armed/Crouch.fbx",
 }
 
 # Armed animations (Paladin with sword & shield)
@@ -146,6 +148,10 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	"run_back": "res://player/character/archer/standing run back.fbx",
 	"turn_left": "res://player/character/unarmed/TurnLeft.fbx",
 	"turn_right": "res://player/character/unarmed/TurnRight.fbx",
+	# Crouch used to be a Y-scale squash on the whole model; this is the
+	# real stance — Mixamo "sword and shield crouch", a stand-to-crouch
+	# transition whose last frame is the held pose.
+	"crouch": "res://player/character/armed/Crouch.fbx",
 }
 
 # Archer animations
@@ -165,6 +171,7 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 	"dodge_r": "res://player/character/archer/standing dodge right.fbx",
 	# Lock-on strafes. These shipped in the pack but were never wired, so
 	# strafing sideways played the FORWARD walk and the archer skated.
+	"crouch": "res://player/character/archer/standing to crouch.fbx",
 	"strafe_left": "res://player/character/archer/standing walk left.fbx",
 	"strafe_right": "res://player/character/archer/standing walk right.fbx",
 	"run_strafe_left": "res://player/character/archer/standing run left.fbx",
@@ -189,6 +196,11 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 var camera_rotation := Vector2.ZERO  # x = yaw, y = pitch
 var _character_model: Node3D  # Container for both characters
 var _spread_skeleton: Skeleton3D = null
+## Crouch foot grounding (see _apply_crouch_grounding).
+var _ground_skeleton: Skeleton3D = null
+var _ground_feet: Array[int] = []
+var _model_base_y: float = 0.0    #_character_model's authored rest height
+var _crouch_sink: float = 0.0     #current model drop, smoothed
 var _spread_left: int = -1
 var _spread_right: int = -1
 var _unarmed_character: Node3D
@@ -301,9 +313,8 @@ var _sword_smear: SlashTrail = null
 ## Smear off the torso while the body is folding away from a blow — the same
 ## displaced-air read as a swing, applied to the recoil.
 var _react_smear: SlashTrail = null
-## Impact squash, kept as its own factor because the crouch writes
-## _character_model.scale every frame and would overwrite a direct tween.
-var _crouch_scale_y: float = 1.0
+## Impact squash from hits. Written to _character_model.scale every frame,
+## so hit feedback goes through this instead of tweening the scale directly.
 var _hit_squash: Vector3 = Vector3.ONE
 var _squash_tween: Tween
 
@@ -353,6 +364,10 @@ const ROLL_STAMINA_COST: float = 22.0
 ## starts around 0.40 s and the body is coming back upright by 1.60 s
 ## (tools/measure_clip.gd). Everything outside that is a preamble the game
 ## does not want — the dodge has to be instant.
+## Fraction of each stand-to-crouch clip kept: park on a readable half
+## crouch (hips at ~75% of standing height, from tools/measure_clip.gd),
+## not on the face-in-the-knees full tuck the clips end with.
+const CROUCH_CLIP_END := {"archer": 0.48, "armed": 0.44, "unarmed": 0.44}
 const ROLL_CLIP_FROM: float = 0.40
 const ROLL_CLIP_TO: float = 1.60
 
@@ -552,7 +567,7 @@ func _ready() -> void:
 	add_to_group("characters")  # every AI perceives via this group
 	if not is_ai_companion:
 		_parse_fifo_args()  # Check for --fifo and --player-id command line args
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	# Souls camera: the spring arm must never collide with our own capsule,
 	# and the default view sits slightly above the shoulder looking down.
 	if _spring_arm != null:
@@ -2079,6 +2094,7 @@ func _get_unarmed_config() -> Dictionary:
 		"run": ["Run", true],
 		"strafe_left": ["StrafeLeft", true],
 		"strafe_right": ["StrafeRight", true],
+		"crouch": ["Crouch", false],
 		"jump": ["Jump", false],
 		"turn_left": ["TurnLeft", false],
 		"turn_right": ["TurnRight", false],
@@ -2102,6 +2118,7 @@ func _get_armed_config() -> Dictionary:
 		"run": ["Run", true],
 		"strafe_left": ["StrafeLeft", true],
 		"strafe_right": ["StrafeRight", true],
+		"crouch": ["Crouch", false],
 		"jump": ["Jump", false],
 		"attack1": ["Attack1", false],
 		"attack2": ["Attack2", false],
@@ -2129,6 +2146,7 @@ func _get_archer_config() -> Dictionary:
 		"idle": ["Idle", true],
 		"walk": ["Walk", true],
 		"run": ["Run", true],
+		"crouch": ["Crouch", false],
 		"jump": ["Jump", false],
 		"attack": ["Attack", false],
 		"block": ["Block", true],
@@ -2263,6 +2281,14 @@ func _load_animations_for_character(anim_player: AnimationPlayer, paths: Diction
 
 			# Retarget animation
 			_retarget_animation(new_anim, skel_path, skeleton, anim_key == "roll")
+			if anim_key == "crouch":
+				# The tail of the stand-to-crouch clips is a maximal tuck —
+				# body folded flat, face in the knees. Park on the readable
+				# half-crouch partway in instead; the grounding pass
+				# (_apply_crouch_grounding) keeps whatever frame we park on
+				# standing on its feet.
+				new_anim = ClipTrim.sub(new_anim, 0.0,
+						new_anim.length * CROUCH_CLIP_END[library_prefix])
 			if anim_key == "roll":
 				new_anim = ClipTrim.sub(new_anim, ROLL_CLIP_FROM, ROLL_CLIP_TO)
 				new_anim.loop_mode = Animation.LOOP_NONE
@@ -2535,6 +2561,64 @@ func _abduct(skeleton: Skeleton3D, bone: int, degrees: float) -> void:
 	skeleton.set_bone_pose_rotation(bone, offset * skeleton.get_bone_pose_rotation(bone))
 
 
+## CROUCH GROUNDING. The retarget strips every clip's hip-position track so
+## locomotion cannot bounce the body — which leaves a crouch pose hanging in
+## the air: hips pinned at standing height, legs folded up under them.
+## Re-adding the authored hip drop looked wrong (the track is in the source
+## rig's scale and proportions), so instead the pose itself is measured: after
+## the mixer has posed the skeleton, take the lowest foot bone, compare it with
+## where that bone sits in the rest pose, and sink the whole model by the
+## difference. Feet end up exactly where they stand when idle, on any rig,
+## for any crouch clip. Sink only — a clip may never hoist the body.
+func _apply_crouch_grounding(delta: float) -> void:
+	if _character_model == null:
+		return
+	# _character_model holds ALL the rigs (two hidden). A hidden rig never
+	# animates, its bones sit at rest and measure a drop of exactly zero —
+	# so resolve the skeleton from the character that is actually driving.
+	var active: Node3D = _archer_character
+	if character_class == CharacterClass.PALADIN:
+		active = _armed_character if combat_mode == CombatMode.ARMED else _unarmed_character
+	if active == null:
+		return
+	var skeleton := _ground_skeleton
+	if skeleton == null or not is_instance_valid(skeleton) \
+			or not skeleton.is_inside_tree() \
+			or not active.is_ancestor_of(skeleton):
+		skeleton = _find_skeleton_in(active)
+		if skeleton == null:
+			return
+		_ground_skeleton = skeleton
+		_ground_feet.clear()
+		for bone_name in ["mixamorig_LeftToeBase", "mixamorig_RightToeBase",
+				"mixamorig_LeftFoot", "mixamorig_RightFoot"]:
+			var b := skeleton.find_bone(bone_name)
+			if b != -1:
+				_ground_feet.append(b)
+		_model_base_y = _character_model.position.y - _crouch_sink
+
+	var want := 0.0
+	if is_crouching and is_on_floor() and not _ground_feet.is_empty():
+		# Model space, so the measurement is blind to the sink already applied.
+		# Compare the LOWEST posed point against the LOWEST rest point — the
+		# supporting foot against where soles sit when standing. A per-bone
+		# difference would let the tucked-under back foot of a kneel (toes up
+		# behind the body) drive the sink and bury the front foot.
+		var to_model := _character_model.global_transform.affine_inverse() \
+				* skeleton.global_transform
+		var posed_low := INF
+		var rest_low := INF
+		for b in _ground_feet:
+			posed_low = minf(posed_low, (to_model * skeleton.get_bone_global_pose(b).origin).y)
+			rest_low = minf(rest_low, (to_model * skeleton.get_bone_global_rest(b).origin).y)
+		if posed_low != INF:
+			want = clampf(rest_low - posed_low, -1.0, 0.0)
+	_crouch_sink = lerpf(_crouch_sink, want, minf(12.0 * delta, 1.0))
+	if absf(want - _crouch_sink) < 0.001:
+		_crouch_sink = want
+	_character_model.position.y = _model_base_y + _crouch_sink
+
+
 func _find_skeleton_in(node: Node) -> Skeleton3D:
 	if node == null:
 		return null
@@ -2753,6 +2837,14 @@ func _update_animation(input_dir: Vector2) -> void:
 	elif is_blocking:
 		desired_anim = _block_stance_anim(prefix, input_dir)
 
+	# Crouching. The clip is a stand-to-crouch transition (LOOP_NONE):
+	# _play_anim fires it once, refuses to re-fire a finished one-shot,
+	# and the body parks on the last frame — the crouched pose — until
+	# Ctrl comes up. Movement while crouched keeps the braced pose; the
+	# half-speed shuffle reads fine and beats swapping to a full stride.
+	elif is_crouching:
+		desired_anim = _first_anim(prefix, ["Crouch", "Idle"])
+
 	# Strafe. Run-strafes first when the rig has them, so circling an enemy
 	# at speed does not play a walk cycle at a run.
 	elif abs(input_dir.x) > 0.5 and abs(input_dir.y) < 0.3:
@@ -2807,6 +2899,7 @@ func _toggle_combat_mode() -> void:
 	if is_sheathing:
 		return
 	_spread_skeleton = null   # armed and unarmed are different rigs
+	_ground_skeleton = null
 
 	# Archer class doesn't have unarmed/armed modes
 	if character_class == CharacterClass.ARCHER:
@@ -2847,6 +2940,7 @@ func _switch_character_class(new_class: CharacterClass) -> void:
 	if character_class == new_class:
 		return
 	_spread_skeleton = null   # different rig — the cached arm bones are stale
+	_ground_skeleton = null
 
 	# Hide all characters first
 	if _unarmed_character:
@@ -4848,7 +4942,7 @@ func _input(event: InputEvent) -> void:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 		else:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	# Quit with Q key
 	if event is InputEventKey and event.pressed and event.keycode == KEY_Q:
@@ -4856,12 +4950,12 @@ func _input(event: InputEvent) -> void:
 
 	# Release mouse with Escape
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 	# Double-click to recapture mouse
 	if event is InputEventMouseButton and event.pressed and event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
-		if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
-			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		if CloudInput.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	# A brain is driving this body — the only human keys left are the window
 	# ones handled above. The view lives in spectate_cam.gd and takes the
@@ -4911,7 +5005,7 @@ func _input(event: InputEvent) -> void:
 		elif event.is_action_released(&"attack"):
 			_release_bow()
 		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-			if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			if CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 				if event.pressed:
 					_start_bow_draw()
 				else:
@@ -4926,7 +5020,7 @@ func _input(event: InputEvent) -> void:
 		if event.is_action_pressed(&"attack"):
 			_do_attack()
 		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			if CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 				_do_attack()
 		elif event is InputEventKey and event.pressed and event.keycode == KEY_F:
 			_do_attack()
@@ -4950,7 +5044,7 @@ func _input(event: InputEvent) -> void:
 
 	# Mouse look (also works on mobile via touch look emitting mouse motion)
 	var is_mobile: bool = OS.get_name() in ["Android", "iOS"]
-	if event is InputEventMouseMotion and (is_mobile or Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
+	if event is InputEventMouseMotion and (is_mobile or CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
 		camera_rotation.x -= event.relative.x * MOUSE_SENSITIVITY
 		camera_rotation.y -= event.relative.y * MOUSE_SENSITIVITY
 		camera_rotation.y = clamp(camera_rotation.y, deg_to_rad(-CAMERA_VERTICAL_LIMIT), deg_to_rad(CAMERA_VERTICAL_LIMIT))
@@ -4964,6 +5058,7 @@ func _input(event: InputEvent) -> void:
 ## _physics_process it would simply be overwritten.
 func _process(_delta: float) -> void:
 	_apply_arm_spread()
+	_apply_crouch_grounding(_delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -5038,10 +5133,7 @@ func _physics_process(delta: float) -> void:
 	is_crouching = _ai_crouch if ai_driven \
 			else (Input.is_action_pressed(&"crouch") and not _crouch_locked_out)
 	if _character_model:
-		var want_squash: float = 0.74 if is_crouching else 1.0
-		_crouch_scale_y = lerpf(_crouch_scale_y, want_squash, 12.0 * delta)
-		_character_model.scale = Vector3(
-				_hit_squash.x, _crouch_scale_y * _hit_squash.y, _hit_squash.z)
+		_character_model.scale = _hit_squash
 	_update_revive(delta)
 	# The loose burst borrows the body only briefly — then locomotion gets
 	# it back even though the (long) source clip keeps running underneath.
@@ -5166,7 +5258,7 @@ func _physics_process(delta: float) -> void:
 	# the headless display server can't capture at all (set_mouse_mode is a
 	# no-op there), which would permanently veto sprint in automated
 	# scenarios. Treat headless as "captured".
-	var mouse_owned := Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED \
+	var mouse_owned := CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED \
 			or DisplayServer.get_name() == "headless"
 	var keyboard_run := _ai_run if ai_driven \
 			else (Input.is_action_pressed(&"run") if mouse_owned else false)

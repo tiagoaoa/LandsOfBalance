@@ -810,7 +810,7 @@ func _drive_move(_delta: float) -> void:
 		start_pos.y = _player.global_position.y
 		_player.global_position = start_pos
 		# keyboard_run in the player only counts when the mouse is captured.
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		# Light the rig like the promo shots — silhouettes hide broken limbs.
 		_add_key_light()
 		var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
@@ -1851,7 +1851,7 @@ func _drive_palsim(_delta: float) -> void:
 		_player.global_position = start
 		_player.velocity = Vector3.ZERO
 		_player._spawn_immunity_timer = 120.0
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		var bobba := _find_in_group("bobba")
 		if bobba:
 			bobba.global_position = Vector3(200.0, bobba.global_position.y, 200.0)
@@ -2467,7 +2467,7 @@ func _drive_animsim(delta: float) -> void:
 		start.y = (hit.position.y + 0.3) if hit.has("position") else _player.global_position.y
 		_player.global_position = start
 		_player.velocity = Vector3.ZERO
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		_add_key_light()
 		_player._switch_character_class(_player.CharacterClass.PALADIN)
 		Input.action_press(ANIMSIM_DIRS[0], 1.0)
@@ -2726,7 +2726,7 @@ func _drive_blocksim(delta: float) -> void:
 		_player.global_position = start
 		_player.velocity = Vector3.ZERO
 		_player._spawn_immunity_timer = 300.0
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		_add_key_light()
 		_player._switch_character_class(_player.CharacterClass.PALADIN)
 
@@ -3046,7 +3046,7 @@ func _drive_bowsim(_delta: float) -> void:
 		var start := Vector3(120.0, 0.0, -140.0)
 		start.y = _player.global_position.y
 		_player.global_position = start
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		_add_key_light()
 		_player._spawn_immunity_timer = 120.0
 

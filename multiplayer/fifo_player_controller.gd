@@ -140,7 +140,7 @@ func _input(event: InputEvent) -> void:
 		return
 
 	# Mouse look (still handled locally for camera)
-	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		camera_rotation.x -= event.relative.x * MOUSE_SENSITIVITY
 		camera_rotation.y -= event.relative.y * MOUSE_SENSITIVITY
 		camera_rotation.y = clamp(camera_rotation.y, deg_to_rad(-CAMERA_VERTICAL_LIMIT), deg_to_rad(CAMERA_VERTICAL_LIMIT))
@@ -150,7 +150,7 @@ func _input(event: InputEvent) -> void:
 
 	# Attack input
 	if event.is_action_pressed(&"attack") or \
-			(event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
+			(event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
 		is_attacking = true
 
 	# Block
@@ -195,7 +195,7 @@ func _capture_input(delta: float) -> void:
 	input_direction = Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back", 0.15)
 
 	# Run
-	var keyboard_run := Input.is_action_pressed(&"run") if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false
+	var keyboard_run := Input.is_action_pressed(&"run") if CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false
 	is_running = keyboard_run or input_direction.length() > RUN_THRESHOLD
 
 	# Jump

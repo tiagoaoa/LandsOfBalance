@@ -9,27 +9,40 @@ signal character_selected(character_class: int)
 enum CharacterClass { PALADIN, ARCHER }
 
 var _selected_class: CharacterClass = CharacterClass.ARCHER
-# Co-op with an AI companion is the default mode: the class you pick is
-# yours, the other one joins as an AI teammate. Toggle with C.
-var _coop_enabled: bool = true
-var _coop_label: Label
+
+# How the match is crewed: the class you pick is always yours; AI CO-OP
+# gives the other class to an AI teammate, MULTIPLAYER joins the shared
+# server match together with everyone else who picked MULTIPLAYER.
+enum PlayMode { AI_COOP, MULTIPLAYER }
+var _mode: PlayMode = PlayMode.AI_COOP
+var _mode_button: Button
+# Whether NetworkManager already auto-connected at boot (multiplayer-default
+# launches: run_local.sh and friends). Governs connect/disconnect on Play.
+var _connected_at_boot: bool = false
 
 
 func _ready() -> void:
 	# Ensure mouse is visible for menu
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	CloudInput.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 	# Connect button signals
 	$VBoxContainer/ButtonsContainer/ArcherButton.pressed.connect(_on_archer_pressed)
 	$VBoxContainer/ButtonsContainer/PaladinButton.pressed.connect(_on_paladin_pressed)
 	$VBoxContainer/PlayButton.pressed.connect(_on_play_pressed)
 
-	# Co-op toggle line under the class buttons
-	_coop_label = Label.new()
-	_coop_label.name = "CoopLabel"
-	_coop_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	$VBoxContainer.add_child(_coop_label)
-	_update_coop_label()
+	# Mode toggle under the class buttons: a real button, because cloud
+	# players drive this menu with a streamed mouse.
+	_mode_button = Button.new()
+	_mode_button.name = "ModeButton"
+	_mode_button.flat = true
+	_mode_button.pressed.connect(_toggle_mode)
+	$VBoxContainer.add_child(_mode_button)
+	if GameSettings and not GameSettings.singleplayer:
+		# Booted straight into multiplayer (local test scripts): keep that
+		# as the menu default so pressing Play changes nothing.
+		_mode = PlayMode.MULTIPLAYER
+		_connected_at_boot = true
+	_update_mode_button()
 
 	# Default selection
 	_update_selection(CharacterClass.ARCHER)
@@ -42,8 +55,8 @@ func _ready() -> void:
 	# unless a --character-class flag pre-picked for automation.
 	if "combat_scenario" in GameSettings and String(GameSettings.combat_scenario) != "":
 		if String(GameSettings.combat_scenario) == "COOP":
-			_coop_enabled = true
-			_update_coop_label()
+			_mode = PlayMode.AI_COOP
+			_update_mode_button()
 			if GameSettings.class_forced_by_cli:  # --character-class automation
 				_update_selection(GameSettings.selected_character_class as CharacterClass)
 				call_deferred("_on_play_pressed")
@@ -81,10 +94,20 @@ func _update_selection(char_class: CharacterClass) -> void:
 		$VBoxContainer/DescriptionLabel.text = "Paladin - Melee combat with sword and lightning magic"
 
 
-func _update_coop_label() -> void:
-	if _coop_label:
-		_coop_label.text = "[C] Co-op with AI companion: %s" % ("ON" if _coop_enabled else "OFF")
-		_coop_label.modulate = Color(0.9, 0.85, 0.6) if _coop_enabled else Color(0.55, 0.55, 0.55)
+func _toggle_mode() -> void:
+	_mode = PlayMode.MULTIPLAYER if _mode == PlayMode.AI_COOP else PlayMode.AI_COOP
+	_update_mode_button()
+
+
+func _update_mode_button() -> void:
+	if _mode_button == null:
+		return
+	if _mode == PlayMode.MULTIPLAYER:
+		_mode_button.text = "[M] Mode: MULTIPLAYER  (shared online match)"
+		_mode_button.modulate = Color(0.65, 0.85, 1.0)
+	else:
+		_mode_button.text = "[M] Mode: AI CO-OP  (an AI ally plays the other class)"
+		_mode_button.modulate = Color(0.9, 0.85, 0.6)
 
 
 func _on_play_pressed() -> void:
@@ -93,7 +116,19 @@ func _on_play_pressed() -> void:
 	GameSettings.character_selected_from_menu = true
 	# Scenario runs set coop_mode themselves (auto-advance must not stomp it)
 	if String(GameSettings.combat_scenario) == "":
-		GameSettings.coop_mode = _coop_enabled
+		var nm := get_node_or_null("/root/NetworkManager")
+		if _mode == PlayMode.MULTIPLAYER:
+			GameSettings.singleplayer = false
+			GameSettings.coop_mode = false
+			# Booted offline (the cloud default): the connection nobody
+			# made at startup happens now; JoinScreen takes it from there.
+			if nm and not _connected_at_boot:
+				nm.spectate_server()
+		else:
+			GameSettings.singleplayer = true
+			GameSettings.coop_mode = true
+			if nm and _connected_at_boot:
+				nm.disconnect_from_server()
 
 	# Load game scene
 	get_tree().change_scene_to_file("res://game.tscn")
@@ -107,8 +142,7 @@ func _input(event: InputEvent) -> void:
 				_update_selection(CharacterClass.PALADIN)
 			KEY_2:
 				_update_selection(CharacterClass.ARCHER)
-			KEY_C:
-				_coop_enabled = not _coop_enabled
-				_update_coop_label()
+			KEY_M, KEY_C:
+				_toggle_mode()
 			KEY_ENTER, KEY_SPACE:
 				_on_play_pressed()

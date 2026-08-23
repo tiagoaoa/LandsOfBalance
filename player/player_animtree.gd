@@ -141,7 +141,7 @@ var _hit_flash_tween: Tween
 
 
 func _ready() -> void:
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_create_characters()
 	_setup_animation_tree()
 	_create_spell_effects()
@@ -573,7 +573,7 @@ func _input(event: InputEvent) -> void:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 		else:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	# Quit with Q
 	if event is InputEventKey and event.pressed and event.keycode == KEY_Q:
@@ -581,12 +581,12 @@ func _input(event: InputEvent) -> void:
 
 	# Release mouse with Escape
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 	# Double-click to recapture
 	if event is InputEventMouseButton and event.pressed and event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
-		if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
-			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		if CloudInput.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	# Toggle combat mode
 	if event.is_action_pressed(&"toggle_combat") or \
@@ -596,14 +596,14 @@ func _input(event: InputEvent) -> void:
 
 	# Attack input
 	if (event.is_action_pressed(&"attack") or \
-			(event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED) or \
+			(event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED) or \
 			(event is InputEventKey and event.pressed and event.keycode == KEY_F)):
 		if current_state != PlayerState.SPELL_CAST:
 			_handle_attack_input()
 
 	# Block
 	if event.is_action_pressed(&"block") or \
-			(event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
+			(event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED):
 		is_blocking = true
 		current_state = PlayerState.BLOCKING
 	elif event.is_action_released(&"block") or \
@@ -618,7 +618,7 @@ func _input(event: InputEvent) -> void:
 			_start_spell_cast()
 
 	# Mouse look
-	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		camera_rotation.x -= event.relative.x * MOUSE_SENSITIVITY
 		camera_rotation.y -= event.relative.y * MOUSE_SENSITIVITY
 		camera_rotation.y = clamp(camera_rotation.y, deg_to_rad(-CAMERA_VERTICAL_LIMIT), deg_to_rad(CAMERA_VERTICAL_LIMIT))
@@ -752,7 +752,7 @@ func _process_movement(delta: float) -> void:
 	var input_strength := input_dir.length()
 
 	# Determine run state
-	var keyboard_run := Input.is_action_pressed(&"run") if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false
+	var keyboard_run := Input.is_action_pressed(&"run") if CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else false
 	is_running = keyboard_run or input_strength > RUN_THRESHOLD
 
 	var current_max_speed: float = RUN_SPEED if is_running else WALK_SPEED

@@ -50,7 +50,29 @@ var _keys_down := {}        # keycode -> physical keycode
 var _joy_down := {}         # "device:button" -> true
 var _joy_axes := {}         # "device:axis" -> true (non-zero)
 var _last_mouse_mode := -1
+var _mode_hint := -1   #what the game ASKED for, honored or not (see set_mouse_mode)
 var _frames := 0
+
+
+## Game code routes mouse-mode changes through here instead of calling
+## Input.set_mouse_mode directly. On a headless display server (weston: no
+## input devices, no focus) the capture silently fails and
+## Input.get_mouse_mode() keeps answering VISIBLE — but the cloud client
+## needs the INTENT: it holds the real pointer, and it locks it when the
+## game wants it captured. Off-cloud this is a plain passthrough.
+func set_mouse_mode(mode: Input.MouseMode) -> void:
+	_mode_hint = mode
+	Input.set_mouse_mode(mode)
+
+
+## The read-side twin: game code asking "is the mouse captured?" must get
+## the INTENT too — on a headless display server the engine answers VISIBLE
+## forever, which silently vetoes mouse-look, attack gating, everything
+## conditioned on capture.
+func get_mouse_mode() -> Input.MouseMode:
+	if _mode_hint != -1:
+		return _mode_hint as Input.MouseMode
+	return Input.get_mouse_mode()
 
 
 func _ready() -> void:
@@ -99,9 +121,10 @@ func _process(_delta: float) -> void:
 		if res[0] == OK:
 			_buf.append_array(res[1])
 			_drain()
-	var mm := Input.get_mouse_mode()
+	var mm := _mode_hint if _mode_hint != -1 else Input.get_mouse_mode()
 	if mm != _last_mouse_mode:
 		_last_mouse_mode = mm
+		printerr("CloudInput: mouse mode -> %d" % mm)
 		_send(PackedByteArray([FRAME_MOUSE_MODE, mm]))
 
 
@@ -178,6 +201,9 @@ func _handle(t: int, o: int) -> void:
 			ev.button_mask = _button_mask as MouseButtonMask
 			Input.parse_input_event(ev)
 		FRAME_MOUSE_BUTTON:
+			printerr("CloudInput: btn %d %s at (%.0f, %.0f)" % [_buf[o + 2],
+					"down" if _buf[o + 1] != 0 else "up",
+					_buf.decode_float(o + 3), _buf.decode_float(o + 7)])
 			var pressed := _buf[o + 1] != 0
 			var button := _buf[o + 2] as MouseButton
 			_mouse_pos = Vector2(_buf.decode_float(o + 3), _buf.decode_float(o + 7))

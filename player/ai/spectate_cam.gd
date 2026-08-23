@@ -110,7 +110,7 @@ func _body_yaw() -> float:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and CloudInput.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		_manual_yaw = wrapf(_manual_yaw - event.relative.x * MOUSE_SENS, -PI, PI)
 		_manual_pitch = clampf(_manual_pitch - event.relative.y * MOUSE_SENS, PITCH_MIN, PITCH_MAX)
 		_manual_left = MANUAL_HOLD
