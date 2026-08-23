@@ -52,6 +52,7 @@ CombatFX="*res://combat/combat_fx.gd"
 CombatTest="*res://enemies/combat_test.gd"
 Sfx="*res://autoload/sfx.gd"
 DebugRecorder="*res://autoload/debug_recorder.gd"
+CloudInput="*res://autoload/cloud_input.gd"
 
 [audio]
 

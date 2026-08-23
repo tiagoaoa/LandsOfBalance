@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lands of Balance — Cloud</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="lobby">
+  <h1>Lands of Balance <span>cloud</span></h1>
+  <p class="lead">The game runs on the server and streams here. Keyboard, mouse and gamepad are sent back over WebRTC.</p>
+  <p id="capacity" class="muted"></p>
+  <div id="tokenRow" class="row" hidden>
+    <label for="token">Access token</label>
+    <input id="token" type="password" placeholder="shared secret from the gateway">
+  </div>
+  <div class="row">
+    <button id="play" class="primary" disabled>Play</button>
+    <span id="status" class="muted">Contacting gateway…</span>
+  </div>
+  <ul id="sessions"></ul>
+  <details>
+    <summary>How to play</summary>
+    <ul class="help">
+      <li>Click the video to capture the mouse when the game wants it; <kbd>Esc</kbd> gives it back.</li>
+      <li>Plug a gamepad in at any time; it shows up in the game as joypad 0.</li>
+      <li>The game's <kbd>Q</kbd> quits it — that ends the session.</li>
+      <li>If the tab closes, the game waits a while for you to come back (reload with the same link).</li>
+    </ul>
+  </details>
+</main>
+
+<section id="stage" hidden>
+  <video id="video" autoplay playsinline></video>
+  <div id="banner" class="banner" hidden></div>
+  <div id="hint" class="hint" hidden>Click to take the mouse</div>
+  <div id="hud">
+    <button id="hudToggle" title="Toggle HUD">≡</button>
+    <span id="stats" class="stats">connecting…</span>
+    <label class="sens">sens <input id="sens" type="range" min="0.2" max="3" step="0.1" value="1"> <span id="sensVal">1×</span></label>
+    <button id="unlock" hidden>Release mouse</button>
+    <button id="fullscreen">Fullscreen</button>
+    <button id="leave" class="danger">Leave</button>
+  </div>
+</section>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

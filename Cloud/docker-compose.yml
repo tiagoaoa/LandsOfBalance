@@ -1,0 +1,38 @@
+# One cloud gaming node. Build the game first (Cloud/scripts/build_game.sh),
+# then from the repo root:  docker compose -f Cloud/docker-compose.yml up --build
+services:
+  lobcloud:
+    build:
+      context: ..
+      dockerfile: Cloud/docker/Dockerfile
+    image: lobcloud
+    restart: unless-stopped
+    ports:
+      - "8080:8080/tcp"
+      - "50000-50099:50000-50099/udp"   # WebRTC media/data (must match LOB_UDP_MIN/MAX)
+    environment:
+      LOB_TOKEN: ${LOB_TOKEN:-}               # shared secret; empty = anyone can start a game
+      LOB_PUBLIC_IP: ${LOB_PUBLIC_IP:-}       # public IP of this host (behind NAT / cloud VM)
+      LOB_ICE: ${LOB_ICE:-stun:stun.l.google.com:19302}
+      LOB_MAX_SESSIONS: ${LOB_MAX_SESSIONS:-2}
+      LOB_WIDTH: ${LOB_WIDTH:-1280}
+      LOB_HEIGHT: ${LOB_HEIGHT:-720}
+      LOB_FPS: ${LOB_FPS:-60}
+      LOB_BITRATE: ${LOB_BITRATE:-8000}
+      LOB_ENCODER: ${LOB_ENCODER:-auto}
+    shm_size: 1g
+    # AMD / Intel GPU: render + VAAPI encode through the render node.
+    devices:
+      - /dev/dri:/dev/dri
+    # NVIDIA (NVENC encode; rendering stays on Mesa/CPU inside Xvfb):
+    # deploy: { resources: { reservations: { devices: [ { driver: nvidia, count: 1, capabilities: [gpu, video, compute, utility] } ] } } }
+
+  # Relay for players whose NAT blocks direct UDP. Put the public IP in
+  # turnserver.conf and point LOB_ICE at it: turn:lob:secret@HOST:3478
+  coturn:
+    image: coturn/coturn:4.6
+    profiles: ["turn"]
+    network_mode: host
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./docker/turnserver.conf:/etc/coturn/turnserver.conf:ro
