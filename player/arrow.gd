@@ -268,6 +268,12 @@ func _on_body_entered(body: Node) -> void:
 
 	var shot_mult: float = (AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0) * shot_power
 	var is_player: bool = "is_blocking" in body and body.has_method("take_hit")
+	# Did this land in something that can WALK AWAY? A shaft frozen in world
+	# space where a body used to be is left hanging in mid-air the moment that
+	# body moves — so a hit on a character ends the arrow then and there and
+	# the fire rides the victim instead of the spot they were standing on.
+	var hit_body: bool = is_player or body.has_method("take_damage_flat") \
+			or body.has_method("take_arrow_hit")
 	if is_player:
 		# Player hit — honor block state (blocks fully negate arrows).
 		var impulse: Vector3 = linear_velocity.normalized() * 3.0
@@ -301,12 +307,39 @@ func _on_body_entered(body: Node) -> void:
 		if hit_entity_id > 0:
 			network_manager.send_entity_damage(hit_entity_id, flat_damage_for_network, shooter_id)
 
-	# Create ground fire illumination (5m range fireplace light)
+	if hit_body:
+		# The fire goes ON him and burns for its full time while he runs
+		# around wearing it — light the party can see by, and a target the
+		# paladin can find. The arrow itself is done: gone this frame.
+		_create_body_fire(body)
+		queue_free()
+		return
+
+	# Landed in the world: the shaft stays put and lights the ground it hit,
+	# which is the archer's whole contribution to a night fight.
 	_create_ground_fire()
 
 	# Queue free after a delay
 	var timer = get_tree().create_timer(3.0)
 	timer.timeout.connect(queue_free)
+
+
+## Fire attached to whatever it hit, so it travels with him for the same
+## GROUND_FIRE_LIFETIME. It joins "ground_fire" like any other flame — a
+## burning enemy IS lit, and every AI in the game should be able to see him by
+## it — and also "body_fire", which is how Bobba tells a fire he is wearing
+## from a fire on the ground he ought to walk around (enemies/bobba.gd).
+func _create_body_fire(body: Node) -> void:
+	if body == null or not is_instance_valid(body) or not (body is Node3D):
+		return
+	var fire_node: Node3D = FireFX.create_ground_fire(
+			body, global_position, "ArrowBodyFire", GROUND_FIRE_LIFETIME, true, false)
+	fire_node.add_to_group("body_fire")
+	# Sit it on the victim rather than at the exact impact point: an arrow in
+	# the shoulder should not light a bonfire floating beside his ear.
+	fire_node.position = Vector3(0.0, 0.9, 0.0)
+	print("Arrow set %s alight for %.0fs" % [body.name, GROUND_FIRE_LIFETIME])
+	_attach_fire_aura(fire_node)
 
 
 func _create_ground_fire() -> void:
@@ -325,6 +358,11 @@ func _create_ground_fire() -> void:
 	# In multiplayer, only the host/server ticks damage to keep NPC HP
 	# authoritative; remote-controlled Bobbas/Dragons on other clients still
 	# SEE the fire (visual) but their HP is driven by server state sync.
+	_attach_fire_aura(fire_node)
+
+
+## Damage-over-time aura for a fire this arrow lit, ground or body.
+func _attach_fire_aura(fire_node: Node3D) -> void:
 	var is_multiplayer_client: bool = false
 	if has_node("/root/NetworkManager"):
 		var nm = get_node("/root/NetworkManager")
@@ -352,3 +390,4 @@ func _create_ground_fire() -> void:
 				]))
 		fire_node.add_child(aura)
 	# (FireFX.create_ground_fire owns the burn-down and auto-free.)
+

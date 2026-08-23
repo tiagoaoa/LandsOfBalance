@@ -35,7 +35,7 @@ var health: float:
 # Movement constants
 const ROAM_SPEED: float = 2.0
 const CHASE_SPEED: float = 5.0
-const RETREAT_SPEED: float = 3.0  # Speed when retreating from arrows
+const RETREAT_SPEED: float = 3.0  # Speed when backing off a fire on the ground
 # Night perception: Bobba is BLIND in the dark like every AI — he can only
 # SEE a character that fire reveals (Perception.is_lit_by_fire). But he has
 # a sense of SMELL: any character that comes too close is detected no matter
@@ -63,11 +63,6 @@ const SWORD_DAMAGE: float = 50.0  # Damage taken from Paladin sword
 ## as the hit-feedback channel.
 const KNOCKBACK_FORCE: float = 22.0
 
-# Arrow retreat behavior
-var _is_retreating: bool = false
-var _retreat_timer: float = 0.0
-var _retreat_direction: Vector3 = Vector3.ZERO
-const RETREAT_DURATION: float = 2.0  # Seconds to retreat after arrow hit
 
 # Block: procedural "cross right arm over body" pose held for BLOCK_DURATION.
 # Triggered opportunistically while the target is threatening. Any incoming
@@ -1193,35 +1188,27 @@ func _apply_bone_euler(bone_idx: int, euler_deg: Vector3) -> void:
 		deg_to_rad(euler_deg.z))))
 
 
-func take_arrow_hit(arrow_position: Vector3, arrow_node: Node3D = null) -> void:
+## An arrow HURTS him. It does not rout him.
+##
+## He used to break off for two seconds and walk directly away from every
+## arrow that landed, and the fire it lit was registered as ground to avoid —
+## at his own feet — so an archer could push him around the field, and off
+## whoever he was about to kill, one shot at a time. A boss you can herd with
+## chip damage is not a boss. Now the shaft burns on him (player/arrow.gd puts
+## the fire on the body) and he keeps walking at the nearest thing he can
+## reach; only fire ON THE GROUND is something to step around.
+func take_arrow_hit(_arrow_position: Vector3, _arrow_node: Node3D = null) -> void:
 	# NOTE: Damage is now the arrow's responsibility (take_damage_flat).
 	# The HP label is also driven by the HealthComponent.damaged signal.
-	# This method only handles the visual reaction and retreat behavior.
-
 	# Flash orange for arrow hit
 	_flash_hit(Color(1.0, 0.6, 0.2))
-
-	# Start retreat behavior - walk away from arrow
-	_is_retreating = true
-	_retreat_timer = RETREAT_DURATION
-	_retreat_direction = (global_position - arrow_position).normalized()
-	_retreat_direction.y = 0  # Keep on ground plane
-
-	# Track the ground fire position for avoidance
-	if arrow_node:
-		_register_ground_fire(arrow_position)
-
-	# Arrows that actually hurt Bobba pull its attention onto the shooter
-	# — mirrors the melee `_set_attacker_as_target` path. The arrow node
-	# tracks its shooter; we pick it up here rather than changing the arrow
-	# call signature so existing `take_arrow_hit(pos, arrow)` callers work.
-	if arrow_node and is_instance_valid(arrow_node) and "shooter" in arrow_node:
-		var archer: Node3D = arrow_node.shooter
-		if archer and is_instance_valid(archer):
-			_set_attacker_as_target(archer)
-			print("Bobba: diverted attention to archer ", archer.name)
-
-	print("Bobba hit by arrow! Retreating. HP: %.1f/%.1f" % [health, MAX_HEALTH])
+	# Deliberately NOT done here any more:
+	#   * no retreat — he keeps closing;
+	#   * no ground fire registered at the impact point — the flame is on him;
+	#   * no switch of target to a distant archer — _select_target already
+	#     runs at the CLOSEST character he can perceive, which is the one who
+	#     can actually be reached.
+	print("Bobba: took an arrow (%.0f/%.0f) — still coming" % [health, MAX_HEALTH])
 
 
 ## Register a ground fire position to avoid
@@ -1244,10 +1231,14 @@ func _cleanup_old_fires() -> void:
 
 
 ## Scan scene for existing ArrowGroundFire nodes and track them
+## Fires he has to walk around. ONLY the ones burning on the ground: a flame
+## stuck to a body (his own, or another character's) is in the "body_fire"
+## group and is not terrain to be avoided — running from a fire you are
+## wearing just means running forever.
 func _scan_for_scene_fires() -> void:
 	var fire_nodes := get_tree().get_nodes_in_group("ground_fire")
 	for fire_node in fire_nodes:
-		if is_instance_valid(fire_node):
+		if is_instance_valid(fire_node) and not fire_node.is_in_group("body_fire"):
 			_register_ground_fire(fire_node.global_position)
 
 	# Also search by name pattern for any fire we might have missed
@@ -1258,6 +1249,8 @@ func _scan_for_scene_fires() -> void:
 func _find_fire_nodes_recursive(node: Node) -> void:
 	if node == null:
 		return
+	if node.is_in_group("body_fire"):
+		return   # worn, not underfoot
 	if "GroundFire" in node.name or "ArrowGroundFire" in node.name:
 		# Check if we already have this fire registered (within 1m)
 		var dominated := false
@@ -1947,12 +1940,6 @@ func _physics_process(delta: float) -> void:
 	# Apply gravity
 	velocity += gravity * delta
 
-	# Handle retreat behavior (from arrow hits)
-	if _is_retreating:
-		_handle_retreat(delta)
-		move_and_slide()
-		return
-
 	# Update target selection (handles detection/lose radius logic)
 	_select_target()
 
@@ -2004,36 +1991,6 @@ func _physics_process(delta: float) -> void:
 			pass  # Don't move when dead
 
 	move_and_slide()
-
-
-## Handle retreat behavior after being hit by arrow
-func _handle_retreat(delta: float) -> void:
-	_retreat_timer -= delta
-
-	if _retreat_timer <= 0:
-		_is_retreating = false
-		state = State.ROAMING
-		_pick_new_roam_direction()
-		return
-
-	# Move away from the arrow hit location
-	var move_dir := _retreat_direction
-
-	# Also avoid fire while retreating
-	var fire_avoid := _get_fire_avoidance_direction()
-	if fire_avoid.length() > 0.1:
-		move_dir = (move_dir + fire_avoid).normalized()
-
-	velocity.x = move_dir.x * RETREAT_SPEED
-	velocity.z = move_dir.z * RETREAT_SPEED
-
-	# Face retreat direction
-	if move_dir.length() > 0.1:
-		var target_angle := atan2(move_dir.x, move_dir.z)
-		_model.rotation.y = lerp_angle(_model.rotation.y, target_angle, ROTATION_SPEED * delta)
-
-	# Play walk animation while retreating
-	_play_anim(_carry_anim(&"Walk"))
 
 
 ## Handle interpolation for network-controlled entities

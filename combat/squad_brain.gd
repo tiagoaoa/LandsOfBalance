@@ -128,7 +128,13 @@ static var _instance: SquadBrain = null
 var now := 0.0
 var contacts: Array = []          # Array[Contact] — live AND remembered
 var allies: Array = []            # Array[Ally]
-var fires := PackedVector3Array()        # burning ground fires
+var fires := PackedVector3Array()        # every flame burning, wherever it is
+## The subset burning ON THE GROUND. A fire stuck to an enemy (player/arrow.gd
+## sets one alight for thirty seconds) still LIGHTS him — it belongs in
+## `fires`, and a burning enemy being visible to the whole party is the point
+## of it — but it is not a place, so it can never be cover, a wall, or a patch
+## of ground that already has light on it. Those questions ask this list.
+var ground_fires := PackedVector3Array()
 var arrow_fires := PackedVector3Array()  # fire arrows still in flight
 var focus: Contact = null         # what the party should be killing
 var light_requests: Array = []    # [{pos, priority, contact}] — the archer's queue
@@ -234,10 +240,14 @@ func _process(delta: float) -> void:
 
 func _scan_fires() -> void:
 	fires.clear()
+	ground_fires.clear()
 	arrow_fires.clear()
 	for fire in get_tree().get_nodes_in_group("ground_fire"):
 		if fire is Node3D and is_instance_valid(fire):
-			fires.append((fire as Node3D).global_position)
+			var at: Vector3 = (fire as Node3D).global_position
+			fires.append(at)
+			if not fire.is_in_group("body_fire"):
+				ground_fires.append(at)
 	for arrow in get_tree().get_nodes_in_group("fire_arrows"):
 		if arrow is Node3D and is_instance_valid(arrow):
 			arrow_fires.append((arrow as Node3D).global_position)
@@ -430,7 +440,7 @@ func lit_amount(pos: Vector3) -> float:
 ## this is read as COVER as often as it is read as a hazard.
 func fire_dist(pos: Vector3) -> float:
 	var best := INF
-	for f in fires:
+	for f in ground_fires:
 		best = minf(best, pos.distance_to(f))
 	return best
 
@@ -441,7 +451,7 @@ func fire_dist(pos: Vector3) -> float:
 ## full of fire lights is a field full of shadow-casting lights.
 func fires_near(pos: Vector3, radius: float) -> int:
 	var n := 0
-	for f in fires:
+	for f in ground_fires:
 		if pos.distance_to(f) <= radius:
 			n += 1
 	return n

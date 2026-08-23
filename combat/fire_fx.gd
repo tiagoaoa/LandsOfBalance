@@ -270,8 +270,12 @@ static func add_scorch_decal(parent: Node, radius: float) -> Decal:
 ## `lifetime`. Returns the container (caller adds gameplay bits like the
 ## damage aura). `node_name` must keep "GroundFire" in it — Bobba's fire
 ## avoidance scans node names for that substring.
+## `scorch` is off for a fire that rides a body: a scorch decal is a mark
+## burned into the ground, and one parented to a walking enemy slides around
+## under his feet.
 static func create_ground_fire(scene_root: Node, world_pos: Vector3,
-		node_name: String, lifetime: float, shadows: bool) -> Node3D:
+		node_name: String, lifetime: float, shadows: bool,
+		scorch: bool = true) -> Node3D:
 	var fire := Node3D.new()
 	fire.name = node_name
 	fire.add_to_group("ground_fire")  # AI perception + Bobba's fire avoidance
@@ -288,7 +292,8 @@ static func create_ground_fire(scene_root: Node, world_pos: Vector3,
 	var outer := add_flames(fire, Vector3(0, 0.1, 0), 1.6, 24)
 	var embers := add_embers(fire, Vector3(0, 0.3, 0), 1.0, 30)
 	var smoke := add_smoke(fire, Vector3(0, 0.9, 0), 1.0, 16)
-	add_scorch_decal(fire, 1.8)
+	if scorch:
+		add_scorch_decal(fire, 1.8)
 
 	# Ignite whump + crackle loop for the fire's lifetime.
 	var sfx := fire.get_node_or_null("/root/Sfx")

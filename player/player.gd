@@ -103,6 +103,14 @@ const UNARMED_ANIM_PATHS: Dictionary = {
 	"roll": "res://player/character/armed/Roll.fbx",
 	# Crouch stance, shared with armed — same mixamorig retarget as above.
 	"crouch": "res://player/character/armed/Crouch.fbx",
+	# Crouch WALK — four directions, shared by every model (same mixamorig
+	# retarget as the dodges and the crouch stance itself). Without these,
+	# moving while crouched held the static stand-to-crouch pose and the
+	# character slid across the ground in a tuck.
+	"crouch_walk_f": "res://player/character/armed/Crouch Walk Forward.fbx",
+	"crouch_walk_b": "res://player/character/armed/Crouch Walk Back.fbx",
+	"crouch_walk_l": "res://player/character/armed/Crouch Walk Left.fbx",
+	"crouch_walk_r": "res://player/character/armed/Crouch Walk Right.fbx",
 }
 
 # Armed animations (Paladin with sword & shield)
@@ -152,6 +160,14 @@ const ARMED_ANIM_PATHS: Dictionary = {
 	# real stance — Mixamo "sword and shield crouch", a stand-to-crouch
 	# transition whose last frame is the held pose.
 	"crouch": "res://player/character/armed/Crouch.fbx",
+	# Crouch WALK — four directions, shared by every model (same mixamorig
+	# retarget as the dodges and the crouch stance itself). Without these,
+	# moving while crouched held the static stand-to-crouch pose and the
+	# character slid across the ground in a tuck.
+	"crouch_walk_f": "res://player/character/armed/Crouch Walk Forward.fbx",
+	"crouch_walk_b": "res://player/character/armed/Crouch Walk Back.fbx",
+	"crouch_walk_l": "res://player/character/armed/Crouch Walk Left.fbx",
+	"crouch_walk_r": "res://player/character/armed/Crouch Walk Right.fbx",
 }
 
 # Archer animations
@@ -172,6 +188,14 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 	# Lock-on strafes. These shipped in the pack but were never wired, so
 	# strafing sideways played the FORWARD walk and the archer skated.
 	"crouch": "res://player/character/archer/standing to crouch.fbx",
+	# Crouch WALK — four directions, shared by every model (same mixamorig
+	# retarget as the dodges and the crouch stance itself). Without these,
+	# moving while crouched held the static stand-to-crouch pose and the
+	# character slid across the ground in a tuck.
+	"crouch_walk_f": "res://player/character/armed/Crouch Walk Forward.fbx",
+	"crouch_walk_b": "res://player/character/armed/Crouch Walk Back.fbx",
+	"crouch_walk_l": "res://player/character/armed/Crouch Walk Left.fbx",
+	"crouch_walk_r": "res://player/character/armed/Crouch Walk Right.fbx",
 	"strafe_left": "res://player/character/archer/standing walk left.fbx",
 	"strafe_right": "res://player/character/archer/standing walk right.fbx",
 	"run_strafe_left": "res://player/character/archer/standing run left.fbx",
@@ -2095,6 +2119,10 @@ func _get_unarmed_config() -> Dictionary:
 		"strafe_left": ["StrafeLeft", true],
 		"strafe_right": ["StrafeRight", true],
 		"crouch": ["Crouch", false],
+		"crouch_walk_f": ["CrouchWalkF", true],
+		"crouch_walk_b": ["CrouchWalkB", true],
+		"crouch_walk_l": ["CrouchWalkL", true],
+		"crouch_walk_r": ["CrouchWalkR", true],
 		"jump": ["Jump", false],
 		"turn_left": ["TurnLeft", false],
 		"turn_right": ["TurnRight", false],
@@ -2119,6 +2147,10 @@ func _get_armed_config() -> Dictionary:
 		"strafe_left": ["StrafeLeft", true],
 		"strafe_right": ["StrafeRight", true],
 		"crouch": ["Crouch", false],
+		"crouch_walk_f": ["CrouchWalkF", true],
+		"crouch_walk_b": ["CrouchWalkB", true],
+		"crouch_walk_l": ["CrouchWalkL", true],
+		"crouch_walk_r": ["CrouchWalkR", true],
 		"jump": ["Jump", false],
 		"attack1": ["Attack1", false],
 		"attack2": ["Attack2", false],
@@ -2147,6 +2179,10 @@ func _get_archer_config() -> Dictionary:
 		"walk": ["Walk", true],
 		"run": ["Run", true],
 		"crouch": ["Crouch", false],
+		"crouch_walk_f": ["CrouchWalkF", true],
+		"crouch_walk_b": ["CrouchWalkB", true],
+		"crouch_walk_l": ["CrouchWalkL", true],
+		"crouch_walk_r": ["CrouchWalkR", true],
 		"jump": ["Jump", false],
 		"attack": ["Attack", false],
 		"block": ["Block", true],
@@ -2843,7 +2879,7 @@ func _update_animation(input_dir: Vector2) -> void:
 	# Ctrl comes up. Movement while crouched keeps the braced pose; the
 	# half-speed shuffle reads fine and beats swapping to a full stride.
 	elif is_crouching:
-		desired_anim = _first_anim(prefix, ["Crouch", "Idle"])
+		desired_anim = _crouch_locomotion_anim(prefix, input_dir)
 
 	# Strafe. Run-strafes first when the rig has them, so circling an enemy
 	# at speed does not play a walk cycle at a run.
@@ -2893,6 +2929,23 @@ func _update_animation(input_dir: Vector2) -> void:
 
 	if desired_anim != &"":
 		_play_anim(desired_anim)
+
+
+## Crouched, moving or still. Standing still parks on the stand-to-crouch
+## pose (its last frame IS the held crouch); moving picks the crouch-walk
+## cycle for the direction being asked for, in the same camera-relative
+## convention the strafes and the backstep use. Falls back to the stance —
+## and then to Idle — for any model whose set is incomplete.
+func _crouch_locomotion_anim(prefix: String, input_dir: Vector2) -> StringName:
+	if input_dir.length() <= 0.1:
+		return _first_anim(prefix, ["Crouch", "Idle"])
+	if absf(input_dir.x) > absf(input_dir.y):
+		return _first_anim(prefix, [
+				"CrouchWalkL" if input_dir.x < 0.0 else "CrouchWalkR",
+				"CrouchWalkF", "Crouch", "Idle"])
+	return _first_anim(prefix, [
+			"CrouchWalkB" if input_dir.y > 0.0 else "CrouchWalkF",
+			"CrouchWalkF", "Crouch", "Idle"])
 
 
 func _toggle_combat_mode() -> void:

@@ -728,7 +728,7 @@ func _downed_ally() -> SquadBrain.Ally:
 func _nearest_fire_pos(from: Vector3) -> Vector3:
 	var best := from
 	var best_d := INF
-	for f in brain.fires:
+	for f in brain.ground_fires:
 		var d: float = from.distance_to(f)
 		if d < best_d:
 			best_d = d

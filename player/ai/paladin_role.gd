@@ -604,7 +604,7 @@ func _spiral_next() -> Vector3:
 func _nearest_unchecked_fire(near: Vector3, radius: float) -> Vector3:
 	var best := Vector3.ZERO
 	var best_d := INF
-	for f in brain.fires:
+	for f in brain.ground_fires:
 		if near.distance_to(f) > radius:
 			continue
 		if _is_checked(f):
@@ -655,7 +655,7 @@ func _revive(mate: SquadBrain.Ally, delta: float) -> void:
 func _nearest_fire_pos() -> Vector3:
 	var best := pos()
 	var best_d := INF
-	for f in brain.fires:
+	for f in brain.ground_fires:
 		var d: float = pos().distance_to(f)
 		if d < best_d:
 			best_d = d
