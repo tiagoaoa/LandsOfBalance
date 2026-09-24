@@ -1,11 +1,7 @@
 extends MultiMeshInstance3D
 
-## Procedurally populates the SimpleGrassTextured node with a dense blade
-## field across the open terrain — tall, chaotic, waist-high grass that
-## surrounds built-up zones without spilling into them. The old layered
-## approaches (tiled `realistic_grass.glb`, scaled-up grass_large tufts,
-## hand-painted hundreds-of-instances) are all disabled because none of
-## them produced the DS3-ish dense-blade aesthetic we're going for.
+#Populates SimpleGrassTextured with tapered blades. Older grass layers are
+#disabled so they cannot overlap the procedural field.
 ##
 ## Interactive mode is enabled on the SimpleGrass singleton so blades bend
 ## away as the player walks through them (Player._physics_process feeds
@@ -16,6 +12,12 @@ extends MultiMeshInstance3D
 ## only appears on the wild open terrain between them.
 
 const SGT_NODE_PATH: String = "../../SimpleGrassTextured"
+## Grass tiling for culling. Visibility range is measured to a tile's
+## centre, so a tile's reach is off by up to ~11 m at 16 m tiles.
+const TILE_SIZE: float = 16.0
+const NEAR_RANGE: float = 55.0
+const FAR_RANGE: float = 100.0
+const FAR_SHARE: float = 0.5
 
 @export_group("Blade field")
 ## One blade per ~40 cm (cornfield-sparse) = ~6 blades/m².
@@ -24,12 +26,8 @@ const SGT_NODE_PATH: String = "../../SimpleGrassTextured"
 ## Half-extents of the dense grass region — centred on origin.
 @export var field_half_x: float = 260.0
 @export var field_half_z: float = 260.0
-## Per-blade size. Height 0.5m = knee-high on the ~1.8m Paladin — Skyrim
-## tundra grass, not shoulder-high reeds. The wide height variance scatters
-## the odd taller clump through the field so it doesn't read as a flat lawn.
-## Knee height also means the blades never clip through the moving character's
-## torso/arms the way the old 1.5m field did.
-@export var base_blade_size: Vector3 = Vector3(1.0, 0.5, 1.0)
+#Short, narrow blades leave the feet and attack stance visible.
+@export var base_blade_size: Vector3 = Vector3(0.35, 0.4, 0.35)
 @export var height_variance: float = 0.4
 ## Where blade roots plant vertically. Paladin's feet settle around Y≈0.55
 ## after gravity on the default MainGround CSGBox; keep roots just below so
@@ -51,6 +49,7 @@ const SGT_NODE_PATH: String = "../../SimpleGrassTextured"
 @export var max_scale: float = 1.4
 
 var _exclusion_zones: Array[Rect2] = []
+var _river: Node3D
 
 
 func _ready() -> void:
@@ -98,6 +97,7 @@ func _setup_exclusion_zones() -> void:
 	var stage := get_node_or_null("../..")
 	if stage == null:
 		return
+	_river = stage.get_node_or_null("River")
 
 	for branch_path in ["River", "Roads"]:
 		var branch := stage.get_node_or_null(branch_path)
@@ -124,6 +124,8 @@ func _setup_exclusion_zones() -> void:
 
 
 func _is_excluded(x: float, z: float) -> bool:
+	if _river and _river.contains_bank(x, z):
+		return true
 	for zone in _exclusion_zones:
 		if zone.has_point(Vector2(x, z)):
 			return true
@@ -269,17 +271,24 @@ func _populate_blade_field() -> void:
 	if "optimization_by_distance" in sgt:
 		sgt.optimization_by_distance = false
 
-	# Write directly to the multimesh. The addon's add_grass_batch() queues
+	# Write directly to multimeshes. The addon's add_grass_batch() queues
 	# into an internal buffer and flushes in _process, which silently
 	# drops 1M+ transforms, so we skip it.
-	var mm: MultiMesh = MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = sgt.mesh if sgt.mesh else sgt.multimesh.mesh
-	mm.instance_count = placed
-	for i in placed:
-		mm.set_instance_transform(i, transforms[i])
-	mm.visible_instance_count = placed
-	sgt.multimesh = mm
+	#
+	# The field used to be ONE multimesh. Its bounding box covered the whole
+	# map and so always held the camera: every one of the ~1.5M blades was
+	# drawn every frame, behind the player and 250 m out alike — 12M of the
+	# 13M triangles in a frame. Tiled, the renderer culls tiles outside the
+	# view and past their visibility range, and only what can be seen is sent.
+	var blade_mesh: Mesh = sgt.mesh if sgt.mesh else sgt.multimesh.mesh
+	_build_tiles(sgt, blade_mesh, transforms, placed, rng)
+	# The SGT node keeps an EMPTY multimesh on the same mesh: its _ready()
+	# still hangs the grass material on that mesh's surface, which is what
+	# every tile draws with (wind, interactive bend, the wet night tint).
+	var empty: MultiMesh = MultiMesh.new()
+	empty.transform_format = MultiMesh.TRANSFORM_3D
+	empty.mesh = blade_mesh
+	sgt.multimesh = empty
 	# Clear any leftover buffer so the addon's _process doesn't try to
 	# merge painted remnants back in on top of our distribution.
 	if "_buffer_add" in sgt:
@@ -287,6 +296,66 @@ func _populate_blade_field() -> void:
 
 	print("RealisticGrassPlacer: Uniform blade field %d blades (target %d, rejected %d by exclusion, area %.0fm × %.0fm @ %.1f blades/m²)"
 		% [placed, target_count, rejected, field_half_x * 2.0, field_half_z * 2.0, blade_density])
+
+
+## Bucket the blades into TILE_SIZE squares, each tile split into two
+## layers: every blade draws out to NEAR_RANGE, only the FAR_SHARE of them
+## out to FAR_RANGE. Past ~50 m a 40 cm blade is a few pixels, and half the
+## blades read as the same field — density thins with distance the way the
+## eye expects instead of ending at a hard line.
+func _build_tiles(sgt: Node3D, blade_mesh: Mesh, transforms: Array, placed: int,
+		rng: RandomNumberGenerator) -> void:
+	var tiles_x: int = ceili(field_half_x * 2.0 / TILE_SIZE)
+	var tiles_z: int = ceili(field_half_z * 2.0 / TILE_SIZE)
+	var buckets: Array = []
+	buckets.resize(tiles_x * tiles_z * 2)
+	for b in buckets.size():
+		buckets[b] = []
+	for i in placed:
+		var t: Transform3D = transforms[i]
+		var tx: int = clampi(int((t.origin.x + field_half_x) / TILE_SIZE), 0, tiles_x - 1)
+		var tz: int = clampi(int((t.origin.z + field_half_z) / TILE_SIZE), 0, tiles_z - 1)
+		var layer: int = 1 if rng.randf() < FAR_SHARE else 0
+		buckets[(tz * tiles_x + tx) * 2 + layer].append(t)
+
+	# The addon pins its node's rotation to zero by resetting global_rotation
+	# on every transform change. Under the stage's slight yaw that reset never
+	# settles and fires each frame, dragging any children through a transform
+	# update. So the tiles stand outside it (top_level) in the frame the
+	# addon was producing — its position, no rotation — and, with nothing
+	# left for it to draw, the addon stops pinning.
+	var frame := Transform3D(Basis.from_scale(sgt.global_basis.get_scale()), sgt.global_position)
+	if "disable_node_rotation" in sgt:
+		sgt.disable_node_rotation = false
+	var root := Node3D.new()
+	root.name = "GrassTiles"
+	root.top_level = true
+	sgt.add_child(root)
+	root.global_transform = frame
+	var tiles := 0
+	for b in buckets.size():
+		var blades: Array = buckets[b]
+		if blades.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = blade_mesh
+		mm.instance_count = blades.size()
+		for i in blades.size():
+			mm.set_instance_transform(i, blades[i])
+		var tile := MultiMeshInstance3D.new()
+		tile.multimesh = mm
+		tile.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Wind and the player's bend push blades a little past the rest pose.
+		tile.extra_cull_margin = 0.5
+		var far := b % 2 == 1
+		tile.visibility_range_end = FAR_RANGE if far else NEAR_RANGE
+		tile.visibility_range_end_margin = 12.0
+		tile.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		root.add_child(tile)
+		tiles += 1
+	print("RealisticGrassPlacer: %d grass tiles (%.0f m, near %.0f m / far %.0f m)" % [
+			tiles, TILE_SIZE, NEAR_RANGE, FAR_RANGE])
 
 
 ## Build a thin, tapered blade with 3 vertical segments and a baked curve.
@@ -297,7 +366,7 @@ func _populate_blade_field() -> void:
 func _build_blade_mesh() -> ArrayMesh:
 	const BASE_W: float = 0.09   # half-width at root (18cm total)
 	const MID_W: float = 0.055   # half-width at mid
-	const TIP_W: float = 0.02    # half-width at tip (~4cm)
+	const TIP_W: float = 0.001
 	const HEIGHT: float = 1.0
 	const BEND_AMOUNT: float = 0.12  # tip offset in +X (local) — natural arc
 

@@ -60,10 +60,12 @@ var _model: Node3D
 var _skel: Skeleton3D
 var _anim: AnimationPlayer
 var _target: Node3D = null
+var _lod: ActivityLOD
 var _attack_left: float = 0.0
 var _attack_cooldown: float = 0.0
 var _attack_dealt: bool = false
 var _stagger_left: float = 0.0
+var _riposte_left := 0.0
 var _hp_label: Label3D
 
 @onready var _gravity: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity") * \
@@ -72,6 +74,7 @@ var _hp_label: Label3D
 
 func _ready() -> void:
 	add_to_group("skeletons")
+	_lod = ActivityLOD.attach(self, func() -> bool: return _target != null)
 	collision_layer = 2   # enemies layer — the player's sword hitbox scans it
 	collision_mask = 3    # world + other enemies
 
@@ -138,6 +141,7 @@ func _physics_process(delta: float) -> void:
 	_fire_glow.update(Perception.fire_lit_amount(self), delta)
 	velocity += _gravity * delta
 	_attack_cooldown -= delta
+	_riposte_left = maxf(0.0, _riposte_left - delta)
 
 	if _stagger_left > 0.0:
 		_stagger_left -= delta
@@ -170,6 +174,7 @@ func _physics_process(delta: float) -> void:
 		# The blade falls mid-clip: deal damage exactly once, on contact.
 		if not _attack_dealt and _attack_left <= ATTACK_LEN - ATTACK_HIT_TIME:
 			_attack_dealt = true
+			Sfx.play3d("sword_whoosh_1", global_position + Vector3.UP, -8.0)
 			_strike()
 		velocity.x = move_toward(velocity.x, 0.0, 14.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 14.0 * delta)
@@ -183,7 +188,7 @@ func _physics_process(delta: float) -> void:
 		var to_t: Vector3 = _target.global_position - global_position
 		to_t.y = 0.0
 		var dist := to_t.length()
-		if dist <= ATTACK_RANGE and _attack_cooldown <= 0.0:
+		if dist <= ATTACK_RANGE and _attack_cooldown <= 0.0 and _attack_slot_available():
 			_start_attack()
 			return
 		# Crowd the prey from MY current bearing; the bearing and striking
@@ -193,8 +198,10 @@ func _physics_process(delta: float) -> void:
 			_ring_reroll = randf_range(3.0, 7.0)
 			_ring_angle += randf_range(-1.2, 1.2)
 			_ring_dist = randf_range(1.2, 1.7)
+		var waiting := not _attack_slot_available() or _attack_cooldown > 0.4
+		var radius := 3.1 if waiting else _ring_dist
 		var ring_point: Vector3 = _target.global_position \
-				+ Vector3(cos(_ring_angle), 0.0, sin(_ring_angle)) * _ring_dist
+				+ Vector3(cos(_ring_angle), 0.0, sin(_ring_angle)) * radius
 		move = ring_point - global_position
 		move.y = 0.0
 		if move.length() > 0.2:
@@ -300,6 +307,41 @@ func _nearest_fire(radius: float) -> Vector3:
 	return best
 
 
+func _attack_slot_available() -> bool:
+	var active := 0
+	for enemy in get_tree().get_nodes_in_group("skeletons"):
+		if enemy == self or enemy._target != _target or enemy.is_dead_skeleton:
+			continue
+		if enemy._attack_left > 0.0:
+			active += 1
+			# Offset the tells so a pack cannot land both strikes together.
+			if enemy._attack_left > ATTACK_LEN - 0.35:
+				return false
+	return active < 2
+
+
+func on_parried(_parrier: Node3D) -> void:
+	_attack_left = 0.0
+	_attack_dealt = true
+	_stagger_left = 1.6
+	_riposte_left = 1.6
+	_attack_cooldown = 2.0
+	velocity = Vector3.ZERO
+	_play(&"HitReact")
+
+
+func is_riposte_ready() -> bool:
+	return _riposte_left > 0.0 and not is_dead_skeleton
+
+
+func consume_riposte() -> void:
+	_riposte_left = 0.0
+
+
+func get_facing_rotation() -> float:
+	return _model.global_rotation.y + PI
+
+
 func _start_attack() -> void:
 	_attack_left = ATTACK_LEN
 	_attack_dealt = false
@@ -311,14 +353,21 @@ func _start_attack() -> void:
 			_face(face_dir.normalized(), 10.0, true)
 	# Two distinct swings — an overhead chop and a cross-body slash.
 	_play(&"AttackOverhead" if randf() < 0.5 else &"AttackSlash")
-	Sfx.play3d("sword_whoosh_%d" % (randi_range(1, 2)), global_position + Vector3(0, 1.3, 0), -8.0, 0.15)
 
 
 func _strike() -> void:
 	if _target == null or not is_instance_valid(_target):
 		return
 	var to_t: Vector3 = _target.global_position - global_position
-	if to_t.length() > ATTACK_HIT_RANGE:
+	if to_t.length() > ATTACK_HIT_RANGE or absf(to_t.y) > 1.6:
+		return
+	var flat := Vector3(to_t.x, 0, to_t.z).normalized()
+	if (-_model.global_basis.z).normalized().dot(flat) < 0.35:
+		return
+	var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP,
+			_target.global_position + Vector3.UP, 1, [get_rid()])
+	var wall := get_world_3d().direct_space_state.intersect_ray(ray)
+	if not wall.is_empty() and wall.collider != _target:
 		return
 	if _target.has_method("take_hit"):
 		var kb: Vector3 = to_t.normalized() * 4.0
@@ -329,7 +378,7 @@ func _strike() -> void:
 		# immunity, roll i-frames, timed parry) — no impact SFX then.
 		# Legacy targets whose take_hit returns void report null → landed.
 		var hit_applied: Variant = _target.take_hit(ATTACK_DAMAGE, kb, false, self, true)
-		if hit_applied != false:
+		if hit_applied != false and not ("is_blocking" in _target):
 			Sfx.play3d("hit_flesh", _target.global_position + Vector3(0, 1.2, 0), -6.0)
 
 
@@ -360,13 +409,18 @@ func _extinguish() -> void:
 ## Player sword / companion hits.
 func take_hit(damage: float, knockback: Vector3, _blocked: bool = false,
 		_attacker: Node3D = null, _fully_blockable: bool = false) -> void:
+	_lod.wake()
 	if is_dead_skeleton:
 		return
 	hp -= damage
 	_show_hp()
 	Sfx.play3d("hit_metal", global_position + Vector3(0, 1.3, 0), -8.0, 0.2)
 	velocity += Vector3(knockback.x, 0.0, knockback.z) * 0.8
-	_stagger_left = 0.3
+	_stagger_left = maxf(_stagger_left, 0.3)
+	_attack_left = 0.0
+	_attack_dealt = true
+	_attack_cooldown = maxf(_attack_cooldown, 0.65)
+	_play(&"HitReact")
 	if hp <= 0.0:
 		_die()
 
@@ -375,6 +429,7 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false,
 ## combo hits, or ~5 arrows" - is finally true; under percent damage it took
 ## twenty, and raising MAX_HP would not have changed that by one arrow.
 func take_damage_flat(amount: float) -> void:
+	_lod.wake()
 	if is_dead_skeleton:
 		return
 	hp -= amount
@@ -387,6 +442,7 @@ func _die() -> void:
 	if is_dead_skeleton:
 		return
 	is_dead_skeleton = true
+	_riposte_left = 0.0
 	hp = 0.0
 	_hp_label.visible = false
 	collision_layer = 0
@@ -407,6 +463,7 @@ func _die() -> void:
 func revive_at(pos: Vector3) -> void:
 	hp = MAX_HP
 	is_dead_skeleton = false
+	_riposte_left = 0.0
 	collision_layer = 2
 	collision_mask = 3
 	global_position = pos
@@ -432,7 +489,8 @@ func _face(dir: Vector3, delta_or_speed: float, instant: bool = false) -> void:
 
 func _play(anim_name: StringName) -> void:
 	if _anim and _anim.current_animation != String(anim_name):
-		_anim.play(anim_name, 0.25)
+		_anim.speed_scale = 1.0 if String(anim_name).begins_with("Attack") else _gait_scale
+		_anim.play(anim_name, 0.10 if String(anim_name).begins_with("Attack") else 0.20)
 		# Every clip switch lands on this skeleton's PERSONAL phase — five
 		# brothers switching Walk→Run together must not fall into lockstep.
 		var clip := _anim.get_animation(anim_name)

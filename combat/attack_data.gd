@@ -21,6 +21,7 @@ class_name AttackData
 ## its own active frames — replacement for bright-souls' AnimStateMessage.
 @export_range(0.0, 1.0) var hit_window_start: float = 0.15
 @export_range(0.0, 1.0) var hit_window_end: float = 0.95
+@export_range(0.0, 1.0) var recovery_start: float = 0.72
 ## Optional follow-up effects applied on hit (CombatEffectResource subclasses).
 ## Each effect's `apply(target, attacker)` runs after the core damage/knockback.
 @export var extra_effects: Array[Resource] = []
@@ -36,8 +37,15 @@ func apply_to(target: Node, attacker: Node = null) -> float:
 		var dir: Vector3 = (target.global_position - attacker.global_position).normalized()
 		dir.y = 0.3
 		knockback = dir * knockback_magnitude
-	if target.has_method("take_hit"):
-		target.take_hit(damage, knockback, false, attacker, is_fully_blockable)
+	var applied: Variant = null
+	if target.has_method("take_attack"):
+		applied = target.take_attack(self, attacker, knockback)
+	elif target.has_method("take_hit"):
+		applied = target.take_hit(damage, knockback, false, attacker, is_fully_blockable)
+	else:
+		return 0.0
+	if applied is bool and not applied:
+		return 0.0
 	for effect in extra_effects:
 		if effect and effect.has_method("apply"):
 			effect.apply(target, attacker)

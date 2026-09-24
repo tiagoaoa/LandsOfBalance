@@ -1,237 +1,283 @@
 extends Node3D
-## Upgrades the blockout river at runtime: swaps the flat CSG water boxes
-## for subdivided planes running the animated river_water shader, and builds
-## realistic forest riverbanks along both sides:
-##  - a CONTINUOUS noise-eroded earth berm (ArrayMesh ribbon, Ground037 PBR
-##    textures, vertex-color wet darkening toward the waterline),
-##  - angular scattered rocks at the water's edge,
-##  - sedge/reed clumps of mixed heights on the lip.
-## Reference principles (environment-art breakdowns): banks are eroded
-## slopes not blobs; wetness = darker near water; blend into the field.
 
 const WATER_SHADER := preload("res://stage/river_water.gdshader")
+const DEPTH := 1.4
+const BANK_REACH := 4.0
+const ROW_STEP := 2.0
+const CHUNK_LENGTH := 64.0
 
-const TEX_ALBEDO := "res://assets/textures/Ground037_1K-JPG_Color.jpg"
-const TEX_NORMAL := "res://assets/textures/Ground037_1K-JPG_NormalGL.jpg"
-const TEX_ROUGH := "res://assets/textures/Ground037_1K-JPG_Roughness.jpg"
-const TEX_AO := "res://assets/textures/Ground037_1K-JPG_AmbientOcclusion.jpg"
-
-## Bank cross-section stations, offsets from the water's edge (metres).
-const BANK_REACH := 4.2       # how far the berm blends into the field
-const ROW_STEP := 1.4         # ribbon resolution along the river
-const REED_CLUMPS_PER_M := 0.35
+var water_y := .32
+var ground_y := .5
+var bounds := Rect2(-535.2693, -572.4915, 1070.5386, 1144.983)
+var water_material: ShaderMaterial
+var earth_material: StandardMaterial3D
+var bridges: Array[Node3D] = []
 
 
 func _ready() -> void:
-	print("RiverBuilder: upgrading river segments")
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7331  # deterministic banks — same river every launch
-	for names in [["RiverWater", "RiverBed"], ["RiverWater2", "RiverBed2"]]:
-		var water := get_node_or_null(NodePath(names[0])) as CSGBox3D
-		var bed := get_node_or_null(NodePath(names[1])) as CSGBox3D
-		if water == null or bed == null:
-			continue
-		_upgrade_segment(water, bed, rng)
+	var ground := get_node("../Ground/MainGround") as CSGBox3D
+	ground_y = ground.global_position.y + ground.size.y * .5
+	water_y = ground_y - .18
+	bounds = Rect2(Vector2(ground.global_position.x, ground.global_position.z)
+			- Vector2(ground.size.x, ground.size.z) * .5, Vector2(ground.size.x, ground.size.z))
+	#Replace the flat slab with land and channel meshes sharing their bank vertices.
+	ground.use_collision = false
+	ground.hide()
+	_materials()
+	var z := bounds.position.y
+	while z < bounds.end.y:
+		var end := minf(z + CHUNK_LENGTH, bounds.end.y)
+		_build_chunk(z, end, ground.material)
+		z = end
+	_bridges()
+	_reeds()
+	var label := get_node_or_null("RiverLabel") as Node3D
+	if label:
+		label.position = Vector3(center_x(30), 3, 30)
+	print("River: %.1fm across the map, %.1fm deep" % [bounds.size.y, DEPTH])
 
 
-func _upgrade_segment(water: CSGBox3D, bed: CSGBox3D, rng: RandomNumberGenerator) -> void:
-	var length: float = water.size.z
-	var width: float = water.size.x
-	var water_top_y: float = water.position.y + water.size.y * 0.5
-	# The ground CSG top is flush with the old water-box top; the visible
-	# water surface must clear it.
-	var surface_y: float = water_top_y + 0.15
+static func center_x(z: float) -> float:
+	return 16.0 - .62 * z + 8.0 * sin(z / 65.0)
 
-	# --- Water surface: subdivided plane + flow shader, replacing the box.
-	var surface := MeshInstance3D.new()
-	surface.name = water.name + "Surface"
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(width, length)
-	plane.subdivide_width = 12
-	plane.subdivide_depth = int(length / 2.0)  # enough verts for the swell
-	surface.mesh = plane
-	var mat := ShaderMaterial.new()
-	mat.shader = WATER_SHADER
-	mat.set_shader_parameter("normal_a", _make_ripple_normal_tex(0.18, 1))
-	mat.set_shader_parameter("normal_b", _make_ripple_normal_tex(0.35, 2))
-	# Flow runs along the segment (local Z), expressed in world XZ.
-	var flow_world: Vector3 = water.global_transform.basis.z.normalized()
-	mat.set_shader_parameter("flow_dir", Vector2(flow_world.x, flow_world.z))
-	surface.material_override = mat
-	surface.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(surface)
-	surface.transform = water.transform
-	surface.position.y = surface_y
-	water.visible = false  # the CSG box remains only as a hidden blockout
-	print("RiverBuilder: %s at %s (water y=%.2f)" % [surface.name,
-			str(surface.global_position.snapped(Vector3(0.1, 0.1, 0.1))), surface_y])
 
-	# Babbling-water emitters spaced along the channel.
+static func half_width(z: float) -> float:
+	return 5.5 + .55 * sin(z / 37.0) + .25 * sin(z / 11.0)
+
+
+func contains_bank(x: float, z: float) -> bool:
+	return z >= bounds.position.y and z <= bounds.end.y \
+			and absf(x - center_x(z)) < half_width(z) + BANK_REACH
+
+
+func _materials() -> void:
+	water_material = ShaderMaterial.new()
+	water_material.shader = WATER_SHADER
+	water_material.set_shader_parameter("normal_a", _normal_texture(.035, 71))
+	water_material.set_shader_parameter("normal_b", _normal_texture(.075, 132))
+	earth_material = StandardMaterial3D.new()
+	earth_material.albedo_texture = load("res://assets/textures/Ground037_1K-JPG_Color.jpg")
+	earth_material.albedo_color = Color(.68, .64, .53)
+	earth_material.vertex_color_use_as_albedo = true
+	earth_material.normal_enabled = true
+	earth_material.normal_texture = load("res://assets/textures/Ground037_1K-JPG_NormalGL.jpg")
+	earth_material.normal_scale = 1.3
+	earth_material.roughness_texture = load("res://assets/textures/Ground037_1K-JPG_Roughness.jpg")
+	earth_material.roughness = .85
+	earth_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+
+
+func _build_chunk(start: float, end: float, land_material: Material) -> void:
+	var count := int(ceil((end - start) / ROW_STEP))
+	var land := SurfaceTool.new()
+	var bed := SurfaceTool.new()
+	var water := SurfaceTool.new()
+	for st in [land, bed, water]:
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in range(count):
+		var a := lerpf(start, end, float(row) / count)
+		var b := lerpf(start, end, float(row + 1) / count)
+		var ra := _bank_row(a)
+		var rb := _bank_row(b)
+		for i in range(ra.size() - 1):
+			_quad(bed, ra[i], ra[i + 1], rb[i], rb[i + 1])
+		for side in [-1, 1]:
+			var index := 0 if side < 0 else ra.size() - 1
+			var x := bounds.position.x if side < 0 else bounds.end.x
+			var fa := Vector3(x, ground_y, a)
+			var fb := Vector3(x, ground_y, b)
+			if side < 0:
+				_quad(land, fa, ra[index], fb, rb[index])
+			else:
+				_quad(land, ra[index], fa, rb[index], fb)
+		for col in range(16):
+			var u := float(col) / 16
+			var v := float(col + 1) / 16
+			_quad(water, _water_point(a, u), _water_point(a, v),
+					_water_point(b, u), _water_point(b, v), true)
+	_mesh(land, "RiverLand", land_material, true)
+	_mesh(bed, "RiverChannel", earth_material, true)
+	_mesh(water, "RiverWaterSurface", water_material, false)
+	#Each section can be culled separately, and carries one spatial water loop.
 	var sfx := get_node_or_null("/root/Sfx")
 	if sfx:
-		for f in [-0.3, 0.0, 0.3]:
-			sfx.loop3d("river_loop", surface, Vector3(0, 0.3, length * f), -12.0, 30.0)
-
-	# --- Continuous eroded banks + edge dressing, one set per side.
-	var noise := FastNoiseLite.new()
-	noise.seed = 4242
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.06
-	noise.fractal_octaves = 3
-
-	for side in [-1.0, 1.0]:
-		var bank := _build_bank_ribbon(width, length, surface_y, side, noise)
-		add_child(bank)
-		bank.transform = water.transform
-		bank.position.y = 0.0
-		_scatter_reeds(water, width, length, surface_y, side, rng)
+		var z := (start + end) * .5
+		sfx.loop3d("river_loop", self, Vector3(center_x(z), water_y + .2, z), -16.0, 48.0)
 
 
-## Eroded berm ribbon: rows along the river, five stations across —
-## submerged toe, wet waterline lip, eroded crest, then a long fade into
-## the grass field. Low-frequency noise wanders the edge and crest heights;
-## a higher octave roughens every vertex so no silhouette reads smooth.
-func _build_bank_ribbon(width: float, length: float, surface_y: float,
-		side: float, noise: FastNoiseLite) -> MeshInstance3D:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+func _bank_row(z: float) -> PackedVector3Array:
+	var w := half_width(z)
+	var x := center_x(z)
+	var crest := ground_y + .12 + .035 * sin(z * .7)
+	return PackedVector3Array([
+		Vector3(x - w - BANK_REACH, ground_y, z),
+		Vector3(x - w - 1.2, crest, z),
+		Vector3(x - w, water_y, z),
+		Vector3(x - w + 2.5, water_y - DEPTH, z),
+		Vector3(x + w - 2.5, water_y - DEPTH, z),
+		Vector3(x + w, water_y, z),
+		Vector3(x + w + 1.2, crest, z),
+		Vector3(x + w + BANK_REACH, ground_y, z),
+	])
 
-	var edge_x: float = width * 0.5
-	# Cross stations: [offset from edge, height rel. water surface, wetness 0..1]
-	var stations := [
-		[-0.9, -0.35, 1.0],   # submerged toe
-		[0.0, 0.04, 1.0],     # waterline lip — barely proud of the water
-		[0.9, 0.28, 0.55],    # lower slope, still damp
-		[2.0, 0.42, 0.2],     # eroded crest
-		[BANK_REACH, -0.08, 0.0],  # blend under the grass field
-	]
-	var rows: int = int(length / ROW_STEP) + 1
-	var verts: Array = []  # rows × stations of [pos, color, uv]
-	for r in range(rows):
-		var z: float = -length * 0.5 + ROW_STEP * r
-		var wander: float = noise.get_noise_2d(z * 0.5, side * 37.0) * 1.1
-		var crest_n: float = noise.get_noise_2d(z * 0.9, side * 91.0)
-		var row: Array = []
-		for s in range(stations.size()):
-			var off: float = stations[s][0]
-			var h: float = stations[s][1]
-			var wet: float = stations[s][2]
-			var x: float = side * (edge_x + off + wander * (0.4 + 0.2 * s))
-			var y: float = surface_y + h
-			if s == 2 or s == 3:
-				y += crest_n * 0.22  # erosion bites the slope and crest
-			# High-octave roughness on every vertex — kills the smooth look.
-			var rough: float = noise.get_noise_2d(z * 4.0 + off * 7.0, side * 13.0)
-			y += rough * 0.09
-			x += side * rough * 0.25
-			# Wet earth is darker; dry crest keeps the texture's own tone.
-			var shade: float = lerpf(1.0, 0.42, wet)
-			var col := Color(shade, shade * 0.92, shade * 0.8)
-			row.append([Vector3(x, y, z), col, Vector2(x / 2.6, z / 2.6)])
-		verts.append(row)
 
-	for r in range(rows - 1):
-		for s in range(stations.size() - 1):
-			var a: Array = verts[r][s]
-			var b: Array = verts[r][s + 1]
-			var c: Array = verts[r + 1][s]
-			var d: Array = verts[r + 1][s + 1]
-			# Winding flips with the side so faces point up on both banks.
-			var quad: Array = [a, b, c, b, d, c] if side > 0.0 else [a, c, b, b, c, d]
-			for v in quad:
-				st.set_color(v[1])
-				st.set_uv(v[2])
-				st.add_vertex(v[0])
+func _water_point(z: float, u: float) -> Vector3:
+	return Vector3(center_x(z) + (u * 2 - 1) * half_width(z), water_y, z)
 
+
+func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, water := false) -> void:
+	for p in [a, b, c, b, d, c]:
+		if water:
+			var offset: float = p.x - center_x(p.z)
+			var u: float = .5 + offset / (half_width(p.z) * 2.0)
+			st.set_uv(Vector2(offset / 4.0, p.z / 4.0))
+			st.set_color(Color(u, clampf((half_width(p.z) - absf(offset)) / 2.5, 0, 1), 0, 1))
+		else:
+			st.set_uv(Vector2(p.x, p.z) / 2.6)
+			var shade: float = lerpf(.45, 1.0, smoothstep(water_y - .2, ground_y + .1, p.y))
+			st.set_color(Color(shade, shade, shade))
+		st.add_vertex(p)
+
+
+func _mesh(st: SurfaceTool, label: String, material: Material, collision: bool) -> void:
 	st.generate_normals()
 	st.generate_tangents()
-
-	var bank := MeshInstance3D.new()
-	bank.name = "BankRibbon%s" % ("R" if side > 0.0 else "L")
-	bank.mesh = st.commit()
-
-	var earth := StandardMaterial3D.new()
-	earth.albedo_texture = load(TEX_ALBEDO)
-	earth.albedo_color = Color(0.85, 0.78, 0.68)  # cool it toward river soil
-	earth.vertex_color_use_as_albedo = true       # wet-edge darkening
-	earth.normal_enabled = true
-	earth.normal_texture = load(TEX_NORMAL)
-	earth.normal_scale = 1.6
-	earth.roughness_texture = load(TEX_ROUGH)
-	earth.roughness = 0.9
-	earth.ao_enabled = true
-	earth.ao_texture = load(TEX_AO)
-	earth.ao_light_affect = 0.5
-	earth.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	bank.material_override = earth
-	return bank
+	st.index()
+	var mesh := MeshInstance3D.new()
+	mesh.name = label
+	mesh.mesh = st.commit()
+	mesh.material_override = material
+	add_child(mesh)
+	if collision:
+		mesh.create_trimesh_collision()
+	else:
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mesh.extra_cull_margin = .1
 
 
-## Sedge clumps on the lip — thin tapered blades in bunches of mixed height,
-## the classic water-edge vegetation transition.
-func _scatter_reeds(water: CSGBox3D, width: float, length: float,
-		surface_y: float, side: float, rng: RandomNumberGenerator) -> void:
-	var blade := _make_reed_mesh()
-	var transforms: Array[Transform3D] = []
-	var clumps := int(length * REED_CLUMPS_PER_M)
-	for i in range(clumps):
-		var cz: float = -length * 0.5 + (float(i) + rng.randf()) * (length / float(clumps))
-		var cx: float = side * (width * 0.5 + rng.randf_range(0.0, 1.0))
-		var blades := rng.randi_range(4, 9)
-		for b in range(blades):
-			var h: float = rng.randf_range(0.55, 1.25)
-			var basis := Basis(Vector3.UP, rng.randf() * TAU) \
-					* Basis(Vector3.RIGHT, rng.randf_range(-0.16, 0.16))
-			basis = basis.scaled(Vector3(1.0, h, 1.0))
-			transforms.append(Transform3D(basis,
-					Vector3(cx + rng.randf_range(-0.35, 0.35), surface_y + 0.02,
-							cz + rng.randf_range(-0.35, 0.35))))
-	_add_multimesh(water, water.name + ("ReedsR" if side > 0.0 else "ReedsL"), blade, transforms)
-
-
-func _add_multimesh(align_to: Node3D, mm_name: String, mesh: Mesh, transforms: Array[Transform3D]) -> void:
-	if transforms.is_empty():
+func _bridges() -> void:
+	var roads := get_node_or_null("../Roads")
+	if not roads:
 		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = mesh
-	mm.instance_count = transforms.size()
-	for i in range(transforms.size()):
-		mm.set_instance_transform(i, transforms[i])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.name = mm_name
-	mmi.multimesh = mm
-	add_child(mmi)
-	mmi.transform = align_to.transform
-	mmi.position.y = 0.0
+	for road in roads.get_children():
+		if not road is CSGBox3D:
+			continue
+		var forward: Vector3 = road.global_basis.z.normalized()
+		var a: Vector3 = road.global_position - forward * road.size.z * .5
+		var b: Vector3 = road.global_position + forward * road.size.z * .5
+		if (a.x - center_x(a.z)) * (b.x - center_x(b.z)) >= 0:
+			continue
+		for i in range(20):
+			var mid := (a + b) * .5
+			if (a.x - center_x(a.z)) * (mid.x - center_x(mid.z)) > 0:
+				a = mid
+			else:
+				b = mid
+		var crossing := (a + b) * .5
+		var slope := (center_x(crossing.z + .5) - center_x(crossing.z - .5))
+		var length := (half_width(crossing.z) + 3.2) * 2 / absf(forward.x - slope * forward.z)
+		#The buried blockout road must not leave a shelf across the riverbed.
+		road.use_collision = false
+		road.hide()
+		var bridge := Node3D.new()
+		bridge.name = road.name + "Bridge"
+		add_child(bridge)
+		bridge.global_position = Vector3(crossing.x, ground_y + .2, crossing.z)
+		bridge.global_basis = road.global_basis.orthonormalized()
+		bridges.append(bridge)
+		var wood := StandardMaterial3D.new()
+		wood.albedo_color = Color(.22, .135, .068)
+		wood.roughness = .9
+		#One smooth collision deck; individual planks carry the visible joints.
+		var deck := StaticBody3D.new()
+		bridge.add_child(deck)
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(5.2, .25, length)
+		shape.shape = box
+		shape.position.y = -.125
+		deck.add_child(shape)
+		var planks := int(ceil(length / .32))
+		for i in range(planks):
+			_box(bridge, Vector3(5.2, .25, length / planks - .012),
+					Vector3(0, -.125, -length * .5 + (i + .5) * length / planks), wood)
+		_bridge_ramps(bridge, length, wood)
+		for side in [-1.0, 1.0]:
+			_box(bridge, Vector3(.13, .14, length), Vector3(side * 2.5, .95, 0), wood)
+			for i in range(int(length / 2.5) + 1):
+				_box(bridge, Vector3(.18, 1.2, .18),
+						Vector3(side * 2.5, .45, -length * .5 + i * 2.5), wood)
 
 
-## Single tapered sedge blade, double-sided.
-func _make_reed_mesh() -> ArrayMesh:
+func _bridge_ramps(bridge: Node3D, length: float, material: Material) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var base_w := 0.035
-	var tip := Vector3(0, 1.0, 0)
-	var bl := Vector3(-base_w, 0, 0)
-	var br := Vector3(base_w, 0, 0)
-	for v in [bl, br, tip]:
-		st.set_uv(Vector2(0, 0))
-		st.add_vertex(v)
+	for side in [-1.0, 1.0]:
+		var a := Vector3(-2.6, 0, side * length * .5)
+		var b := Vector3(2.6, 0, a.z)
+		var c := Vector3(-2.6, -.2, a.z + side * 2.0)
+		var d := Vector3(2.6, -.2, c.z)
+		if side > 0:
+			_quad(st, a, b, c, d)
+		else:
+			_quad(st, c, d, a, b)
 	st.generate_normals()
-	var mesh: ArrayMesh = st.commit()
+	var ramps := MeshInstance3D.new()
+	ramps.name = "ApproachRamps"
+	ramps.mesh = st.commit()
+	ramps.material_override = material
+	bridge.add_child(ramps)
+	ramps.create_trimesh_collision()
+
+
+func _box(parent: Node3D, size: Vector3, at: Vector3, material: Material) -> void:
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.material_override = material
+	mesh.position = at
+	parent.add_child(mesh)
+
+
+func _reeds() -> void:
+	var blade := SurfaceTool.new()
+	blade.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for v in [Vector3(-.035, 0, 0), Vector3(.035, 0, 0), Vector3(.08, 1, 0)]:
+		blade.add_vertex(v)
+	blade.generate_normals()
+	var mesh := blade.commit()
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.24, 0.11)  # dark sedge green
-	mat.roughness = 0.9
+	mat.albedo_color = Color(.17, .24, .085)
+	mat.roughness = .95
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mesh.surface_set_material(0, mat)
-	return mesh
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7331
+	var z := bounds.position.y
+	while z < bounds.end.y:
+		var count := mini(180, int((bounds.end.y - z) * 3))
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = count
+		for i in range(count):
+			var pz := z + float(i) / 3.0
+			var side := -1.0 if i % 2 else 1.0
+			var px := center_x(pz) + side * (half_width(pz) + rng.randf_range(.4, 1.1))
+			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(1, rng.randf_range(.45, 1.1), 1))
+			mm.set_instance_transform(i, Transform3D(basis, Vector3(px, ground_y + .01, pz)))
+		var reeds := MultiMeshInstance3D.new()
+		reeds.name = "BankReeds"
+		reeds.multimesh = mm
+		reeds.visibility_range_end = 110.0
+		add_child(reeds)
+		z += 60.0
 
 
-## Seamless noise normal map for the water ripple layers.
-func _make_ripple_normal_tex(frequency: float, seed_val: int) -> NoiseTexture2D:
+func _normal_texture(frequency: float, seed_value: int) -> NoiseTexture2D:
 	var noise := FastNoiseLite.new()
-	noise.seed = seed_val
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.seed = seed_value
 	noise.frequency = frequency
 	noise.fractal_octaves = 3
 	var tex := NoiseTexture2D.new()
@@ -239,6 +285,6 @@ func _make_ripple_normal_tex(frequency: float, seed_val: int) -> NoiseTexture2D:
 	tex.height = 256
 	tex.seamless = true
 	tex.as_normal_map = true
-	tex.bump_strength = 6.0
+	tex.bump_strength = 3.5
 	tex.noise = noise
 	return tex

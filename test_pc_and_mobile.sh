@@ -4,8 +4,8 @@
 
 PROJECT_DIR="/home/talves/mthings/LandsOfBalance"
 GODOT="/home/talves/bin/godot"
-PACKAGE_NAME="com.tpgame.douglassthekeeper"
-APK_PATH="/tmp/douglassthekeeper.apk"
+PACKAGE_NAME="com.tpgame.landsofbalance"
+APK_PATH="/tmp/landsofbalance.apk"
 
 # Window settings
 WINDOW_WIDTH=960

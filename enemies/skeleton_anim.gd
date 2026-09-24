@@ -48,6 +48,7 @@ const B_R_HAND := "NPC_R_Hand__RHnd_"
 static func add_all(anim_player: AnimationPlayer, skel: Skeleton3D) -> void:
 	var lib := AnimationLibrary.new()
 	lib.add_animation(&"Idle", create_idle(skel))
+	lib.add_animation(&"HitReact", create_hit_react(skel))
 	lib.add_animation(&"Walk", create_walk(skel))
 	lib.add_animation(&"Run", create_run(skel))
 	lib.add_animation(&"AttackOverhead", create_attack_overhead(skel))
@@ -70,6 +71,17 @@ static func create_idle(skel: Skeleton3D) -> Animation:
 		return Vector3(2.5 * sin(TAU * t), 0.0, 2.0 * sin(TAU * t + 2.0)))
 	_track(anim, skel, B_L_ARM, func(t: float) -> Vector3:
 		return Vector3(2.0 * sin(TAU * t + 1.0), 0.0, -1.5 * sin(TAU * t)))
+	return anim
+
+
+static func create_hit_react(skel: Skeleton3D) -> Animation:
+	var anim := _new_anim(0.34, false)
+	_track(anim, skel, B_SPINE0, func(t: float) -> Vector3:
+		return Vector3(18.0, -8.0, 0.0) * sin(PI * pow(t, 0.45)))
+	_track(anim, skel, B_SPINE2, func(t: float) -> Vector3:
+		return Vector3(12.0, 10.0, 0.0) * sin(PI * pow(t, 0.45)))
+	_track(anim, skel, B_HEAD, func(t: float) -> Vector3:
+		return Vector3(15.0, 0.0, -8.0) * sin(PI * pow(t, 0.45)))
 	return anim
 
 

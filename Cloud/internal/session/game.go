@@ -36,7 +36,7 @@ func freeTCPPort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func startGame(cfg *config.Config, d *display, sink *audioSink, framePort int, logDir string) (*game, error) {
+func startGame(cfg *config.Config, d *display, sink *audioSink, framePort int, touch bool, logDir string) (*game, error) {
 	port, err := freeTCPPort()
 	if err != nil {
 		return nil, err
@@ -81,6 +81,9 @@ func startGame(cfg *config.Config, d *display, sink *audioSink, framePort int, l
 	}
 	if framePort > 0 {
 		env = append(env, "LOB_CLOUD_FRAMES_PORT="+strconv.Itoa(framePort))
+	}
+	if touch {
+		env = append(env, "LOB_CLOUD_TOUCH=1")
 	}
 	if sink != nil {
 		env = append(env, "PULSE_SINK="+sink.name)

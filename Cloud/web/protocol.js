@@ -3,6 +3,7 @@
 export const FRAME = {
   KEY: 0x01, MOUSE_MOVE: 0x02, MOUSE_BUTTON: 0x03, JOY_BUTTON: 0x04,
   JOY_AXIS: 0x05, JOY_CONNECT: 0x06, RELEASE_ALL: 0x07, PING: 0x08,
+  TOUCH: 0x09, TOUCH_DRAG: 0x0A,
   MOUSE_MODE: 0x80, PONG: 0x81, HELLO: 0x82,
 };
 
@@ -80,6 +81,27 @@ export function encodeJoyConnect(device, connected, name) {
   v.setUint8(2, connected ? 1 : 0);
   v.setUint8(3, bytes.length);
   new Uint8Array(b, 4).set(bytes);
+  return b;
+}
+
+export function encodeTouch(index, pressed, x, y) {
+  const [b, v] = frame(11);
+  v.setUint8(0, FRAME.TOUCH);
+  v.setUint8(1, index);
+  v.setUint8(2, pressed ? 1 : 0);
+  v.setFloat32(3, x, true);
+  v.setFloat32(7, y, true);
+  return b;
+}
+
+export function encodeTouchDrag(index, x, y, dx, dy) {
+  const [b, v] = frame(18);
+  v.setUint8(0, FRAME.TOUCH_DRAG);
+  v.setUint8(1, index);
+  v.setFloat32(2, x, true);
+  v.setFloat32(6, y, true);
+  v.setFloat32(10, dx, true);
+  v.setFloat32(14, dy, true);
   return b;
 }
 

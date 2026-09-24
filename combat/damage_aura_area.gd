@@ -8,7 +8,7 @@ extends Area3D
 ## `lifetime == 0`).
 ##
 ## Flat HP, not a fraction of the target's max: a percentage made one burning
-## patch of grass hit a 1000 HP boss twenty times harder than a 50 HP mob, and
+## patch of grass hit a 1500 HP boss thirty times harder than a 50 HP mob, and
 ## made every health bar in the game irrelevant to how long anything survived
 ## standing in fire.
 ##

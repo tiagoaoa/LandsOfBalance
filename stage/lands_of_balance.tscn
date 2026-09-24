@@ -1,4 +1,4 @@
-[gd_scene load_steps=45 format=4 uid="uid://b2lcb4fy8his1"]
+[gd_scene load_steps=46 format=4 uid="uid://b2lcb4fy8his1"]
 
 [ext_resource type="Script" uid="uid://vw47tquoshc7" path="res://stage/stage.gd" id="1_stage"]
 [ext_resource type="Script" uid="uid://cuveftns1euyj" path="res://stage/village_decorator.gd" id="2_decorator"]
@@ -20,6 +20,8 @@
 [ext_resource type="Script" uid="uid://c26yvq1wnu2go" path="res://assets/object28_loader.gd" id="18_csoi1"]
 [ext_resource type="Script" path="res://stage/realistic_grass_placer.gd" id="19_grass"]
 [ext_resource type="Script" path="res://stage/river_builder.gd" id="20_river"]
+
+[ext_resource type="Shader" path="res://stage/terrain_surface.gdshader" id="21_terrain"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_15kie"]
 sky_top_color = Color(0.42, 0.52, 0.68, 1)
@@ -47,19 +49,14 @@ fog_light_color = Color(0.12, 0.14, 0.2, 1)
 fog_light_energy = 0.15
 fog_density = 0.001
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0t235"]
-albedo_color = Color(0.74, 0.79, 0.62, 1)
-albedo_texture = ExtResource("4_js6ng")
-roughness = 0.95
-roughness_texture = ExtResource("7_5v762")
-normal_enabled = true
-normal_scale = 1.3
-normal_texture = ExtResource("6_grb1b")
-ao_enabled = true
-ao_texture = ExtResource("5_wdnaj")
-ao_light_affect = 0.5
-uv1_scale = Vector3(110, 110, 110)
-texture_filter = 5
+[sub_resource type="ShaderMaterial" id="StandardMaterial3D_0t235"]
+shader = ExtResource("21_terrain")
+shader_parameter/soil_color = ExtResource("4_js6ng")
+shader_parameter/soil_normal = ExtResource("6_grb1b")
+shader_parameter/soil_roughness = ExtResource("7_5v762")
+shader_parameter/soil_ao = ExtResource("5_wdnaj")
+shader_parameter/wetness = 0.0
+shader_parameter/tile_scale = 0.65
 
 [sub_resource type="StandardMaterial3D" id="mat_stone_dark"]
 albedo_color = Color(0.35, 0.35, 0.4, 1)
@@ -334,28 +331,6 @@ material = SubResource("StandardMaterial3D_0t235")
 
 [node name="River" type="Node3D" parent="."]
 script = ExtResource("20_river")
-
-[node name="RiverBed" type="CSGBox3D" parent="River"]
-transform = Transform3D(0.866, 0, 0.5, 0, 1, 0, -0.5, 0, 0.866, -20, -0.8, 60)
-use_collision = true
-size = Vector3(12, 1.5, 180)
-material = SubResource("mat_stone_dark")
-
-[node name="RiverWater" type="CSGBox3D" parent="River"]
-transform = Transform3D(0.866, 0, 0.5, 0, 1, 0, -0.5, 0, 0.866, -20, 0.1, 60)
-size = Vector3(10, 0.8, 178)
-material = SubResource("mat_water")
-
-[node name="RiverBed2" type="CSGBox3D" parent="River"]
-transform = Transform3D(0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707, 40, -0.8, -40)
-use_collision = true
-size = Vector3(12, 1.5, 120)
-material = SubResource("mat_stone_dark")
-
-[node name="RiverWater2" type="CSGBox3D" parent="River"]
-transform = Transform3D(0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707, 40, 0.1, -40)
-size = Vector3(10, 0.8, 118)
-material = SubResource("mat_water")
 
 [node name="RiverLabel" type="Label3D" parent="River"]
 transform = Transform3D(0.866, 0, 0.5, 0, 1, 0, -0.5, 0, 0.866, 0, 3, 30)

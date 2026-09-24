@@ -1,4 +1,4 @@
-# Douglass The Keeper - Game Server Makefile
+# Lands of Balance - Game Server Makefile
 
 CC = gcc
 CFLAGS = -Wall -Wextra -O2

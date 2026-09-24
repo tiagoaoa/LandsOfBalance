@@ -1,0 +1,180 @@
+{
+  "sword_whoosh_1": [
+    "sword_whoosh_1_1.wav",
+    "sword_whoosh_1_2.wav",
+    "sword_whoosh_1_3.wav"
+  ],
+  "sword_whoosh_2": [
+    "sword_whoosh_2_1.wav",
+    "sword_whoosh_2_2.wav",
+    "sword_whoosh_2_3.wav"
+  ],
+  "sword_whoosh_3": [
+    "sword_whoosh_3_1.wav",
+    "sword_whoosh_3_2.wav",
+    "sword_whoosh_3_3.wav"
+  ],
+  "punch_whoosh": [
+    "punch_whoosh_1.wav",
+    "punch_whoosh_2.wav",
+    "punch_whoosh_3.wav"
+  ],
+  "hit_metal": [
+    "hit_metal_1.wav",
+    "hit_metal_2.wav",
+    "hit_metal_3.wav"
+  ],
+  "hit_flesh": [
+    "hit_flesh_1.wav",
+    "hit_flesh_2.wav",
+    "hit_flesh_3.wav"
+  ],
+  "block_chip": [
+    "block_chip_1.wav",
+    "block_chip_2.wav",
+    "block_chip_3.wav"
+  ],
+  "parry_ring": [
+    "parry_ring_1.wav",
+    "parry_ring_2.wav",
+    "parry_ring_3.wav"
+  ],
+  "bow_release": [
+    "bow_release_1.wav",
+    "bow_release_2.wav",
+    "bow_release_3.wav"
+  ],
+  "bow_draw": [
+    "bow_draw_1.wav",
+    "bow_draw_2.wav",
+    "bow_draw_3.wav"
+  ],
+  "arrow_impact_wood": [
+    "arrow_impact_wood_1.wav",
+    "arrow_impact_wood_2.wav",
+    "arrow_impact_wood_3.wav"
+  ],
+  "arrow_impact_stone": [
+    "arrow_impact_stone_1.wav",
+    "arrow_impact_stone_2.wav",
+    "arrow_impact_stone_3.wav"
+  ],
+  "arrow_impact_flesh": [
+    "arrow_impact_flesh_1.wav",
+    "arrow_impact_flesh_2.wav",
+    "arrow_impact_flesh_3.wav"
+  ],
+  "arrow_impact": [
+    "arrow_impact_1.wav",
+    "arrow_impact_2.wav",
+    "arrow_impact_3.wav"
+  ],
+  "step_grass": [
+    "step_grass_1.wav",
+    "step_grass_2.wav",
+    "step_grass_3.wav",
+    "step_grass_4.wav",
+    "step_grass_5.wav"
+  ],
+  "step_concrete": [
+    "step_concrete_1.wav",
+    "step_concrete_2.wav",
+    "step_concrete_3.wav",
+    "step_concrete_4.wav",
+    "step_concrete_5.wav"
+  ],
+  "step_wood": [
+    "step_wood_1.wav",
+    "step_wood_2.wav",
+    "step_wood_3.wav",
+    "step_wood_4.wav",
+    "step_wood_5.wav"
+  ],
+  "armor_step": [
+    "armor_step_1.wav",
+    "armor_step_2.wav",
+    "armor_step_3.wav",
+    "armor_step_4.wav",
+    "armor_step_5.wav"
+  ],
+  "roll": [
+    "roll_1.wav",
+    "roll_2.wav",
+    "roll_3.wav"
+  ],
+  "jump": [
+    "jump_1.wav",
+    "jump_2.wav",
+    "jump_3.wav"
+  ],
+  "land": [
+    "land_1.wav",
+    "land_2.wav",
+    "land_3.wav"
+  ],
+  "death_thud": [
+    "death_thud_1.wav",
+    "death_thud_2.wav",
+    "death_thud_3.wav"
+  ],
+  "estus_drink": [
+    "estus_drink_1.wav",
+    "estus_drink_2.wav",
+    "estus_drink_3.wav"
+  ],
+  "coin": [
+    "coin_1.wav",
+    "coin_2.wav",
+    "coin_3.wav"
+  ],
+  "bobba_roar": [
+    "bobba_roar_1.wav",
+    "bobba_roar_2.wav",
+    "bobba_roar_3.wav"
+  ],
+  "dragon_roar": [
+    "dragon_roar_1.wav",
+    "dragon_roar_2.wav",
+    "dragon_roar_3.wav"
+  ],
+  "fire_ignite": [
+    "fire_ignite_1.wav",
+    "fire_ignite_2.wav",
+    "fire_ignite_3.wav"
+  ],
+  "spell_fire_start": [
+    "spell_fire_start_1.wav",
+    "spell_fire_start_2.wav",
+    "spell_fire_start_3.wav"
+  ],
+  "spell_lightning_start": [
+    "spell_lightning_start_1.wav",
+    "spell_lightning_start_2.wav",
+    "spell_lightning_start_3.wav"
+  ],
+  "spell_lightning_end": [
+    "spell_lightning_end_1.wav",
+    "spell_lightning_end_2.wav",
+    "spell_lightning_end_3.wav"
+  ],
+  "spell_fire_end": [
+    "spell_fire_end_1.wav",
+    "spell_fire_end_2.wav",
+    "spell_fire_end_3.wav"
+  ],
+  "spell_lightning_loop": [
+    "spell_lightning_loop_1.wav"
+  ],
+  "spell_fire_loop": [
+    "spell_fire_loop_1.wav"
+  ],
+  "fire_crackle_loop": [
+    "fire_crackle_loop_1.wav"
+  ],
+  "night_rain_loop": [
+    "night_rain_loop_1.wav"
+  ],
+  "river_loop": [
+    "river_loop_1.wav"
+  ]
+}

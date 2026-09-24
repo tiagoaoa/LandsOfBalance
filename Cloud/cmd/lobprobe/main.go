@@ -35,6 +35,7 @@ func main() {
 	token := flag.String("token", os.Getenv("LOB_TOKEN"), "access token")
 	dur := flag.Duration("duration", 20*time.Second, "how long to stream before leaving")
 	keep := flag.Bool("keep", false, "leave the session running when done")
+	tcpOnly := flag.Bool("tcp", false, "ICE over TCP only (what a browser does when the host has no UDP)")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
@@ -70,7 +71,11 @@ func main() {
 	}
 	defer ws.Close()
 
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	se := webrtc.SettingEngine{}
+	if *tcpOnly {
+		se.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeTCP4})
+	}
+	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -100,11 +100,27 @@ LandsOfBalance/
 
 ## Controls
 
-- **WASD** - Movement
-- **Space** - Jump
-- **Left Click** - Draw bow / Release arrow
-- **Right Click** - Combat stance
-- **Shift** - Sprint
+| Action | Keyboard / mouse | Controller |
+|---|---|---|
+| Move | WASD | Left stick |
+| Sprint | Hold Shift | Hold L3 |
+| Jump | Space | A |
+| Dodge / neutral backstep | X (or Ctrl+Space) | B |
+| Paladin light attack / combo | LMB or F | LT |
+| Paladin heavy attack | V | RB |
+| Guard | Hold RMB | Hold RT |
+| Parry | G | LB |
+| Lock on / unlock | T | R3 |
+| Switch locked target | | Flick right stick left/right |
+| Archer aim, draw, release shot | Hold then release RMB | Hold then release LT |
+| Archer quick shot | LMB or F | RB |
+| Heal | H | D-pad Down |
+| Cast spell | C | X |
+| Revive ally | Hold E | Hold Y |
+
+Sword windups and contact commit the player. Press again to chain one attack, or dodge/guard during recovery. Heavy blows break posture; attack an enemy marked OPEN for a critical. A dodge can cancel a bow draw or a heal, but a cancelled heal still spends its flask. Full stick movement does not consume sprint stamina.
+
+Run `bash tools/run_combat_arena.sh` for the practice duel, or add `--archer` to practice bow combat. Combat changes and checks are recorded in [docs/combat_feel.md](docs/combat_feel.md).
 
 ## Multiplayer Protocol
 

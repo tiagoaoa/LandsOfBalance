@@ -16,6 +16,8 @@
 //	0x06 JOY_CONNECT  device u8, connected u8, name_len u8, name[name_len]                                (4+n)
 //	0x07 RELEASE_ALL                                                                                       (1)
 //	0x08 PING         seq u32                                                                              (5)
+//	0x09 TOUCH        index u8, pressed u8, x f32, y f32                                                   (11)
+//	0x0A TOUCH_DRAG   index u8, x f32, y f32, dx f32, dy f32                                               (18)
 //
 // Game → gateway → browser:
 //
@@ -35,6 +37,8 @@ const (
 	JoyConnectFrame  = 0x06
 	ReleaseAllFrame  = 0x07
 	PingFrame        = 0x08
+	TouchFrame       = 0x09
+	TouchDragFrame   = 0x0A
 
 	MouseModeFrame = 0x80
 	PongFrame      = 0x81
@@ -50,6 +54,8 @@ var fixedLen = map[byte]int{
 	JoyAxisFrame:     7,
 	ReleaseAllFrame:  1,
 	PingFrame:        5,
+	TouchFrame:       11,
+	TouchDragFrame:   18,
 	MouseModeFrame:   2,
 	PongFrame:        5,
 	HelloFrame:       2,
@@ -97,7 +103,7 @@ func Split(buf []byte, allowed func(byte) bool) (int, error) {
 }
 
 // ClientFrame reports whether the type may be sent by the browser.
-func ClientFrame(t byte) bool { return t >= KeyFrame && t <= PingFrame }
+func ClientFrame(t byte) bool { return t >= KeyFrame && t <= TouchDragFrame }
 
 // GameFrame reports whether the type may be sent by the game.
 func GameFrame(t byte) bool { return t >= MouseModeFrame && t <= HelloFrame }

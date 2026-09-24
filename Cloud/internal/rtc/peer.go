@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ type Callbacks struct {
 type Peer struct {
 	pc    *webrtc.PeerConnection
 	cb    Callbacks
+	cfg   *config.Config
 	video *webrtc.TrackLocalStaticRTP
 	audio *webrtc.TrackLocalStaticRTP
 	vconn *net.UDPConn
@@ -118,7 +120,7 @@ func NewPeer(cfg *config.Config, cb Callbacks) (*Peer, error) {
 	}
 	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2, SDPFmtpLine: opusFmtp},
-		PayloadType: 111,
+		PayloadType:        111,
 	}, webrtc.RTPCodecTypeAudio); err != nil {
 		return nil, err
 	}
@@ -155,7 +157,7 @@ func NewPeer(cfg *config.Config, cb Callbacks) (*Peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Peer{pc: pc, cb: cb}
+	p := &Peer{pc: pc, cb: cb, cfg: cfg}
 
 	// Distinct stream ids on purpose: tracks that share an msid get
 	// lip-synced by the browser, which means video waits for the audio
@@ -209,7 +211,7 @@ func NewPeer(cfg *config.Config, cb Callbacks) (*Peer, error) {
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil && cb.OnICECandidate != nil {
-			cb.OnICECandidate(c.ToJSON())
+			cb.OnICECandidate(rewriteTCPPort(c.ToJSON(), cfg))
 		}
 	})
 	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
@@ -289,7 +291,42 @@ func (p *Peer) Answer(offerSDP string) (string, error) {
 	if err := p.pc.SetLocalDescription(ans); err != nil {
 		return "", fmt.Errorf("set local: %w", err)
 	}
-	return p.pc.LocalDescription().SDP, nil
+	return rewriteTCPPortSDP(p.pc.LocalDescription().SDP, p.cfg), nil
+}
+
+// rewriteTCPPort points a passive-TCP host candidate at the port the
+// browser can actually reach. SetNAT1To1IPs swaps the IP but keeps the
+// port, and on vast.ai the container's port N is exposed as some other
+// external port M — so the candidate leaves saying M.
+func rewriteTCPPort(c webrtc.ICECandidateInit, cfg *config.Config) webrtc.ICECandidateInit {
+	c.Candidate = rewriteTCPPortLine(c.Candidate, cfg)
+	return c
+}
+
+func rewriteTCPPortSDP(sdp string, cfg *config.Config) string {
+	if cfg.ICETCPPublicPort == 0 || cfg.ICETCPPublicPort == cfg.ICETCPPort {
+		return sdp
+	}
+	lines := strings.Split(sdp, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, "a=candidate:") {
+			lines[i] = "a=" + rewriteTCPPortLine(strings.TrimSuffix(l[2:], "\r"), cfg) + "\r"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func rewriteTCPPortLine(line string, cfg *config.Config) string {
+	if cfg.ICETCPPublicPort == 0 || cfg.ICETCPPublicPort == cfg.ICETCPPort {
+		return line
+	}
+	// candidate:<f> <comp> tcp <prio> <ip> <port> typ host tcptype passive ...
+	f := strings.Fields(line)
+	if len(f) < 8 || !strings.EqualFold(f[2], "tcp") || f[5] != strconv.Itoa(cfg.ICETCPPort) {
+		return line
+	}
+	f[5] = strconv.Itoa(cfg.ICETCPPublicPort)
+	return strings.Join(f, " ")
 }
 
 // AddICECandidate feeds a trickled candidate from the browser.

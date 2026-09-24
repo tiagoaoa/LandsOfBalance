@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 
 ADB = os.path.expanduser("~/Android/Sdk/platform-tools/adb")
-PKG = "com.tpgame.douglassthekeeper"
+PKG = "com.tpgame.landsofbalance"
 REPO = Path(__file__).resolve().parent.parent
 OUT_ROOT = REPO / "playtests"
 NOTE_RE = re.compile(r"\bnote[e]?[,:\s]", re.IGNORECASE)

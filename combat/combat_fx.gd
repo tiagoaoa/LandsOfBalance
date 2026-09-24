@@ -14,6 +14,7 @@ extends Node
 ## Nested calls extend the remaining duration but don't stack deeper than
 ## the minimum scale already in effect.
 var _hitstop_timer: float = 0.0
+var _hitstop_deadline: int = 0
 var _hitstop_original_scale: float = 1.0
 
 
@@ -27,9 +28,7 @@ var _shake_camera: Camera3D = null
 
 func _process(delta: float) -> void:
 	if _hitstop_timer > 0.0:
-		# time_scale does NOT scale the main loop's delta, so use the real
-		# frame time from get_process_delta_time on an Idle process node.
-		_hitstop_timer -= get_process_delta_time()
+		_hitstop_timer = maxf(0.0, (_hitstop_deadline - Time.get_ticks_usec()) / 1000000.0)
 		if _hitstop_timer <= 0.0:
 			Engine.time_scale = _hitstop_original_scale
 
@@ -61,6 +60,7 @@ func hitstop(duration: float = 0.06, scale: float = 0.05) -> void:
 	# Extend if we're already stopping.
 	if duration > _hitstop_timer:
 		_hitstop_timer = duration
+		_hitstop_deadline = Time.get_ticks_usec() + int(duration * 1000000.0)
 
 
 ## Shake the current viewport camera for a short burst.

@@ -102,8 +102,9 @@ func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-func (s *Server) createSession(w http.ResponseWriter, _ *http.Request) {
-	se, err := s.mgr.Create()
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	// A touch-device client asks for the game's native on-screen controls.
+	se, err := s.mgr.Create(r.URL.Query().Get("touch") == "1")
 	if err != nil {
 		code := http.StatusInternalServerError
 		if errors.Is(err, session.ErrFull) {

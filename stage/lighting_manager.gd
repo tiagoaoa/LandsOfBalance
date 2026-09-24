@@ -5,11 +5,7 @@ extends Node
 
 enum TimeOfDay { DAY, NIGHT }
 
-@export var time_of_day: TimeOfDay = TimeOfDay.DAY:
-	set(value):
-		time_of_day = value
-		if is_inside_tree():
-			_apply_lighting()
+@export var time_of_day: TimeOfDay = TimeOfDay.DAY
 
 @export var transition_duration: float = 2.0  ## Seconds to transition between presets
 
@@ -25,8 +21,8 @@ var _rain_bed: AudioStreamPlayer = null  # night ambience loop (rain + wind)
 const DAY_SETTINGS := {
 	"background_energy": 1.0,            # full-bright overcast sky
 	"ambient_color": Color(0.64, 0.71, 0.82),  # cool sky-blue skylight
-	"ambient_energy": 0.85,             # overcast = strong, shadow-lifting fill
-	"ambient_sky_contribution": 0.55,   # let the sky drive the ambient
+	"ambient_energy": 0.52,             # overcast = strong, shadow-lifting fill
+	"ambient_sky_contribution": 0.38,   # let the sky drive the ambient
 	"fog_enabled": true,
 	"fog_density": 0.0022,              # Nordic haze rolling over the distance
 	"fog_color": Color(0.66, 0.74, 0.83),  # cool blue-grey
@@ -36,8 +32,8 @@ const DAY_SETTINGS := {
 	"adjustment_enabled": true,
 	"glow_enabled": true,
 	"light_color": Color(1.0, 0.96, 0.86),  # soft sun, slightly warm vs the cool ambient
-	"light_energy": 1.7,
-	"light_rotation": Vector3(-48, -125, 0),  # mid-morning, long soft shadows
+	"light_energy": 1.85,
+	"light_rotation": Vector3(-32, -125, 0),  # mid-morning, long soft shadows
 }
 
 # Night preset — rainy night under a full moon. Humid air (dense fog +
@@ -47,12 +43,10 @@ const DAY_SETTINGS := {
 # sheen across the field instead of dying in matte darkness.
 const NIGHT_SETTINGS := {
 	"background_energy": 0.08,  # moonlit rain clouds — barely there
-	"ambient_color": Color(0.10, 0.14, 0.22),  # cold rain-cloud bounce
-	# DELIBERATELY dark: firelight is a gameplay mechanic — the archer's
-	# arrows light paths and reveal enemies for the paladin. The darker the
-	# baseline, the more those fires matter.
-	"ambient_energy": 0.3,
-	"ambient_sky_contribution": 0.25,
+	"ambient_color": Color(0.50, 0.57, 0.70),
+	#Keep attack silhouettes readable outside the archer's firelight.
+	"ambient_energy": 0.55,
+	"ambient_sky_contribution": 0.15,
 	"fog_enabled": true,
 	"fog_density": 0.0028,  # humid rainy air — thicker than dry-night haze
 	"fog_color": Color(0.07, 0.10, 0.16),  # deep blue-black wet air
@@ -69,6 +63,7 @@ const NIGHT_SETTINGS := {
 
 
 func _ready() -> void:
+	get_viewport().msaa_3d = Viewport.MSAA_2X if _full_quality() else Viewport.MSAA_DISABLED
 	# Find WorldEnvironment and DirectionalLight3D in parent
 	_world_env = _find_node_of_type(get_parent(), "WorldEnvironment")
 	_dir_light = _find_node_of_type(get_parent(), "DirectionalLight3D")
@@ -146,7 +141,7 @@ func _apply_lighting() -> void:
 	# Volumetric fog (night only) — thick enough that moonbeams become
 	# visible god rays through breaks in the cloud cover. The Moon child
 	# has its own light source that will carve through this.
-	env.volumetric_fog_enabled = settings.volumetric_fog_enabled
+	env.volumetric_fog_enabled = settings.volumetric_fog_enabled and _full_quality()
 	if settings.volumetric_fog_enabled:
 		# 0.010: humid enough for moon shafts; above ~0.015 the glowing air
 		# washes the whole night scene milky-pale.
@@ -174,7 +169,7 @@ func _apply_lighting() -> void:
 		env.sdfgi_enabled = false
 
 	# SSAO - Subtle contact shadows
-	env.ssao_enabled = settings.ssao_enabled
+	env.ssao_enabled = settings.ssao_enabled and _full_quality()
 	if settings.ssao_enabled:
 		env.ssao_radius = 0.5
 		env.ssao_intensity = 1.0
@@ -186,23 +181,23 @@ func _apply_lighting() -> void:
 	env.adjustment_enabled = settings.adjustment_enabled
 	if settings.adjustment_enabled:
 		if time_of_day == TimeOfDay.NIGHT:
-			env.adjustment_brightness = 0.95
-			env.adjustment_contrast = 1.18  # Punch without crushing mids
+			env.adjustment_brightness = 1.0
+			env.adjustment_contrast = 1.04
 			env.adjustment_saturation = 0.6  # rain washes the colour out
 		else:
 			env.adjustment_brightness = 1.0
-			env.adjustment_contrast = 1.0  # overcast is low-contrast; don't crush shadows
+			env.adjustment_contrast = 1.06
 			env.adjustment_saturation = 0.85  # lightly desaturated cool grade
 
 	# Glow - Subtle bloom on torches and emissives. Night pushes it a bit
 	# harder so the moon and the wet-surface glints halo softly.
-	env.glow_enabled = settings.glow_enabled
+	env.glow_enabled = settings.glow_enabled and _full_quality()
 	if settings.glow_enabled:
 		env.glow_intensity = 0.55 if time_of_day == TimeOfDay.NIGHT else 0.5
 		env.glow_strength = 1.0
-		env.glow_bloom = 0.15
+		env.glow_bloom = 0.04
 		env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-		env.glow_hdr_threshold = 1.0  # Only bright sources bloom
+		env.glow_hdr_threshold = 1.4  # Only bright sources bloom
 		env.glow_hdr_scale = 2.0
 		# Enable multiple glow levels for soft halos
 		env.set_glow_level(0, true)
@@ -226,7 +221,7 @@ func _apply_lighting() -> void:
 			_dir_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 			_dir_light.directional_shadow_max_distance = 120.0
 			_dir_light.shadow_blur = 1.5  # soft overcast contact shadows
-			_dir_light.light_specular = 0.4  # muted speculars under overcast
+			_dir_light.light_specular = 0.65  # muted speculars under overcast
 		else:
 			_dir_light.shadow_enabled = false
 
@@ -243,15 +238,7 @@ func _apply_lighting() -> void:
 			if _moon.has_method("set_light_color"):
 				_moon.set_light_color(Color(0.62, 0.70, 0.92))
 			if _moon.has_method("set_light_energy"):
-				# Calibrated against ACES + the 1.18 night contrast, which
-				# crush the low end: below ~1.0 the field renders pitch
-				# black; ~3.0 is fully readable. 2.5 keeps terrain navigable
-				# while an enemy 18m out is a barely-there smudge — the
-				# archer's fires do the revealing. NOTE: the old "night too
-				# bright near spawn" was NEVER the moon — it was a
-				# 1000-energy floodlight baked into the village FBX
-				# (village_loader._tame_imported_lights).
-				# 2.5 → 2.0: user-requested extra 20% dim.
+				#The moon supplies direction; ambient fill preserves dark poses.
 				_moon.set_light_energy(2.0)
 
 	# Wet/dry surface response must run after every _ready (the grass placer
@@ -265,7 +252,7 @@ func _apply_lighting() -> void:
 		if time_of_day == TimeOfDay.NIGHT and _rain_bed == null:
 			_rain_bed = sfx.loop2d("night_rain_loop", -22.0)
 		elif time_of_day == TimeOfDay.DAY and _rain_bed != null:
-			_rain_bed.queue_free()
+			sfx.fade_stop(_rain_bed, .7)
 			_rain_bed = null
 
 
@@ -278,7 +265,9 @@ func _apply_surface_wetness() -> void:
 
 	# Ground (CSG MainGround, Ground037 PBR material).
 	var ground: Node = scene_root.find_child("MainGround", true, false)
-	if ground and "material" in ground and ground.material is StandardMaterial3D:
+	if ground and "material" in ground and ground.material is ShaderMaterial:
+		ground.material.set_shader_parameter("wetness", 1.0 if wet else 0.0)
+	elif ground and "material" in ground and ground.material is StandardMaterial3D:
 		var mat: StandardMaterial3D = ground.material
 		if wet:
 			mat.roughness = 0.42            # rain-slick earth catches the moon
@@ -307,38 +296,44 @@ func _apply_surface_wetness() -> void:
 			sgt.albedo = Color(0.26, 0.34, 0.20) if wet else Color(0.46, 0.56, 0.28)
 
 
+func _full_quality() -> bool:
+	var settings := get_node_or_null("/root/GameSettings")
+	return RenderingServer.get_current_rendering_method() == "forward_plus" \
+			and not (settings and settings.performance_mode)
+
+
 func _transition_lighting() -> void:
+	if not _world_env or not _world_env.environment:
+		return
 	if _tween:
 		_tween.kill()
-
-	_tween = create_tween()
-	_tween.set_ease(Tween.EASE_IN_OUT)
-	_tween.set_trans(Tween.TRANS_SINE)
-
-	var settings: Dictionary = NIGHT_SETTINGS if time_of_day == TimeOfDay.NIGHT else DAY_SETTINGS
 	var env := _world_env.environment
-
-	# Tween main properties
-	_tween.tween_property(env, "background_energy_multiplier", settings.background_energy, transition_duration)
-	_tween.parallel().tween_property(env, "ambient_light_color", settings.ambient_color, transition_duration)
-	_tween.parallel().tween_property(env, "ambient_light_energy", settings.ambient_energy, transition_duration)
-	_tween.parallel().tween_property(env, "fog_density", settings.fog_density, transition_duration)
-	_tween.parallel().tween_property(env, "fog_light_color", settings.fog_color, transition_duration)
-	_tween.parallel().tween_property(env, "fog_light_energy", settings.fog_light_energy, transition_duration)
-
+	var env_keys := ["background_energy_multiplier", "ambient_light_color",
+		"ambient_light_energy", "fog_density", "fog_light_color",
+		"fog_light_energy", "adjustment_saturation", "adjustment_contrast"]
+	var light_keys := ["light_color", "light_energy", "rotation_degrees"]
+	var old_env := _values(env, env_keys)
+	var old_light := _values(_dir_light, light_keys) if _dir_light else []
+	_apply_lighting()
+	_tween = create_tween().set_parallel(true)
+	_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+	_blend_values(env, env_keys, old_env)
 	if _dir_light:
-		_tween.parallel().tween_property(_dir_light, "light_color", settings.light_color, transition_duration)
-		_tween.parallel().tween_property(_dir_light, "light_energy", settings.light_energy, transition_duration)
-		_tween.parallel().tween_property(_dir_light, "rotation_degrees", settings.light_rotation, transition_duration)
+		_blend_values(_dir_light, light_keys, old_light)
 
-	# Toggle boolean properties at halfway point
-	# Note: Detailed values are already set by _apply_lighting() which runs before transition
-	_tween.tween_callback(func():
-		env.volumetric_fog_enabled = settings.volumetric_fog_enabled
-		env.ssao_enabled = settings.ssao_enabled
-		env.adjustment_enabled = settings.adjustment_enabled
-		env.glow_enabled = settings.glow_enabled
-	).set_delay(transition_duration * 0.5)
+
+func _values(obj: Object, keys: Array) -> Array:
+	var values := []
+	for key in keys:
+		values.append(obj.get(key))
+	return values
+
+
+func _blend_values(obj: Object, keys: Array, old: Array) -> void:
+	for i in range(keys.size()):
+		var target = obj.get(keys[i])
+		obj.set(keys[i], old[i])
+		_tween.tween_property(obj, keys[i], target, transition_duration)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

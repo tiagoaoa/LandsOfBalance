@@ -50,6 +50,7 @@ type Session struct {
 
 	logDir     string
 	displayNum int
+	touch      bool // client is a touch device: game shows its touch UI
 	createdAt  time.Time
 
 	mu        sync.Mutex
@@ -186,7 +187,7 @@ func (s *Session) start(ctx context.Context) {
 	s.bridge = bridge
 	s.mu.Unlock()
 
-	g, err := startGame(s.cfg, d, sink, framePort, s.logDir)
+	g, err := startGame(s.cfg, d, sink, framePort, s.touch, s.logDir)
 	if err != nil {
 		fail(fmt.Errorf("game: %w", err))
 		return
@@ -351,6 +352,7 @@ func (s *Session) HandleInput(b []byte) error {
 	if _, err := proto.Split(b, proto.ClientFrame); err != nil {
 		return err
 	}
+
 	s.mu.Lock()
 	s.lastInput = time.Now()
 	g := s.game

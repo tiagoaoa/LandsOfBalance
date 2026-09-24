@@ -5,8 +5,8 @@ extends RefCounted
 ## (arrow tip, arrow ground fire, network ground fires, future braziers).
 ##
 ## Design rules:
-## - Flames are ADDITIVE billboards driven by a white→yellow→orange→red ramp
-##   and a grow-shrink scale curve; alpha-blend quads read as fog, not fire.
+## - Flames use animated, tapered shader billboards with a warm ramp and
+##   a grow-shrink scale curve. Embers use additive soft sprites.
 ## - Embers use GPU turbulence so they drift like real sparks.
 ## - Lights are single-digit energies with a proportional flicker. (The old
 ##   500-energy "fireplace" lights nuked the whole rainy-night grade.)
@@ -103,7 +103,12 @@ static func add_flames(parent: Node, pos: Vector3, size: float, amount: int) -> 
 	m.emission_sphere_radius = 0.22 * size
 	p.process_material = m
 
-	p.draw_pass_1 = _additive_billboard(Vector2(0.4, 0.6) * size)
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(.45, .85) * size
+	var flame := ShaderMaterial.new()
+	flame.shader = preload("res://combat/flame_sprite.gdshader")
+	mesh.material = flame
+	p.draw_pass_1 = mesh
 	parent.add_child(p)
 	return p
 
@@ -218,6 +223,15 @@ static func add_fire_light(parent: Node, pos: Vector3, energy: float,
 	light.omni_range = radius
 	light.omni_attenuation = 1.0  # linear falloff — a wide, useful throw
 	light.shadow_enabled = shadows
+	# A shadowed omni light re-renders the scene six times (a cube map).
+	# Past ~25 m the shadow it draws is a few pixels under fog, but the
+	# glow pool is the "fire lights the dark" signal seen across the field
+	# and costs little unshadowed: drop the shadow with distance, keep the
+	# light across the whole map.
+	light.distance_fade_enabled = true
+	light.distance_fade_shadow = 25.0
+	light.distance_fade_begin = 300.0
+	light.distance_fade_length = 40.0
 	light.position = pos
 	parent.add_child(light)
 	start_flicker(light, energy)
@@ -268,8 +282,8 @@ static func add_scorch_decal(parent: Node, radius: float) -> Decal:
 ## Full ground-fire composition: lights, layered flames, embers, smoke and
 ## scorch, with a soft burn-down in the last few seconds and auto-free at
 ## `lifetime`. Returns the container (caller adds gameplay bits like the
-## damage aura). `node_name` must keep "GroundFire" in it — Bobba's fire
-## avoidance scans node names for that substring.
+## damage aura). Bobba's fire avoidance and AI perception find it through
+## the "ground_fire" group, not by `node_name`.
 ## `scorch` is off for a fire that rides a body: a scorch decal is a mark
 ## burned into the ground, and one parented to a walking enemy slides around
 ## under his feet.
@@ -288,10 +302,10 @@ static func create_ground_fire(scene_root: Node, world_pos: Vector3,
 	# damage aura — raised off the ground so the knee-high grass doesn't
 	# swallow the throw.
 	var light := add_fire_light(fire, Vector3(0, 1.4, 0), 30.0, 18.0, shadows)
-	var core := add_flames(fire, Vector3(0, 0.15, 0), 1.0, 40)
-	var outer := add_flames(fire, Vector3(0, 0.1, 0), 1.6, 24)
-	var embers := add_embers(fire, Vector3(0, 0.3, 0), 1.0, 30)
-	var smoke := add_smoke(fire, Vector3(0, 0.9, 0), 1.0, 16)
+	var core := add_flames(fire, Vector3(0, 0.15, 0), 1.2, 60)
+	var outer := add_flames(fire, Vector3(0, 0.1, 0), 1.8, 40)
+	var embers := add_embers(fire, Vector3(0, 0.3, 0), 1.2, 48)
+	var smoke := add_smoke(fire, Vector3(0, 0.9, 0), 1.0, 20)
 	if scorch:
 		add_scorch_decal(fire, 1.8)
 

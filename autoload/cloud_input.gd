@@ -19,6 +19,8 @@ extends Node
 ##   0x06 JOY_CONNECT  device u8, connected u8, name_len u8, name[name_len]
 ##   0x07 RELEASE_ALL
 ##   0x08 PING         seq u32
+##   0x09 TOUCH        index u8, pressed u8, x f32, y f32
+##   0x0A TOUCH_DRAG   index u8, x f32, y f32, dx f32, dy f32
 ##   0x80 MOUSE_MODE   mode u8            (game → browser)
 ##   0x81 PONG         seq u32            (game → browser)
 ##   0x82 HELLO        version u8         (game → browser)
@@ -31,6 +33,8 @@ const FRAME_JOY_AXIS := 0x05
 const FRAME_JOY_CONNECT := 0x06
 const FRAME_RELEASE_ALL := 0x07
 const FRAME_PING := 0x08
+const FRAME_TOUCH := 0x09
+const FRAME_TOUCH_DRAG := 0x0A
 const FRAME_MOUSE_MODE := 0x80
 const FRAME_PONG := 0x81
 const FRAME_HELLO := 0x82
@@ -39,6 +43,7 @@ const PROTO_VERSION := 1
 const FIXED_LEN := {
 	FRAME_KEY: 17, FRAME_MOUSE_MOVE: 18, FRAME_MOUSE_BUTTON: 17,
 	FRAME_JOY_BUTTON: 8, FRAME_JOY_AXIS: 7, FRAME_RELEASE_ALL: 1, FRAME_PING: 5,
+	FRAME_TOUCH: 11, FRAME_TOUCH_DRAG: 18,
 }
 
 var _server: TCPServer
@@ -49,9 +54,15 @@ var _button_mask := 0
 var _keys_down := {}        # keycode -> physical keycode
 var _joy_down := {}         # "device:button" -> true
 var _joy_axes := {}         # "device:axis" -> true (non-zero)
+var _touches := {}          # touch index -> last position, for release-all
+# The session was created for a touch-device client: the gateway sets the
+# env and the game shows its native touch controls in the stream.
+var _touch_mode := false
 var _last_mouse_mode := -1
 var _mode_hint := -1   #what the game ASKED for, honored or not (see set_mouse_mode)
 var _frames := 0
+## True when a cloud gateway is driving this process (LOB_CLOUD_INPUT_PORT).
+var is_cloud_session := false
 
 
 ## Game code routes mouse-mode changes through here instead of calling
@@ -60,7 +71,20 @@ var _frames := 0
 ## Input.get_mouse_mode() keeps answering VISIBLE — but the cloud client
 ## needs the INTENT: it holds the real pointer, and it locks it when the
 ## game wants it captured. Off-cloud this is a plain passthrough.
+## The touch-UI gates ask this instead of DisplayServer directly, so a
+## cloud session created for a phone shows the same on-screen controls the
+## native mobile build does — the server has no touchscreen, the player has.
+func touchscreen_available() -> bool:
+	return _touch_mode or DisplayServer.is_touchscreen_available()
+
+
 func set_mouse_mode(mode: Input.MouseMode) -> void:
+	if _touch_mode and mode == Input.MOUSE_MODE_CAPTURED:
+		# A real phone never truly captures — there is no mouse — and the
+		# GUI stops taking emulated-from-touch presses the moment the mode
+		# says CAPTURED, which is exactly how the touch HUD buttons died in
+		# cloud sessions. Touch sessions stay VISIBLE, like native mobile.
+		mode = Input.MOUSE_MODE_VISIBLE
 	_mode_hint = mode
 	Input.set_mouse_mode(mode)
 
@@ -76,11 +100,13 @@ func get_mouse_mode() -> Input.MouseMode:
 
 
 func _ready() -> void:
+	_touch_mode = OS.get_environment("LOB_CLOUD_TOUCH") == "1"
 	var port_s := OS.get_environment("LOB_CLOUD_INPUT_PORT")
 	if port_s.is_empty() or not port_s.is_valid_int():
 		set_process(false)
 		return
 	var port := int(port_s)
+	is_cloud_session = true
 	_server = TCPServer.new()
 	var err := _server.listen(port, "127.0.0.1")
 	if err != OK:
@@ -250,6 +276,24 @@ func _handle(t: int, o: int) -> void:
 			# a registered device. Listeners (HUD, rumble) still get told.
 			Input.joy_connection_changed.emit(device, connected)
 			print("CloudInput: joypad %d %s (%s)" % [device, "connected" if connected else "disconnected", pad_name])
+		FRAME_TOUCH:
+			var ev := InputEventScreenTouch.new()
+			ev.index = _buf[o + 1]
+			ev.pressed = _buf[o + 2] != 0
+			ev.position = Vector2(_buf.decode_float(o + 3), _buf.decode_float(o + 7))
+			if ev.pressed:
+				_touches[ev.index] = ev.position
+			else:
+				_touches.erase(ev.index)
+			Input.parse_input_event(ev)
+		FRAME_TOUCH_DRAG:
+			var ev := InputEventScreenDrag.new()
+			ev.index = _buf[o + 1]
+			ev.position = Vector2(_buf.decode_float(o + 2), _buf.decode_float(o + 6))
+			ev.relative = Vector2(_buf.decode_float(o + 10), _buf.decode_float(o + 14))
+			ev.screen_relative = ev.relative
+			_touches[ev.index] = ev.position
+			Input.parse_input_event(ev)
 		FRAME_RELEASE_ALL:
 			_release_all()
 		FRAME_PING:
@@ -295,6 +339,13 @@ func _release_all() -> void:
 		ev.pressed = false
 		Input.parse_input_event(ev)
 	_joy_down.clear()
+	for idx in _touches.keys():
+		var ev := InputEventScreenTouch.new()
+		ev.index = idx
+		ev.pressed = false
+		ev.position = _touches[idx]
+		Input.parse_input_event(ev)
+	_touches.clear()
 	for k in _joy_axes.keys():
 		var parts: PackedStringArray = k.split(":")
 		var ev := InputEventJoypadMotion.new()

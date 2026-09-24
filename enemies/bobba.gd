@@ -15,11 +15,15 @@ const State = Proto.BobbaState
 # Network synchronization
 var entity_id: int = 0  # Unique ID for network sync
 var _is_network_controlled: bool = false  # True for non-host clients
+var _lod: ActivityLOD  # sleeps him while nobody is near or looking
 var _target_position: Vector3 = Vector3.ZERO
 var _target_rotation: float = 0.0
 
 # Health system
-const MAX_HEALTH: float = 1000.0
+## Raised 50% (was 1000). Everything that reads this scales with it — the
+## flee threshold, the health bar, the "took an arrow" line — because they
+## are all written as fractions of MAX_HEALTH rather than as HP numbers.
+const MAX_HEALTH: float = 1500.0
 var _health: HealthComponentClass
 var _poise: PoiseComponentClass
 const SWORD_POISE_DAMAGE: float = 35.0  # ~3 hits = stagger
@@ -47,21 +51,18 @@ const FLEE_HP_FRACTION: float = 0.22   # badly wounded → disengage and run
 ## ...and he stays gone until he is worth fighting again. Ending the flight on
 ## distance alone put him straight back into it at the same low health.
 const FLEE_RECOVER_FRACTION: float = 0.55
-const REGEN_DELAY: float = 5.0         # seconds without damage before healing starts
+const REGEN_DELAY: float = 12.0         # seconds without damage before healing starts
 const REGEN_PCT_PER_SEC: float = 0.03  # out-of-combat recovery — fleeing has a payoff
 const ATTACK_DISTANCE: float = 2.0  # Distance to start attack animation
 const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
 
 # Combat constants
-const ATTACK_DAMAGE: float = 65.0  # Damage dealt to players per punch
+const ATTACK_DAMAGE: float = 34.0  # Damage dealt to players per punch
 const ARROW_DAMAGE: float = 1.0  # Damage taken from arrows (10x reduced - use fire to trap Bobba!)
 const SWORD_DAMAGE: float = 50.0  # Damage taken from Paladin sword
-## Bumped from 12 → 22 per round-4-not-fun feedback: a Bobba punch must
-## visibly shove the Paladin *out of Bobba's 2 m attack range* instead
-## of just jostling them. That positional shove replaces CombatFX juice
-## as the hit-feedback channel.
-const KNOCKBACK_FORCE: float = 22.0
+# A hit displaces the player without resetting both fighters to chase range.
+const KNOCKBACK_FORCE: float = 7.0
 
 
 # Block: procedural "cross right arm over body" pose held for BLOCK_DURATION.
@@ -71,8 +72,8 @@ var is_blocking: bool = false
 var _block_timer: float = 0.0
 var _block_check_cooldown: float = 0.0
 const BLOCK_DURATION: float = 0.8
-const BLOCK_CHECK_INTERVAL: float = 1.5
-const BLOCK_CHANCE: float = 0.4
+const BLOCK_CHECK_INTERVAL: float = 3.0
+const BLOCK_CHANCE: float = 0.25
 # Procedural "X-guard": both arms raised and crossed in front of the chest.
 # Right arm comes across the body, left arm mirrors it; forearms bend hard
 # at the elbow to form the X. Values are tuned by eye against the mutant rig.
@@ -120,6 +121,9 @@ var _all_players: Array[Node3D] = []  # All players in scene
 var roam_direction: Vector3 = Vector3.ZERO
 var roam_timer: float = 0.0
 var attack_cooldown: float = 0.0
+var _strike_direction := Vector3.FORWARD
+var _punish_left := 0.0
+var _combo_limit := 1
 
 # Combat
 var _left_hand_hitbox: Area3D
@@ -127,18 +131,17 @@ var _right_hand_hitbox: Area3D
 var _left_hand_attachment: BoneAttachment3D
 var _right_hand_attachment: BoneAttachment3D
 var _has_hit_this_attack: bool = false
+var _hit_label_tween: Tween
 var _hit_flash_tween: Tween
 var _lurch_tween: Tween
 var _model_rest_pos: Vector3 = Vector3.ZERO
-var _model_rest_scale: Vector3 = Vector3.ONE
-var _squash_tween: Tween
 var _flash_materials: Array[StandardMaterial3D] = []
 var _telegraph_level: float = -1.0
 var _telegraph_materials: Array[StandardMaterial3D] = []
 
 ## Hit feedback tuning — the whole surface for "did that land?".
-const HIT_FLASH_ENERGY: float = 0.55   # a strong tint; squash+lurch+react carry the rest
-const HIT_FLASH_TIME: float = 0.16     # fade back to normal
+const HIT_FLASH_ENERGY: float = 0.18   # a strong tint; squash+lurch+react carry the rest
+const HIT_FLASH_TIME: float = 0.10     # fade back to normal
 const HIT_LURCH_DISTANCE: float = 0.32 # metres the model recoils
 const HIT_LURCH_OUT: float = 0.06      # snap back fast...
 const HIT_LURCH_BACK: float = 0.20     # ...then settle
@@ -164,9 +167,9 @@ const HAND_HITBOX_END: float = 0.7    # Disable hitbox at 70% of attack animatio
 ## recovery tail shrinks to ~0.5 s, and the step ends well inside the 3 s
 ## stuck-state watchdog. Progress-based windows are playback-rate agnostic.
 const COMBO_ATTACKS: Array[Dictionary] = [
-	{"anim": &"bobba/Attack", "damage": 65.0, "window": Vector2(0.30, 0.70), "kb_mult": 1.0, "lunge": 1.5, "speed": 1.0},
-	{"anim": &"bobba/Punch", "damage": 50.0, "window": Vector2(0.22, 0.60), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
-	{"anim": &"bobba/JumpAttack", "damage": 85.0, "window": Vector2(0.35, 0.80), "kb_mult": 1.5, "lunge": 6.0, "speed": 1.5},
+	{"anim": &"bobba/Attack", "damage": 34.0, "window": Vector2(0.30, 0.52), "kb_mult": 1.0, "lunge": 1.5, "speed": 1.0},
+	{"anim": &"bobba/Punch", "damage": 28.0, "window": Vector2(0.22, 0.43), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
+	{"anim": &"bobba/JumpAttack", "damage": 48.0, "window": Vector2(0.35, 0.57), "kb_mult": 1.5, "lunge": 3.2, "speed": 1.5},
 ]
 ## The axe swing is a separate decision from the fist chain, not a step in it.
 ## What buys the player the read is that it is slow, frontal, and reaches much
@@ -178,7 +181,7 @@ const COMBO_ATTACKS: Array[Dictionary] = [
 ## the axe off the right shoulder alone. Restoring the two-handed read means
 ## going back to the composed clip (see ANIM_PATHS), not editing this.
 const AXE_ATTACK: Dictionary = {
-	"anim": &"bobba/AxeAttack", "damage": 95.0,
+	"anim": &"bobba/AxeAttack", "damage": 55.0,
 	# MEASURED off the clip, not read off its key times — tools/measure_clip.gd
 	# walks the right hand's arc through the 2.267 s FBX:
 	#   0.00-0.65  wind-up, hand climbs 0.78 -> 2.10 m and swings overhead
@@ -216,77 +219,9 @@ const AXE_END_COOLDOWN: float = 1.8
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
 const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
 
-# ------------------------------------------------------------ fighting skill --
-#
-# What separates a boss from a damage-dealing shape is not his numbers, it is
-# what he does with what he can SEE you doing. Everything below reads the
-# target's own committed states — the same flags the player's animations are
-# driven by — and spends his openings on them. None of it changes a hitbox, a
-# damage window or a telegraph: he still shows you every swing before it lands
-# (the golden rule), he is simply harder to be careless in front of.
-#
-# The five habits, in the order a player meets them:
-#
-#   FOOTWORK   he circles in rather than walking down the middle, and steps
-#              back out of your sword after a swing instead of standing in it.
-#   PUNISH     drinking, casting, drawing a bow, reviving, or the tail of your
-#              own combo is an opening, and he commits from further out to
-#              reach it. Healing in his face is no longer free.
-#   PATIENCE   he will not swing into your roll's invulnerable frames — he
-#              holds the blow and lands it on your recovery.
-#   FEINT      wind-ups are jittered, and against a player who keeps parrying
-#              he HOLDS the blow at the top of the swing. Memorised timing
-#              stops working; the tell stays fully visible, just longer.
-#   PRESSURE   a blocked hit shortens his next cooldown — he leans on a guard
-#              instead of politely resetting — and a runner gets charged down.
-const CHARGE_SPEED_MULT: float = 1.55  # 5.0 -> 7.75 m/s, just over a sprint (7.0)
-const CHARGE_TIME: float = 1.9         # ...for this long, then he has to breathe
-const CHARGE_COOLDOWN: float = 6.0
-const CHARGE_MIN_DIST: float = 8.0     # only worth it against someone running
-const STRAFE_INSIDE: float = 7.0       # circle once inside this, walk straight outside
-const STRAFE_WEIGHT: float = 0.55      # how much of the approach is sideways
-const STRAFE_FLIP_MIN: float = 2.0     # seconds before he changes hands
-const STRAFE_FLIP_MAX: float = 4.5
-const SPACING_STEP_TIME: float = 0.55  # back off for this long after a spent swing
-const SPACING_DIST: float = 3.3        # ...to just outside a paladin's 2.4 m sword
-const ROLL_BAIT_TIME: float = 0.40     # a roll is 0.72 s, invulnerable 0.09-0.51
-const WINDUP_JITTER: float = 0.12      # +/- playback speed on every swing
-const FEINT_HOLD_MIN: float = 0.22     # the held swing, against a parry habit
-const FEINT_HOLD_MAX: float = 0.45
-const PRESSURE_COOLDOWN_MULT: float = 0.55
-const OPENING_REACH_BONUS: float = 1.6 # metres of extra commit range on an opening
-const HABIT_FADE: float = 0.06         # a habit is forgotten over ~15 s per count
-# ---- reading THEIR swing -----------------------------------------------------
-#
-# The co-op AI reads Bobba's clip to time its parries (AIRole.strike_eta); this
-# is the same trick pointed the other way. A player's swing publishes
-# everything needed: is_attacking, _attack_anim_progress, and the damage window
-# the current AttackData declares. So Bobba can see a blade coming and what he
-# does about it is a decision rather than a dice roll.
-const EVADE_REACH: float = 3.4         # inside this a sword can reach him
-const EVADE_LEAD: float = 0.42         # start moving this long before it lands
-const EVADE_SPEED_MULT: float = 1.5    # a sidestep is committed, not a shuffle
-const COUNTER_WINDOW: float = 0.9      # their recovery is worth this long
-const COUNTER_REACH_BONUS: float = 1.1 # ...and he will lunge a little further for it
-var _evading: bool = false
-var _counter_left: float = 0.0
-var _target_was_swinging: bool = false
-
-var _strafe_sign: float = 1.0
-var _strafe_left: float = 0.0
-var _charge_left: float = 0.0
-var _charge_cd: float = 0.0
-var _spacing_left: float = 0.0
-var _bait_left: float = 0.0            # holding off while the target is invulnerable
-var _hold_left: float = 0.0            # the feint: swing frozen at the top
-var _hold_spent: float = 0.0           # ...counted off the stuck-state watchdog
+var _hold_left: float = 0.0
+var _hold_spent: float = 0.0
 var _last_swing_blocked: bool = false
-var _target_was_rolling: bool = false
-## What this opponent keeps doing. Decaying counts, not a log — he learns
-## within a fight and forgets between them.
-var _habit_parry: float = 0.0
-var _habit_roll: float = 0.0
-var _habit_block: float = 0.0
 ## He does not hunt in silence. Roaring gives the party a bearing they can
 ## search — which is the point: a boss nobody can ever find is not difficult,
 ## he is absent. See SquadBrain.note_roar.
@@ -319,7 +254,7 @@ var _axe_smear: SlashTrail = null
 var _react_smear: SlashTrail = null
 var _left_claw_trail: SlashTrail = null
 var _right_claw_trail: SlashTrail = null
-const CLAW_TRAIL_COLOR: Color = Color(1.0, 0.4, 0.15, 0.7)
+const CLAW_TRAIL_COLOR: Color = Color(1.0, 0.52, 0.25, 0.3)
 
 # Animation
 var _anim_player: AnimationPlayer
@@ -350,6 +285,10 @@ const ANIM_PATHS: Dictionary = {
 
 func _ready() -> void:
 	add_to_group("bobba")  # Add to group for easy finding
+	_lod = ActivityLOD.attach(self, func() -> bool:
+			return _is_network_controlled or target != null \
+					or not (state == State.ROAMING or state == State.IDLE),
+			ActivityLOD.DEFAULT_WAKE_RADIUS, AABB(Vector3(-2, 0, -2), Vector3(4, 4, 4)))
 	_setup_health_component()
 	_setup_poise_component()
 	_find_player()
@@ -372,7 +311,7 @@ func _setup_health_component() -> void:
 	_health.died.connect(_on_death)
 	# Every damage event pops the current HP as a big floating label.
 	_health.damaged.connect(func(_amount: float) -> void:
-		_show_hit_label("%d / %d HP" % [int(round(health)), int(round(MAX_HEALTH))]))
+		_show_hit_label("%d" % int(round(_amount))))
 
 
 func _setup_poise_component() -> void:
@@ -391,7 +330,16 @@ func _on_staggered() -> void:
 	# is its own state; reuse the existing STUNNED state + play a roar
 	# animation if available to sell the break-out.
 	state = State.STUNNED
-	_stun_timer = 0.9  # longer than standard hit stun
+	_stun_timer = 1.15
+	is_blocking = false
+	_riposte_ready = true
+	_combo_step = 0
+	_axe_attack_active = false
+	_hold_left = 0.0
+	disable_attack_hitbox()
+	_has_hit_this_attack = true
+	if _anim_player:
+		_anim_player.speed_scale = 1.0
 	_current_anim = &""
 	if _anim_player and _anim_player.has_animation(&"bobba/Roar"):
 		_play_anim(&"bobba/Roar")
@@ -472,39 +420,15 @@ func _find_player() -> void:
 
 
 func _update_player_list() -> void:
-	# Refresh list of all players (local and remote)
+	# Refresh list of all players (local and remote). Groups, not tree
+	# walks: this runs every physics tick, and the old recursive search
+	# visited every node in the world twice per call — the single biggest
+	# script cost in a frame once the grass was tiled into thousands of nodes.
 	_all_players.clear()
-
-	# Find local player by name (most reliable)
-	var local_player = _find_node_by_name(get_tree().root, "Player")
-	if local_player and is_instance_valid(local_player):
-		_all_players.append(local_player)
-
-	# Also check for group membership as fallback
-	var group_player = get_tree().get_first_node_in_group("player")
-	if group_player and is_instance_valid(group_player) and group_player not in _all_players:
-		_all_players.append(group_player)
-
-	# Co-op AI companion is huntable exactly like a player
-	for companion in get_tree().get_nodes_in_group("companion"):
-		if is_instance_valid(companion) and companion not in _all_players:
-			_all_players.append(companion)
-
-	# Find remote players - search for RemotePlayer nodes
-	_find_remote_players(get_tree().root)
-
-
-func _find_remote_players(node: Node) -> void:
-	# Recursively find all RemotePlayer instances
-	if node.get_class() == "CharacterBody3D" and "RemotePlayer" in node.name:
-		if is_instance_valid(node) and node not in _all_players:
-			_all_players.append(node)
-	# Also check by script class name
-	if node is CharacterBody3D and node.has_method("update_from_network"):
-		if is_instance_valid(node) and node not in _all_players:
-			_all_players.append(node)
-	for child in node.get_children():
-		_find_remote_players(child)
+	for group in ["player", "companion", "remote_players"]:
+		for p in get_tree().get_nodes_in_group(group):
+			if is_instance_valid(p) and p is Node3D and p not in _all_players:
+				_all_players.append(p)
 
 
 func _select_target() -> void:
@@ -571,16 +495,6 @@ func _set_attacker_as_target(attacker: Node3D) -> void:
 		print("Bobba: Switching target to attacker")
 
 
-func _find_node_by_name(node: Node, target_name: String) -> Node:
-	if node.name == target_name:
-		return node
-	for child in node.get_children():
-		var result = _find_node_by_name(child, target_name)
-		if result:
-			return result
-	return null
-
-
 func _setup_model() -> void:
 	# Find the model and animation player
 	for child in get_children():
@@ -596,7 +510,6 @@ func _setup_model() -> void:
 		# Anchor for the hit lurch — the model node is offset/scaled in the
 		# scene, so the recoil has to spring back to THIS, not to zero.
 		_model_rest_pos = _model.position
-		_model_rest_scale = _model.scale
 		_ensure_flash_materials()
 
 		_anim_player = _find_animation_player(_model)
@@ -637,9 +550,12 @@ func _setup_attack_hitbox() -> void:
 
 	# Ember claw streaks — drawn only while the fists are live.
 	_left_claw_trail = SlashTrail.attach(self, _left_hand_hitbox,
-			Vector3(0, -0.2, 0), Vector3(0, 0.25, 0), CLAW_TRAIL_COLOR)
+			Vector3(0, -0.06, 0), Vector3(0, 0.08, 0), CLAW_TRAIL_COLOR)
 	_right_claw_trail = SlashTrail.attach(self, _right_hand_hitbox,
-			Vector3(0, -0.2, 0), Vector3(0, 0.25, 0), CLAW_TRAIL_COLOR)
+			Vector3(0, -0.06, 0), Vector3(0, 0.08, 0), CLAW_TRAIL_COLOR)
+
+	_left_claw_trail.lifetime = 0.10
+	_right_claw_trail.lifetime = 0.10
 
 
 func _create_hand_hitbox(hitbox_name: String) -> Area3D:
@@ -771,11 +687,11 @@ func _setup_hit_label() -> void:
 	_hit_label = Label3D.new()
 	_hit_label.name = "HitLabel"
 	_hit_label.text = ""
-	_hit_label.font_size = 64
-	_hit_label.pixel_size = 0.006
+	_hit_label.font_size = 48
+	_hit_label.pixel_size = 0.003
 	_hit_label.modulate = Color(1.0, 0.3, 0.3)  # Red — enemy damage feedback
 	_hit_label.outline_modulate = Color(0.2, 0.0, 0.0)
-	_hit_label.outline_size = 12
+	_hit_label.outline_size = 6
 	_hit_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_hit_label.no_depth_test = true
 	_hit_label.position = Vector3(0, 3.0, 0)
@@ -811,6 +727,15 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 	if not body is CharacterBody3D:
 		return
 
+	var offset := body.global_position - global_position
+	offset.y = 0.0
+	if _model and _model.global_basis.z.normalized().dot(offset.normalized()) < 0.05:
+		return
+	var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.3,
+			body.global_position + Vector3.UP * 1.2, 1, [get_rid()])
+	var wall := get_world_3d().direct_space_state.intersect_ray(ray)
+	if not wall.is_empty() and wall.collider != body:
+		return
 	# Check if this is any player (local or remote)
 	var is_player = body == target or body.is_in_group("player") \
 			or body.is_in_group("companion") or body.is_in_group("remote_players")
@@ -844,10 +769,10 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 				# never erases it; only a timed parry does). The shield also
 				# does NOT absorb momentum: push the player back hard enough
 				# to see the stagger.
-				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb * 0.65, true, self, false)
+				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb * 0.65, true, self, _axe_attack_active)
 			else:
 				# Not blocked - full damage and knockback
-				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb, false, self, false)
+				hit_applied = body.take_hit(step_damage, knockback_dir * step_kb, false, self, _axe_attack_active)
 
 		if hit_applied == false:
 			# Contact was negated by the defender — no hit confirmation, no
@@ -858,9 +783,7 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 		if player_is_blocking:
 			if has_node("/root/CombatFX"):
 				CombatFX.on_hit(0.45)  # hitstop + shake weight 0.45
-			# Noted: this one turtles. It shortens his next cooldown and puts
-			# the heavier weapon in his hand.
-			_habit_block += 1.0
+
 			_last_swing_blocked = true
 			print("Bobba: HIT BLOCKED by player (push-back applied)")
 		else:
@@ -920,6 +843,8 @@ func _update_attack_hitbox_timing() -> void:
 
 	if should_be_active and not _hitbox_active_window:
 		_hitbox_active_window = true
+		Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.5, 0),
+				-2.0 if _axe_attack_active or _combo_step == COMBO_ATTACKS.size() - 1 else -5.0)
 		print("Bobba: Attack window ACTIVE at progress ", _attack_anim_progress)
 	elif not should_be_active and _hitbox_active_window:
 		_hitbox_active_window = false
@@ -942,11 +867,11 @@ func _update_attack_hitbox_timing() -> void:
 
 	# Claw streaks draw exactly while the fists can hurt.
 	if _left_claw_trail != null:
-		_left_claw_trail.emitting = _hitbox_active_window
+		_left_claw_trail.emitting = _hitbox_active_window and not _axe_attack_active
 	if _right_claw_trail != null:
-		_right_claw_trail.emitting = _hitbox_active_window
+		_right_claw_trail.emitting = _hitbox_active_window and not _axe_attack_active
 	if _axe_smear != null:
-		_axe_smear.emitting = _hitbox_active_window
+		_axe_smear.emitting = _hitbox_active_window and _axe_attack_active
 
 	# Check for hits during active window
 	if _hitbox_active_window and not _has_hit_this_attack:
@@ -961,8 +886,6 @@ func _update_attack_hitbox_timing() -> void:
 			return
 		var left_bodies = _left_hand_hitbox.get_overlapping_bodies()
 		var right_bodies = _right_hand_hitbox.get_overlapping_bodies()
-		if left_bodies.size() > 0 or right_bodies.size() > 0:
-			print("Bobba: Overlapping bodies - Left: ", left_bodies.size(), ", Right: ", right_bodies.size())
 		for body in left_bodies:
 			_on_attack_hitbox_body_entered(body)
 			if _has_hit_this_attack:
@@ -994,10 +917,7 @@ func on_parried(parrier: Node3D) -> void:
 	velocity = Vector3.ZERO
 	disable_attack_hitbox()
 	_has_hit_this_attack = true  # the deflected swing can't also deal damage
-	# He remembers being parried. Enough of them and his swings start
-	# arriving late (_roll_feint) — the shield goes up on the old count and
-	# the blow lands after it comes down.
-	_habit_parry += 1.0
+
 	_hold_left = 0.0
 	if _anim_player != null:
 		_anim_player.speed_scale = 1.0
@@ -1021,60 +941,60 @@ func consume_riposte() -> void:
 	_riposte_ready = false
 
 
-func take_hit(damage: float, knockback: Vector3, _blocked: bool = false, attacker: Node3D = null, _is_fully_blockable: bool = false) -> void:
-	# HP label is emitted via the HealthComponent.damaged signal when
-	# take_damage runs — take_hit only applies flash, knockback, and stun.
+func take_attack(attack: Resource, attacker: Node3D, knockback: Vector3) -> bool:
+	return take_hit(attack.damage, knockback, false, attacker,
+			attack.is_fully_blockable, attack.poise_damage)
 
-	# If Bobba is currently blocking, the hit is parried: blue flash,
-	# reduced knockback, no damage, no stun.
-	if is_blocking:
-		_flash_hit(Color(0.3, 0.5, 1.0))
-		_hit_lurch(knockback * 0.4)   # smaller shove — he absorbed it
-		_squash_model(0.05)           # barely gives — he took it on the guard
-		_play_hit_react(&"HitReactLight")
-		if attacker:
-			_set_attacker_as_target(attacker)  # still agro onto them
-		# Mild pushback so there's visible recoil on the blocker
-		velocity = knockback * 0.25
-		print("Bobba: BLOCKED hit from ", attacker)
-		return
+
+func take_hit(damage: float, knockback: Vector3, _blocked: bool = false,
+		attacker: Node3D = null, _is_fully_blockable: bool = false,
+		poise_damage: float = -1.0) -> bool:
+	_lod.wake()
+	if state == State.DEAD:
+		return false
+	if attacker:
+		_set_attacker_as_target(attacker)
+	if poise_damage < 0.0:
+		poise_damage = SWORD_POISE_DAMAGE if damage >= 50.0 else 0.0
+	var frontal := false
+	if attacker and _model:
+		var incoming := attacker.global_position - global_position
+		incoming.y = 0.0
+		frontal = _model.global_basis.z.normalized().dot(incoming.normalized()) > 0.25
+	var poise_spent := false
+	if is_blocking and frontal:
+		poise_spent = true
+		var broken: bool = _poise != null and _poise.take_poise_damage(poise_damage * 1.5)
+		if not broken:
+			_flash_hit(Color(0.3, 0.5, 1.0))
+			_hit_lurch(knockback * 0.4)
+			Sfx.play3d("block_chip", global_position + Vector3.UP * 1.6, -3.0)
+			return false
+		is_blocking = false
 
 	_flash_hit(Color(1.0, 0.2, 0.2))
 	_hit_lurch(knockback)
-	_squash_model(0.11)
-	_play_hit_react(&"HitReact")
 	_pulse_react_smear()
-
-	# Switch target to attacker (prioritize who is attacking)
-	if attacker:
-		_set_attacker_as_target(attacker)
-
-	# Poise damage — a heavy hit can stagger Bobba into a longer stun.
-	# Sword attacks currently pass damage >= 50; scale poise off that.
-	var did_stagger: bool = false
-	if _poise and damage >= 50.0:
-		did_stagger = _poise.take_poise_damage(SWORD_POISE_DAMAGE)
-
-	# Apply knockback (neutralized for 1/3 second, pushed opposite to strike).
-	# If a stagger fired above, _on_staggered already set a longer stun window.
-	if knockback.length() > 0 and not did_stagger:
+	var did_stagger := false
+	if _poise and not poise_spent:
+		did_stagger = _poise.take_poise_damage(poise_damage)
+	# Armor carries a committed attack until poise breaks. A light hit during
+	# an opening flinches him, but must not replace a longer parry stun.
+	if state != State.ATTACKING and state != State.STUNNED:
 		state = State.STUNNED
-		_stun_timer = 0.333
-		velocity = knockback
-		# Force current animation to clear so it can transition properly after stun
-		_current_anim = &""
-	elif did_stagger and knockback.length() > 0:
-		velocity = knockback * 1.3  # extra shove on the stagger
-
-	# In multiplayer, don't apply damage locally - server is authoritative
-	# The player will send MSG_ENTITY_DAMAGE to server which updates our health
+		_stun_timer = 0.22
+		_play_hit_react(&"HitReact")
+		velocity = knockback * 0.5
+	elif did_stagger:
+		velocity = knockback * 0.6
 	if not _is_network_controlled:
 		take_damage(damage)
-	print("Bobba took hit! Damage: %.1f HP: %.1f/%.1f" % [damage, health, MAX_HEALTH])
+	return true
 
 
 ## Take damage from any source (arrows, sword, etc.)
 func take_damage(amount: float) -> void:
+	_lod.wake()
 	var old_health: float = health
 	_health.damage_flat(amount)
 	print("Bobba: take_damage(%.1f) - HP: %.1f -> %.1f" % [amount, old_health, health])
@@ -1084,6 +1004,7 @@ func take_damage(amount: float) -> void:
 ## Server-authoritative: skipped on non-host clients (health is synced from the
 ## server via apply_network_state).
 func take_damage_flat(amount: float) -> void:
+	_lod.wake()
 	if _is_network_controlled:
 		return
 	_health.damage_flat(amount)
@@ -1136,6 +1057,9 @@ func _on_health_label_update(current: float, _maximum: float) -> void:
 ## * otherwise, roll a chance to enter block on a fixed cadence — but only
 ##   when there's a target in range, we're not mid-attack, and not stunned.
 func _update_block_state(delta: float) -> void:
+	if state == State.ATTACKING or state == State.STUNNED or state == State.DEAD:
+		is_blocking = false
+		return
 	if is_blocking:
 		_block_timer -= delta
 		if _block_timer <= 0.0:
@@ -1146,7 +1070,7 @@ func _update_block_state(delta: float) -> void:
 
 	if state == State.DEAD or state == State.STUNNED or state == State.ATTACKING:
 		return
-	if target == null or not is_instance_valid(target):
+	if target == null or not is_instance_valid(target) or attack_cooldown > 0.0:
 		return
 
 	_block_check_cooldown -= delta
@@ -1156,7 +1080,7 @@ func _update_block_state(delta: float) -> void:
 
 	# Only bother blocking when the target is close enough to attack us.
 	var dist: float = global_position.distance_to(target.global_position)
-	if dist > DETECTION_RADIUS:
+	if dist > 3.2:
 		return
 	if randf() < BLOCK_CHANCE:
 		is_blocking = true
@@ -1241,28 +1165,6 @@ func _scan_for_scene_fires() -> void:
 		if is_instance_valid(fire_node) and not fire_node.is_in_group("body_fire"):
 			_register_ground_fire(fire_node.global_position)
 
-	# Also search by name pattern for any fire we might have missed
-	_find_fire_nodes_recursive(get_tree().current_scene)
-
-
-## Find fire nodes in the scene by name
-func _find_fire_nodes_recursive(node: Node) -> void:
-	if node == null:
-		return
-	if node.is_in_group("body_fire"):
-		return   # worn, not underfoot
-	if "GroundFire" in node.name or "ArrowGroundFire" in node.name:
-		# Check if we already have this fire registered (within 1m)
-		var dominated := false
-		for fire in _ground_fires:
-			if node.global_position.distance_to(fire.position) < 1.0:
-				dominated = true
-				break
-		if not dominated:
-			_register_ground_fire(node.global_position)
-	for child in node.get_children():
-		_find_fire_nodes_recursive(child)
-
 
 ## Check if a position is too close to any ground fire
 func _is_near_fire(pos: Vector3) -> bool:
@@ -1315,21 +1217,17 @@ func _get_fire_avoidance_direction() -> Vector3:
 func _show_hit_label(text: String = "Hit!") -> void:
 	if _hit_label == null:
 		return
-
-	# Reset and show the label
+	if _hit_label_tween:
+		_hit_label_tween.kill()
 	_hit_label.text = text
 	_hit_label.visible = true
 	_hit_label.position = Vector3(0, 3.0, 0)
-	_hit_label.modulate = Color(1.0, 0.3, 0.3, 1.0)
-	_hit_label.scale = Vector3(0.5, 0.5, 0.5)
-
-	# Animate: scale up, float up, fade out
-	var tween = create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(_hit_label, "scale", Vector3(1.2, 1.2, 1.2), 0.15).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-	tween.tween_property(_hit_label, "position", Vector3(0, 4.5, 0), 0.8).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_hit_label, "modulate:a", 0.0, 0.4).set_delay(0.4)
-	tween.chain().tween_callback(func(): _hit_label.visible = false)
+	_hit_label.scale = Vector3.ONE
+	_hit_label.modulate = Color(1.0, 0.85, 0.55)
+	_hit_label_tween = create_tween().set_parallel(true)
+	_hit_label_tween.tween_property(_hit_label, "position:y", 3.4, 0.7).set_ease(Tween.EASE_OUT)
+	_hit_label_tween.tween_property(_hit_label, "modulate:a", 0.0, 0.3).set_delay(0.4)
+	_hit_label_tween.chain().tween_callback(func(): _hit_label.visible = false)
 
 
 func _flash_hit(color: Color) -> void:
@@ -1447,17 +1345,6 @@ func _set_telegraph(amount: float) -> void:
 			mat.emission_enabled = true
 			mat.emission = TELEGRAPH_COLOR
 			mat.emission_energy_multiplier = amount * TELEGRAPH_ENERGY
-
-
-## Compress on impact. Bobba is a heavy body, so he gives less than a person
-## would — the amount is deliberately below the shared default.
-func _squash_model(amount: float) -> void:
-	if _model == null:
-		return
-	if _squash_tween:
-		_squash_tween.kill()
-		_model.scale = _model_rest_scale
-	_squash_tween = HitFeedback.squash(_model, _model_rest_scale, amount)
 
 
 ## Smear the air around the torso for the length of the recoil.
@@ -1857,7 +1744,7 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		# Chain the combo: target still in reach, this wasn't the finisher,
 		# and nothing (parry stun, death, fire panic) broke the chain.
 		if state == State.ATTACKING and not _axe_attack_active \
-				and _combo_step < COMBO_ATTACKS.size() - 1 \
+				and _combo_step < _combo_limit \
 				and target != null and is_instance_valid(target) \
 				and global_position.distance_to(target.global_position) <= COMBO_CHAIN_RANGE \
 				and not _is_in_fire_panic_zone():
@@ -1868,17 +1755,10 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		print("Bobba: Attack chain finished at step %d, cooldown and state=CHASING" % _combo_step)
 		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \
 				else (COMBO_END_COOLDOWN if _combo_step > 0 else 0.7)
-		# PRESSURE. A blow that landed on a shield is a blow that is working:
-		# a block still takes chip and still shoves, and every one of them
-		# denies a cast and a drink. So he leans on the guard rather than
-		# stepping back and politely resetting the fight.
-		if _last_swing_blocked:
-			attack_cooldown *= PRESSURE_COOLDOWN_MULT
-			_last_swing_blocked = false
-		else:
-			# SPACING. Otherwise the recovery is spent OUT of the counter's
-			# reach, not standing in it.
-			_spacing_left = SPACING_STEP_TIME
+		# The end of a combo is a reliable opening, even after a blocked hit.
+		attack_cooldown = maxf(attack_cooldown, 1.1)
+		_punish_left = 0.8
+		_last_swing_blocked = false
 		_combo_step = 0
 		_axe_attack_active = false
 		if state == State.ATTACKING:
@@ -1947,28 +1827,13 @@ func _physics_process(delta: float) -> void:
 	# for a few seconds he knits back together — running away is a
 	# STRATEGY (escape, heal in the dark, come back), not a forfeit.
 	_time_since_damage += delta
-	if state != State.ATTACKING and _time_since_damage >= REGEN_DELAY \
+	if target == null and state != State.ATTACKING and _time_since_damage >= REGEN_DELAY \
 			and health > 0.0 and health < MAX_HEALTH:
 		_health.heal_pct(REGEN_PCT_PER_SEC * delta)
 
-	# Survival intelligence: badly wounded with a threat on him → break off
-	# and run. He re-plots the route continuously and only calms down once
-	# nobody can perceive him any more (melts back into the dark).
-	if _flee_given_up and health > MAX_HEALTH * 0.5:
-		_flee_given_up = false  # recovered — fleeing is an option again
-	if not _is_fleeing and not _flee_given_up and target != null \
-			and health <= MAX_HEALTH * FLEE_HP_FRACTION:
-		_is_fleeing = true
-		_flee_route_timer = 0.0
-		_flee_cornered_timer = 0.0
-		print("Bobba: FLEEING at %.0f hp — plotting escape route" % health)
-	if _is_fleeing:
-		_handle_fleeing(delta)
-		move_and_slide()
-		return
-
-	# Footwork timers, habit decay and "what is he doing right now".
-	_tick_fight_skill(delta)
+	# Wounded enemies finish the encounter; only disengaged enemies regenerate.
+	_punish_left = maxf(0.0, _punish_left - delta)
+	_tick_idle_voice(delta)
 
 	# Check distance to target
 	var distance_to_target: float = INF
@@ -2209,59 +2074,12 @@ func _handle_roaming(delta: float, distance_to_target: float) -> void:
 	_play_anim(_carry_anim(&"Walk"))
 
 
-# --------------------------------------------------------------- reading you --
-
-## Once a frame: age the timers, fade the habits, and watch what the target is
-## doing. Everything here is a read of ONE node — no scans, no queries.
-func _tick_fight_skill(delta: float) -> void:
-	_charge_cd = maxf(_charge_cd - delta, 0.0)
-	_charge_left = maxf(_charge_left - delta, 0.0)
-	_spacing_left = maxf(_spacing_left - delta, 0.0)
-	_bait_left = maxf(_bait_left - delta, 0.0)
-	_strafe_left -= delta
-	if _strafe_left <= 0.0:
-		_strafe_left = randf_range(STRAFE_FLIP_MIN, STRAFE_FLIP_MAX)
-		_strafe_sign = -_strafe_sign
-	# Out roaming with nobody to eat, he announces himself. Never mid-fight:
-	# the wind-up glow is the tell in combat, and a roar there would just be
-	# noise on top of it.
+func _tick_idle_voice(delta: float) -> void:
 	_roar_left -= delta
 	if _roar_left <= 0.0:
 		_roar_left = randf_range(ROAR_MIN_GAP, ROAR_MAX_GAP)
-		if target == null and not _is_fleeing \
-				and (state == State.ROAMING or state == State.IDLE):
+		if target == null and (state == State.ROAMING or state == State.IDLE):
 			_roar()
-	# THE COUNTER WINDOW. A swing that has just finished leaves its owner
-	# planted and committed; that is the moment worth taking, and it stays
-	# worth taking for a beat after the clip ends because the recovery does
-	# not stop the instant the animation does.
-	_counter_left = maxf(_counter_left - delta, 0.0)
-	var swinging: bool = target != null and is_instance_valid(target) \
-			and ("is_attacking" in target) and target.is_attacking
-	if _target_was_swinging and not swinging:
-		_counter_left = COUNTER_WINDOW
-	_target_was_swinging = swinging
-	_habit_parry = move_toward(_habit_parry, 0.0, HABIT_FADE * delta)
-	_habit_roll = move_toward(_habit_roll, 0.0, HABIT_FADE * delta)
-	_habit_block = move_toward(_habit_block, 0.0, HABIT_FADE * delta)
-	# A safety net for the feint: the held swing freezes the AnimationPlayer,
-	# so a swing that ends any other way (parried, fire panic, death) must
-	# never leave the whole rig frozen behind it.
-	if state != State.ATTACKING and _anim_player != null and _anim_player.speed_scale != 1.0:
-		_anim_player.speed_scale = 1.0
-		_hold_left = 0.0
-	if target == null or not is_instance_valid(target):
-		_target_was_rolling = false
-		return
-	# A roll he can see is a roll he can wait out — and one more data point
-	# about a player who answers everything with the same button.
-	var rolling: bool = "is_rolling" in target and target.is_rolling
-	if rolling:
-		_bait_left = ROLL_BAIT_TIME
-		if not _target_was_rolling \
-				and global_position.distance_to(target.global_position) < 6.0:
-			_habit_roll += 1.0
-	_target_was_rolling = rolling
 
 
 ## Throw his head back and let the whole field know something is out here.
@@ -2274,95 +2092,6 @@ func _roar() -> void:
 	Sfx.play3d("bobba_roar", global_position + Vector3(0, 2.0, 0), -1.0)
 	SquadBrain.note_roar(self)
 	print("Bobba: ROAR at %s" % str(global_position.snapped(Vector3.ONE)))
-
-
-## How wide open the target is right now, 0.0 (nothing doing) to 1.0 (helpless).
-##
-## These are the same flags that drive his animations, so everything Bobba
-## punishes is something the player can SEE themselves doing — a drink, a
-## channel, a draw, the tail of their own swing. Nothing here is hidden state.
-func _target_opening() -> float:
-	if target == null or not is_instance_valid(target):
-		return 0.0
-	var w: float = 0.0
-	if "is_drinking" in target and target.is_drinking:
-		w = maxf(w, 1.0)       # the estus punish — a wasted charge AND the hit
-	if "is_reviving" in target and target.is_reviving:
-		w = maxf(w, 1.0)       # kneeling over a body, five seconds, no guard
-	if "is_casting" in target and target.is_casting:
-		w = maxf(w, 0.9)
-	if ("is_drawing_bow" in target and target.is_drawing_bow) \
-			or ("is_holding_bow" in target and target.is_holding_bow):
-		w = maxf(w, 0.85)      # a planted archer is a standing target
-	if "_is_stunned" in target and target._is_stunned:
-		w = maxf(w, 0.7)
-	if "is_attacking" in target and target.is_attacking:
-		w = maxf(w, 0.6)       # into the recovery of their own combo
-	return w
-
-
-## Seconds until the target's blade goes live on us, or INF when nothing is
-## coming. Read off their clip — the same data their own animation is driven
-## by — so this is a read of something visible, never of hidden state.
-func _incoming_swing_eta() -> float:
-	if target == null or not is_instance_valid(target):
-		return INF
-	if not ("is_attacking" in target) or not target.is_attacking:
-		return INF
-	# A swing that has already spent its hit cannot hurt him twice.
-	if "_has_hit_this_attack" in target and target._has_hit_this_attack:
-		return INF
-	var ap: AnimationPlayer = target.get("_current_anim_player") as AnimationPlayer
-	if ap == null or ap.current_animation_length <= 0.0:
-		return INF
-	var speed: float = ap.get_playing_speed()
-	if speed <= 0.01:
-		return INF
-	var win_start: float = 0.15
-	var cur = target.get("_current_attack")
-	if cur != null and "hit_window_start" in cur:
-		win_start = float(cur.hit_window_start)
-	var eta: float = (win_start * ap.current_animation_length
-			- ap.current_animation_position) / speed
-	return eta if eta > -0.05 else INF
-
-
-## True while the target is in the RECOVERY of a swing — blade past its damage
-## window, weight still committed, nothing they can do about what happens next.
-## This is the counter-attack window, and it is the same one a player is taught
-## to look for in Bobba.
-func _target_in_recovery() -> bool:
-	if target == null or not is_instance_valid(target):
-		return false
-	if not ("is_attacking" in target) or not target.is_attacking:
-		return false
-	if "_has_hit_this_attack" in target and target._has_hit_this_attack:
-		return true
-	var prog: float = float(target.get("_attack_anim_progress")) \
-			if "_attack_anim_progress" in target else 0.0
-	var win_end: float = 0.95
-	var cur = target.get("_current_attack")
-	if cur != null and "hit_window_end" in cur:
-		win_end = float(cur.hit_window_end)
-	return prog > win_end
-
-
-## Wind-ups are never twice the same length, and against someone who keeps
-## parrying he holds the blow at the top of the swing. A parry window is
-## 0.33 s wide: a swing that arrives a quarter-second late walks straight
-## through where the shield used to be.
-func _pick_windup(base_speed: float) -> float:
-	return base_speed * randf_range(1.0 - WINDUP_JITTER, 1.0 + WINDUP_JITTER)
-
-
-func _roll_feint() -> void:
-	_hold_left = 0.0
-	if _habit_parry < 1.0:
-		return
-	if randf() < clampf(0.20 + 0.18 * _habit_parry, 0.0, 0.65):
-		_hold_left = randf_range(FEINT_HOLD_MIN, FEINT_HOLD_MAX)
-		_hold_spent += _hold_left
-		print("Bobba: HELD swing — he has parried %.0f times, so this one is late" % _habit_parry)
 
 
 func _handle_chasing(delta: float, distance_to_target: float) -> void:
@@ -2408,151 +2137,40 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 
 	_fire_shy = false
 
-	# ---- COMMIT? ---------------------------------------------------------
-	#
-	# An opening buys him reach: he will start a swing from further out to
-	# catch a drink, a channel or a drawn bow than he ever would against
-	# someone standing ready. And a roll buys the PLAYER nothing — he simply
-	# waits it out (_bait_left) and swings into the recovery instead of
-	# feeding the invulnerable frames.
-	var opening: float = _target_opening()
-	var reach_bonus: float = OPENING_REACH_BONUS * opening
-	var may_swing: bool = attack_cooldown <= 0.0 and _bait_left <= 0.0
-
-	# ---- GET OFF THE LINE ------------------------------------------------
-	#
-	# A blade is coming and he is inside its reach. Standing there to trade is
-	# what a punching bag does; a fighter steps OFF THE LINE OF THE SWING —
-	# sideways, not backwards. Backwards concedes the ground and ends with him
-	# jogging back in through the same arc. Sideways keeps him in his own
-	# range, so the recovery he just bought is a counter rather than a walk.
-	#
-	# He does not do this to a swing that cannot reach him, and he does not do
-	# it twice to the same swing: _has_hit_this_attack retires the threat.
-	var swing_eta: float = _incoming_swing_eta()
-	if swing_eta < EVADE_LEAD and distance_to_target < EVADE_REACH \
-			and not _is_in_fire_panic_zone():
-		if not _evading:
-			_evading = true
-			print("Bobba: stepping off the line — blade lands in %.2fs" % swing_eta)
-		var to_t: Vector3 = target.global_position - global_position
-		to_t.y = 0.0
-		if to_t.length() > 0.1:
-			# Perpendicular to the incoming line, on the side he is already
-			# circling — one decision, not a coin flip every frame.
-			var side: Vector3 = to_t.normalized().cross(Vector3.UP) * _strafe_sign
-			var step: Vector3 = (side + to_t.normalized() * 0.15).normalized()
-			velocity.x = step.x * CHASE_SPEED * EVADE_SPEED_MULT
-			velocity.z = step.z * CHASE_SPEED * EVADE_SPEED_MULT
-			if _model:
-				# Eyes stay on them through the sidestep.
-				var face: float = atan2(to_t.x, to_t.z)
-				_model.rotation.y = lerp_angle(_model.rotation.y, face, ROTATION_SPEED * 2.0 * delta)
-			_play_anim(_carry_anim(&"Run"))
-			return
-	_evading = false
-
-	# ---- COUNTER ---------------------------------------------------------
-	#
-	# Their swing is spent. This is the punish, and it is the same one the
-	# game teaches the player to take against him — so it costs him nothing in
-	# fairness and buys the fight its rhythm: swing, miss, pay.
-	var countering: bool = _counter_left > 0.0 or _target_in_recovery()
-	if countering and may_swing and distance_to_target <= ATTACK_DISTANCE + COUNTER_REACH_BONUS:
-		print("Bobba: COUNTER — his swing is spent, %.1fm" % distance_to_target)
-		_counter_left = 0.0
-		_start_combo_attack(0)
+	var direction := target.global_position - global_position
+	direction.y = 0.0
+	direction = direction.normalized()
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if _punish_left > 0.0:
+		_play_anim(_carry_anim(&"Idle"))
 		return
-
-	# The axe outreaches the fists, so it is what he uses at the range where
-	# only it can land — a punch chain there would swing at empty air. Inside
-	# fist range he still prefers the chain, which keeps close quarters fast
-	# and keeps the slow swing as the thing you see coming from further out.
-	# Two exceptions to the alternation: an opening is worth taking with
-	# whatever reaches it, and a shield he is already chipping through wants
-	# the heavier weapon.
-	var axe_now: bool = not _last_attack_was_axe or opening > 0.5 or _habit_block > 2.0
-	if may_swing and axe_now and distance_to_target > FIST_PREFERRED_RANGE \
-			and _can_axe_attack(distance_to_target + reach_bonus):
-		_start_axe_attack()
-		return
-
-	# If close enough, open the combo chain
-	if may_swing and distance_to_target <= ATTACK_DISTANCE + reach_bonus:
-		if opening > 0.5:
-			print("Bobba: PUNISH — he is busy (%.0f%%) at %.1fm" % [opening * 100.0, distance_to_target])
-		else:
-			print("Bobba: Starting new attack (distance=%.1f, cooldown=%.2f)" % [distance_to_target, attack_cooldown])
-		_start_combo_attack(0)
-		return
-
-	# ---- FOOTWORK --------------------------------------------------------
-	var direction: Vector3 = (target.global_position - global_position).normalized()
-	direction.y = 0
-
-	# SPACING. A swing that just ended leaves him standing inside a sword's
-	# reach with nothing to answer with; the whole of his cooldown is the
-	# player's free damage. So he gives ground first and comes back in on his
-	# own terms — unless the target is helpless, in which case he stays on top
-	# of them.
-	var backing_off: bool = _spacing_left > 0.0 and distance_to_target < SPACING_DIST \
-			and opening < 0.5
-	if backing_off:
-		direction = -direction
-
-	# CHARGE. Someone who simply runs is faster than his walk (7.0 against
-	# 5.0), so a burst that just beats a sprint is the difference between a
-	# boss and a bad memory of one. Never into a fire, and never while giving
-	# ground.
-	var speed: float = CHASE_SPEED
-	if not backing_off and _charge_left > 0.0:
-		speed = CHASE_SPEED * CHARGE_SPEED_MULT
-	elif not backing_off and distance_to_target > CHARGE_MIN_DIST and _charge_cd <= 0.0 \
-			and not _is_near_fire(global_position):
-		_charge_left = CHARGE_TIME
-		_charge_cd = CHARGE_COOLDOWN
-		speed = CHASE_SPEED * CHARGE_SPEED_MULT
-		print("Bobba: CHARGE — closing %.0fm" % distance_to_target)
-
-	# CIRCLING. Walking straight down the middle is what makes a big enemy
-	# easy: you learn one line and hold it. Inside striking distance he comes
-	# in on an arc and changes hands every few seconds, which also means the
-	# player has to keep re-earning the angle behind him for a backstab.
-	var move_dir: Vector3 = direction
-	if not backing_off and _charge_left <= 0.0 and distance_to_target < STRAFE_INSIDE:
-		var side: Vector3 = direction.cross(Vector3.UP) * _strafe_sign
-		move_dir = (direction + side * STRAFE_WEIGHT).normalized()
-
-	# Check for fire in the path and avoid it
-	var fire_avoid: Vector3 = _get_fire_avoidance_direction()
-	if fire_avoid.length() > 0.1:
-		# Blend chase direction with fire avoidance
-		# Fire avoidance is now much stronger (3x weight)
-		move_dir = (move_dir + fire_avoid * 3.0).normalized()
-
-	var horizontal_velocity = move_dir * speed
-	velocity.x = horizontal_velocity.x
-	velocity.z = horizontal_velocity.z
-
-	# FACING. He turns toward the TARGET, not his own feet, and the further
-	# round the side they get the harder he turns — sliding round behind a
-	# distracted animal is no longer a free backstab. (While backing off he
-	# keeps his eyes on them too: he retreats facing forward.)
 	if _model:
-		var look_dir: Vector3 = target.global_position - global_position
-		look_dir.y = 0.0
-		if look_dir.length() > 0.1:
-			look_dir = look_dir.normalized()
-			var facing: Vector3 = _model.global_transform.basis.z
-			facing.y = 0.0
-			var off: float = 0.0
-			if facing.length() > 0.01:
-				off = facing.normalized().angle_to(look_dir) / PI  # 0 ahead, 1 behind
-			var target_rot: float = atan2(look_dir.x, look_dir.z)
-			_model.rotation.y = lerp_angle(_model.rotation.y, target_rot,
-					ROTATION_SPEED * (1.0 + 1.8 * off) * delta)
-
-	_play_anim(_carry_anim(&"Walk" if backing_off else &"Run"))
+		_model.rotation.y = lerp_angle(_model.rotation.y,
+				atan2(direction.x, direction.z), minf(ROTATION_SPEED * delta, 1.0))
+	if is_blocking:
+		_play_anim(_carry_anim(&"Idle"))
+		return
+	var facing := _model.global_basis.z.normalized().dot(direction) if _model else 1.0
+	if attack_cooldown <= 0.0 and facing > 0.8:
+		if not _last_attack_was_axe and _can_axe_attack(distance_to_target):
+			_start_axe_attack()
+			return
+		if distance_to_target <= ATTACK_DISTANCE:
+			_start_combo_attack(0)
+			return
+	# Hold nearby during recovery. Do not erase the opening by backpedalling.
+	if distance_to_target < 2.5 and attack_cooldown > 0.0:
+		_play_anim(_carry_anim(&"Idle"))
+		return
+	var move_dir := direction
+	var fire_avoid := _get_fire_avoidance_direction()
+	if fire_avoid.length() > 0.1:
+		move_dir = (move_dir + fire_avoid * 3.0).normalized()
+	var speed := CHASE_SPEED if distance_to_target > 4.0 else ROAM_SPEED
+	velocity.x = move_dir.x * speed
+	velocity.z = move_dir.z * speed
+	_play_anim(_carry_anim(&"Run" if speed > ROAM_SPEED else &"Walk"))
 
 
 var _attack_state_time: float = 0.0
@@ -2591,6 +2209,11 @@ func _can_axe_attack(distance: float) -> bool:
 			<= AXE_ATTACK_CONE_DEG
 
 
+func _commit_attack_direction() -> void:
+	is_blocking = false
+	_strike_direction = _model.global_basis.z.normalized() if _model else Vector3.FORWARD
+
+
 ## Commit to the overhead chop.
 func _start_axe_attack() -> void:
 	_axe_attack_active = true
@@ -2599,9 +2222,9 @@ func _start_axe_attack() -> void:
 	state = State.ATTACKING
 	_current_anim = &""
 	_hold_spent = 0.0
-	_roll_feint()
-	_play_anim(AXE_ATTACK["anim"], _pick_windup(AXE_ATTACK["speed"]))
-	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.8, 0), -1.0)
+	_hold_left = 0.0
+	_commit_attack_direction()
+	_play_anim(AXE_ATTACK["anim"], AXE_ATTACK["speed"])
 	enable_attack_hitbox()
 	velocity.x = 0
 	velocity.z = 0
@@ -2628,10 +2251,10 @@ func _start_combo_attack(step: int) -> void:
 	_current_anim = &""  # force replay even if the same clip
 	if step == 0:
 		_hold_spent = 0.0
-		_roll_feint()   # only the opener is held — a chain that stalls mid-way reads as a bug
-	_play_anim(attack_anim, _pick_windup(COMBO_ATTACKS[step].get("speed", 1.0)))
-	Sfx.play3d("punch_whoosh", global_position + Vector3(0, 1.5, 0),
-			-2.0 if step == COMBO_ATTACKS.size() - 1 else -5.0)
+		_hold_left = 0.0
+		_combo_limit = 2 if health < MAX_HEALTH * 0.5 else 1
+	_commit_attack_direction()
+	_play_anim(attack_anim, COMBO_ATTACKS[step].get("speed", 1.0))
 	enable_attack_hitbox()  # fresh swing — each chain step can land its own hit
 	velocity.x = 0
 	velocity.z = 0
@@ -2654,44 +2277,21 @@ func _handle_attacking(delta: float) -> void:
 		_attack_state_time = 0.0
 		return
 
-	# THE HELD SWING. Frozen at the top of the wind-up, telegraph still
-	# burning, facing tracking the target — then it falls. The tell is longer
-	# than usual, not shorter: what breaks is the memorised COUNT, not the
-	# player's ability to see it coming.
-	if _hold_left > 0.0:
-		_hold_left -= delta
-		_attack_state_time += delta
-		if _anim_player != null:
-			_anim_player.speed_scale = 0.0
-		velocity.x = 0.0
-		velocity.z = 0.0
-		if _model and target != null and is_instance_valid(target):
-			var hold_dir: Vector3 = target.global_position - global_position
-			hold_dir.y = 0.0
-			if hold_dir.length() > 0.1:
-				_model.rotation.y = lerp_angle(_model.rotation.y,
-						atan2(hold_dir.x, hold_dir.z), ROTATION_SPEED * delta)
-		if _hold_left <= 0.0 and _anim_player != null:
-			_anim_player.speed_scale = 1.0
-		return
-
-	# Stay in attacking state until animation finishes. Early in the swing
-	# the step lunges toward the target — a small drift on swipe/punch, a
-	# real leap on the jump-slam finisher — so the chain tracks a backing-
-	# off player instead of whiffing in place.
-	velocity.x = 0
-	velocity.z = 0
-	if _attack_anim_progress < 0.45 and target != null and is_instance_valid(target):
-		var lunge_speed: float = _current_attack_data()["lunge"]
-		var lunge_dir: Vector3 = target.global_position - global_position
-		lunge_dir.y = 0.0
-		if lunge_dir.length() > 0.6 and lunge_speed > 0.0:
-			lunge_dir = lunge_dir.normalized()
-			velocity.x = lunge_dir.x * lunge_speed
-			velocity.z = lunge_dir.z * lunge_speed
-			if _model:
-				var lunge_rot: float = atan2(lunge_dir.x, lunge_dir.z)
-				_model.rotation.y = lerp_angle(_model.rotation.y, lunge_rot, ROTATION_SPEED * delta)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	# Only the first part of the tell tracks. The strike and recovery keep
+	# that heading, so a dodge around the weapon earns a flank.
+	if _attack_anim_progress < 0.18 and is_instance_valid(target):
+		var towards := target.global_position - global_position
+		towards.y = 0.0
+		if towards.length() > 0.1 and _model:
+			_model.rotation.y = lerp_angle(_model.rotation.y,
+					atan2(towards.x, towards.z), minf(3.0 * delta, 1.0))
+			_strike_direction = _model.global_basis.z.normalized()
+	if _attack_anim_progress < _current_attack_data()["window"].y:
+		var speed: float = _current_attack_data()["lunge"]
+		velocity.x = _strike_direction.x * speed
+		velocity.z = _strike_direction.z * speed
 	_attack_state_time += delta
 	# Watchdog: no attack step should ever take 3 s. If one does (clip
 	# failed to finish, animation_finished lost to a blend, etc.), RECOVER —
@@ -2716,7 +2316,7 @@ func _handle_stunned(delta: float) -> void:
 
 	# Play idle during stun — but let a stagger Roar run its course so the
 	# "I'm wide open" tell stays visible for the whole riposte window.
-	if _current_anim != &"bobba/Roar":
+	if _current_anim not in [&"bobba/Roar", &"bobba/HitReact", &"bobba/HitReactLight"]:
 		_play_anim(_carry_anim(&"Idle"))
 
 	_stun_timer -= delta

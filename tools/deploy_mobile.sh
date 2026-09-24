@@ -28,9 +28,9 @@ cd "$(dirname "$0")/.."
 GODOT="${GODOT:-/home/talves/bin/godot}"
 ADB="${ADB:-$HOME/Android/Sdk/platform-tools/adb}"
 PRESET="${PRESET:-Android}"
-PKG="com.tpgame.douglassthekeeper"
+PKG="com.tpgame.landsofbalance"
 ACTIVITY="com.godot.game.GodotApp"
-APK="$PWD/build/douglass_the_keeper.apk"
+APK="$PWD/build/lands_of_balance.apk"
 
 DO_EXPORT=1
 DO_LAUNCH=1

@@ -38,6 +38,7 @@ signal health_changed(current: float, maximum: float)
 signal died()
 
 var _is_network_controlled: bool = false
+var _lod: ActivityLOD
 var _target_position: Vector3 = Vector3.ZERO
 var _target_rotation: float = 0.0
 var lap_count: int = 0  # For network sync
@@ -197,6 +198,12 @@ func _ready() -> void:
 		queue_free()
 		return
 	add_to_group("dragon")  # For combat HUD / NPC discovery
+	# The patrol is what he does when nobody is around; the box is loose on
+	# purpose (wingspan, the long neck) — too big only means waking early.
+	_lod = ActivityLOD.attach(self, func() -> bool:
+			return _is_network_controlled or target_player != null \
+					or state != DragonState.PATROL,
+			ActivityLOD.DEFAULT_WAKE_RADIUS, AABB(Vector3(-15, -6, -15), Vector3(30, 16, 30)))
 	_setup_health_component()
 	_setup_hit_label()
 
@@ -359,6 +366,7 @@ func _show_hit_label(text: String) -> void:
 
 ## Take flat damage (e.g. sword swings, dragon-bite).
 func take_damage(amount: float) -> void:
+	_lod.wake()
 	_health.damage_flat(amount)
 	print("Dragon: take_damage(%.1f) - HP: %.1f/%.1f" % [amount, health, MAX_HEALTH])
 
@@ -367,6 +375,7 @@ func take_damage(amount: float) -> void:
 ## Server-authoritative: skipped on non-host clients (health is synced from the
 ## server via apply_network_state).
 func take_damage_flat(amount: float) -> void:
+	_lod.wake()
 	if _is_network_controlled:
 		return
 	_health.damage_flat(amount)
@@ -672,6 +681,12 @@ func _setup_mouth_fire() -> void:
 	_mouth_light.omni_attenuation = 1.2
 	_mouth_light.light_cull_mask = 2  # lights the dragon only, never the ground
 	_mouth_light.shadow_enabled = not (GameSettings != null and GameSettings.performance_mode)
+	# The face self-shadow reads only up close; in the sky it is six
+	# shadow passes for nothing.
+	_mouth_light.distance_fade_enabled = true
+	_mouth_light.distance_fade_shadow = 20.0
+	_mouth_light.distance_fade_begin = 150.0
+	_mouth_light.distance_fade_length = 30.0
 	_mouth_fire.add_child(_mouth_light)
 
 	# === SECONDARY FILL LIGHT - Softer red for atmosphere ===
@@ -814,6 +829,8 @@ func _update_breath(delta: float) -> void:
 
 
 func _start_blast(duration: float) -> void:
+	Sfx.play3d("dragon_roar", global_position + Vector3.UP * 3.0, -2.0)
+	Sfx.play3d("spell_fire_start", global_position + Vector3.UP * 3.0, -2.0)
 	_blast_left = duration
 	if _breath_jet:
 		_breath_jet.emitting = true

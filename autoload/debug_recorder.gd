@@ -17,7 +17,7 @@ extends Node
 ## logcat as usual.
 ##
 ## Retrieval from a debug APK:
-##   adb shell run-as com.tpgame.douglassthekeeper sh -c \
+##   adb shell run-as com.tpgame.landsofbalance sh -c \
 ##       'cd files; tar cf - debug' > session.tar
 
 const CHUNK_SECONDS := 60.0

@@ -64,7 +64,7 @@ var _touch_index: int = -1
 # FUNCTIONS
 
 func _ready() -> void:
-	if not DisplayServer.is_touchscreen_available():
+	if not CloudInput.touchscreen_available():
 		hide()
 
 	if visibility_mode == Visibility_mode.WHEN_TOUCHED:

@@ -6,11 +6,16 @@ import * as P from './protocol.js';
 const $ = (id) => document.getElementById(id);
 const els = {
   lobby: $('lobby'), stage: $('stage'), video: $('video'), status: $('status'),
+  touchRow: $('touchRow'), touchOpt: $('touchOpt'), rotateHint: $('rotateHint'),
   play: $('play'), token: $('token'), tokenRow: $('tokenRow'), sessions: $('sessions'),
   hud: $('hud'), stats: $('stats'), hint: $('hint'), banner: $('banner'),
   leave: $('leave'), fullscreen: $('fullscreen'), unlock: $('unlock'), hudToggle: $('hudToggle'),
   sens: $('sens'), sensVal: $('sensVal'), capacity: $('capacity'),
 };
+
+// A coarse-pointer device gets the game's native touch controls by default.
+const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints > 1 && matchMedia('(pointer: coarse)').matches);
 
 const state = {
   cfg: null, token: localStorage.getItem('lob.token') || '', sessionId: null,
@@ -44,6 +49,7 @@ async function loadConfig() {
   try {
     state.cfg = await api('GET', '/api/config');
     els.tokenRow.hidden = !state.cfg.authRequired;
+    els.touchRow.hidden = !IS_MOBILE;
     const free = state.cfg.capacity - state.cfg.sessions;
     els.capacity.innerHTML =
       `<span class="chip">${state.cfg.width}×${state.cfg.height}</span>` +
@@ -91,7 +97,9 @@ async function play() {
   els.play.disabled = true;
   setStatus('Creating session…');
   try {
-    const r = await api('POST', '/api/sessions');
+    const touch = IS_MOBILE && els.touchOpt.checked;
+    const r = await api('POST', '/api/sessions' + (touch ? '?touch=1' : ''));
+    state.touch = touch;
     await join(r.session.id);
   } catch (e) {
     setStatus(e.message, 'err');
@@ -106,6 +114,15 @@ async function join(id) {
   location.hash = 's=' + id;
   els.lobby.hidden = true;
   els.stage.hidden = false;
+  state.capture.touchMode = !!state.touch;
+  if (IS_MOBILE) {
+    // Fill the phone sideways: fullscreen first (we are inside the Play
+    // tap, so the gesture is still live), then ask for landscape. iOS has
+    // no orientation lock — the CSS rotate hint covers it.
+    try { await els.stage.requestFullscreen(); } catch (_) {}
+    try { await screen.orientation.lock('landscape'); } catch (_) {}
+    document.body.classList.add('mobile-playing');
+  }
   banner('Starting game…');
   connect();
 }
@@ -303,6 +320,8 @@ async function leave(reason) {
   els.stage.hidden = true;
   els.lobby.hidden = false;
   els.play.disabled = false;
+  document.body.classList.remove('mobile-playing');
+  try { screen.orientation.unlock(); } catch (_) {}
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   setStatus(reason || 'Left the session.', reason && !reason.startsWith('Left') ? 'err' : '');
   refreshSessions();

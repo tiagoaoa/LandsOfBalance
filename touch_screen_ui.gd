@@ -51,7 +51,7 @@ const TOUCH_LOOK_SENSITIVITY: float = 0.004  # Adjust for feel
 func _ready() -> void:
 	# Show on touch devices or mobile platforms
 	var is_mobile: bool = OS.get_name() in ["Android", "iOS"]
-	var is_touch: bool = DisplayServer.is_touchscreen_available()
+	var is_touch: bool = CloudInput.touchscreen_available()
 
 	print("TouchUI: _ready() - is_mobile=%s, is_touch=%s" % [is_mobile, is_touch])
 
@@ -285,6 +285,19 @@ func _setup_action_buttons() -> void:
 	_crouch_btn.pressed.connect(_on_crouch_toggled)
 	container.add_child(_crouch_btn)
 	print("TouchUI: Created crouch toggle at %s" % crouch_pos)
+	# Where do the tap targets REALLY land after anchors + stretch? The
+	# HUD was tuned visually; injected input needs the truth in numbers.
+	call_deferred("_debug_print_rects")
+
+
+func _debug_print_rects() -> void:
+	var vp_size := get_viewport().get_visible_rect().size
+	printerr("TouchUI: canvas size %s" % vp_size)
+	for btn in _button_actions.keys():
+		if is_instance_valid(btn):
+			printerr("TouchUI: area '%s' rect %s" % [_button_actions[btn], btn.get_global_rect()])
+	if _crouch_btn:
+		printerr("TouchUI: area 'crouch' rect %s" % _crouch_btn.get_global_rect())
 
 
 ## Create an invisible touch area button (for use with HUD overlay)
@@ -327,6 +340,12 @@ func _on_touch_area_down(btn: Button) -> void:
 	var action: String = _button_actions.get(btn, "")
 	if action != "":
 		print("TouchUI: Touch DOWN - action '%s'" % action)
+		# Both halves of the input API, deliberately: action_press() feeds
+		# the POLLED state (Input.is_action_just_pressed — jump, run read
+		# that and never see a parsed InputEventAction), while the parsed
+		# event reaches the EVENT-driven handlers (attack, spell_cast).
+		# This is the same trap the crouch toggle documents below.
+		Input.action_press(action)
 		var event := InputEventAction.new()
 		event.action = action
 		event.pressed = true
@@ -338,6 +357,7 @@ func _on_touch_area_up(btn: Button) -> void:
 	var action: String = _button_actions.get(btn, "")
 	if action != "":
 		print("TouchUI: Touch UP - action '%s'" % action)
+		Input.action_release(action)
 		var event := InputEventAction.new()
 		event.action = action
 		event.pressed = false

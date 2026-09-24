@@ -63,6 +63,13 @@ func _ready() -> void:
 		else:
 			_update_selection(GameSettings.selected_character_class as CharacterClass)
 			call_deferred("_on_play_pressed")
+	elif GameSettings.class_forced_by_cli and GameSettings.singleplayer:
+		# Full game, no scenario: `--coop --character-class=X` (test_coop_ai.sh)
+		# already said everything the menu would ask, so skip it.
+		_mode = PlayMode.AI_COOP
+		_update_mode_button()
+		_update_selection(GameSettings.selected_character_class as CharacterClass)
+		call_deferred("_on_play_pressed")
 
 
 func _on_archer_pressed() -> void:

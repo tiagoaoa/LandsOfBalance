@@ -102,6 +102,31 @@ var _animsim_guard_anim: int = 0
 var _bowsim_noaim: int = 0
 var _screenshots_enabled: bool = true
 
+# AIMTEST scenario state — the crosshair claims the arrow goes where it sits.
+# This scenario is what checks that claim: for a spread of camera angles it
+# records the world point under the crosshair, fires a real arrow through the
+# real input path, and follows it to impact. Also measures the draw times of
+# both shots (the sighted one must be 1.5x) and where the body ends up in the
+# frame once the camera has slid over the shoulder.
+var _aim_step: int = 0
+var _aim_next_t: float = 0.0
+var _aim_pending: Dictionary = {}    # the shot currently in flight
+var _aim_results: Array = []         # one dict per completed shot
+var _aim_seen_arrows: Dictionary = {}
+var _aim_draw_times: Dictionary = {} # "quick"/"aimed" -> measured seconds
+var _aim_body_x: float = -1.0        # body's screen x while sighted, 0..1
+# SKEL: the skeleton killed on purpose, and how long it stayed down.
+var _skel_victim: Node3D = null
+var _skel_kill_t: float = 0.0
+var _skel_revive_t: float = -1.0
+var _skel_revive_moved: float = 0.0
+
+var _aim_pad_done: bool = false      # gamepad layout check finished
+var _aim_pad_t: float = -1.0         # when that check started
+var _aim_pad: Dictionary = {}        # what it found
+var _aim_wall: StaticBody3D = null   # the one target face, moved per shot
+var _aim_base: Vector3 = Vector3.ZERO
+
 
 # COOPSIM scenario state — headless measurement of the co-op AI loop.
 var _coopsim_setup: bool = false
@@ -156,7 +181,8 @@ func _ready() -> void:
 	# The GRASS showcase forces DAY lighting so the grass field is visually
 	# verifiable. Night mode stays on for normal gameplay / combat scenarios.
 	if scenario == "GRASS" or scenario == "MOVE" or scenario == "DRAGON" \
-			or scenario == "SKEL" or scenario == "BOWSIM" or scenario == "MOBSIM" \
+			or scenario == "SKEL" or scenario == "BOWSIM" or scenario == "AIMTEST" \
+			or scenario == "MOBSIM" \
 			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
 			or scenario == "ANIMSIM" \
 			or (scenario == "GEARSIM" and OS.get_environment("LOB_GEAR_NIGHT") != "1"):
@@ -198,13 +224,19 @@ func _process(delta: float) -> void:
 		# window (it pops up on the desktop and steals focus) can't fight
 		# alongside the script and corrupt the measurements. PLAY and the
 		# ARCHER playtest are the exceptions — there the human IS the driver.
+		# AIMTEST is the other exception: it feeds synthetic mouse buttons
+		# through the real pipeline precisely to prove which button starts
+		# which shot, so cutting the pipeline would test nothing. It runs
+		# headless, so there is no window for a stray click to arrive at.
 		if _player != null and scenario != "PLAY" and scenario != "ARCHER" \
 				and scenario != "COOP" and scenario != "WATCH" \
 				and scenario != "MOBSIM" and scenario != "PALSIM" \
+				and scenario != "AIMTEST" \
 				and scenario != "BLOCKSIM" and scenario != "ANIMSIM":
 			_player.set_process_input(false)
 	var solo: bool = scenario == "GRASS" or scenario == "MOVE" or scenario == "RIVER" \
-			or scenario == "DRAGON" or scenario == "BOWSIM" or scenario == "MOBSIM" \
+			or scenario == "DRAGON" or scenario == "BOWSIM" or scenario == "AIMTEST" \
+			or scenario == "MOBSIM" \
 			or scenario == "PALSIM" or scenario == "BLOCKSIM" \
 			or (scenario == "GEARSIM" and OS.get_environment("LOB_GEAR_TARGET") != "bobba")
 	if not solo and (_bobba == null or not is_instance_valid(_bobba)):
@@ -476,6 +508,14 @@ func _process(delta: float) -> void:
 			_finish("BLOCKSIM_DONE")
 		return
 
+	if scenario == "AIMTEST":
+		_drive_aimtest(delta)
+		if _aim_step > AIMTEST_VIEWS.size() + 1 and _aim_pending.is_empty():
+			if not _outcome_logged:
+				_aimtest_report()
+			_finish("AIMTEST_DONE")
+		return
+
 	if scenario == "BOWSIM":
 		_drive_bowsim(delta)
 		if _elapsed > 14.0:
@@ -489,13 +529,17 @@ func _process(delta: float) -> void:
 
 	if scenario == "SKEL":
 		_drive_skel(delta)
-		if _elapsed > 34.0:
+		# Runs past the kill at t=10 plus the full revive timer, so the
+		# respawn is watched rather than assumed.
+		if _elapsed > 10.0 + SkeletonCrew.REVIVE_SECONDS + 8.0 and not _outcome_logged:
 			var alive := 0
 			for sk in get_tree().get_nodes_in_group("skeletons"):
 				if not sk.is_dead_skeleton:
 					alive += 1
-			print("[CombatTest] SKEL summary: alive=%d/5 player_hp=%.0f" % [
-					alive, float(_player.current_health)])
+			print("[CombatTest] SKEL summary: alive=%d/5 player_hp=%.0f revive=%s (want %.0fs)" % [
+					alive, float(_player.current_health),
+					("%.1fs" % _skel_revive_t) if _skel_revive_t >= 0.0 else "NEVER",
+					float(SkeletonCrew.REVIVE_SECONDS)])
 			_finish("SKEL_DONE")
 		return
 
@@ -1212,8 +1256,10 @@ func _drive_river(_delta: float) -> void:
 	var cam_pivot: Node3D = _player.get_node_or_null("CameraPivot") as Node3D
 	if cam_pivot == null:
 		return
-	# Find the shader water surface the river builder spawned.
-	var surface: Node3D = get_tree().current_scene.find_child("RiverWaterSurface", true, false) as Node3D
+	var river: Node3D = get_tree().current_scene.find_child("River", true, false) as Node3D
+	var river_center := Vector3.ZERO
+	if river:
+		river_center = Vector3(river.center_x(60), river.water_y, 60)
 	if not _scripted_test_started:
 		_scripted_test_started = true
 		_player._spawn_immunity_timer = 60.0
@@ -1221,16 +1267,15 @@ func _drive_river(_delta: float) -> void:
 		var bobba := _find_in_group("bobba")
 		if bobba:
 			bobba.global_position = Vector3(180.0, bobba.global_position.y, 180.0)
-		if surface:
+		if river:
 			# Stand on the bank: off the surface centre, perpendicular to flow.
-			var side: Vector3 = surface.global_transform.basis.x.normalized()
-			var pos: Vector3 = surface.global_position + side * 9.0
+			var pos: Vector3 = river_center + Vector3(11, 0, 0)
 			pos.y = _player.global_position.y
 			_player.global_position = pos
 			_player.velocity = Vector3.ZERO
-	if _elapsed < 6.0 and surface:
+	if _elapsed < 6.0 and river:
 		# Look across the water, slightly down.
-		var to_river: Vector3 = surface.global_position - _player.global_position
+		var to_river: Vector3 = river_center - _player.global_position
 		to_river.y = 0.0
 		cam_pivot.rotation.y = atan2(-to_river.x, -to_river.z)
 		cam_pivot.rotation.x = deg_to_rad(-16.0)
@@ -1243,9 +1288,11 @@ func _drive_river(_delta: float) -> void:
 ## SKEL: skeleton-pack verification (day-lit so the captures read).
 ## The player is parked 30 m from the pack's haunt — inside the 50 m
 ## dark-vision aggro — so the pack should RUSH and CROWD him. At t=10 one
-## skeleton is destroyed by script (expect "rises again" 10 s later,
-## somewhere else). At t=14 a ground fire is dropped between pack and
-## player — the crowd must swerve around it and never stand in it.
+## skeleton is destroyed by script and the scenario then WAITS OUT the whole
+## revive timer (SkeletonCrew.REVIVE_SECONDS, a minute) to see it stand back
+## up somewhere else; the measured delay is in the summary. At t=14 a ground
+## fire is dropped between pack and player — the crowd must swerve around it
+## and never stand in it.
 func _drive_skel(_delta: float) -> void:
 	var skels: Array = get_tree().get_nodes_in_group("skeletons")
 	if skels.is_empty():
@@ -1293,11 +1340,22 @@ func _drive_skel(_delta: float) -> void:
 		_coop_fire_dropped = true
 		var victim: Node3D = skels[0]
 		victim.take_hit(999.0, Vector3.ZERO)
-		print("[CombatTest] SKEL: destroyed %s — expecting revive in 20s" % victim.name)
+		_skel_victim = victim
+		_skel_kill_t = _elapsed
+		print("[CombatTest] SKEL: destroyed %s — expecting revive in %.0fs" % [
+				victim.name, float(SkeletonCrew.REVIVE_SECONDS)])
 		FireFX.create_ground_fire(get_tree().current_scene,
 				_player.global_position + Vector3(-6.0, 0.0, 0.0),
 				"SkelTestGroundFire", 30.0, false)
 		print("[CombatTest] SKEL: fire wall dropped between pack and player")
+	# The one we killed: when does it stand up, and where?
+	if _skel_victim != null and _skel_revive_t < 0.0 \
+			and is_instance_valid(_skel_victim) and not _skel_victim.is_dead_skeleton:
+		_skel_revive_t = _elapsed - _skel_kill_t
+		_skel_revive_moved = _skel_victim.global_position.distance_to(
+				_player.global_position)
+		print("[CombatTest] SKEL: %s rose again after %.1fs, %.0fm from the player" % [
+				_skel_victim.name, _skel_revive_t, _skel_revive_moved])
 	if int(_elapsed) != int(_elapsed - _delta):
 		var nearest := INF
 		var alive := 0
@@ -3035,6 +3093,597 @@ func _blocksim_knee_rate(phase: String) -> float:
 ##                   (the "walking stops" bug),
 ##   noaim_shots   — an arrow released without the Attack clip visibly
 ##                   playing its loose (the "no aiming movement" bug).
+## The shots the aim is checked with, one per target wall:
+## (bearing, distance in metres, camera pitch in radians). Spread from a
+## point-blank 10 m to 95 m, which is most of the bow's 113 m ballistic reach.
+const AIMTEST_VIEWS: Array[Vector3] = [
+	Vector3(0.0, 10.0, -0.10),
+	Vector3(1.05, 20.0, -0.05),
+	Vector3(2.10, 35.0, 0.0),
+	Vector3(3.14, 55.0, 0.03),
+	Vector3(4.19, 75.0, 0.05),
+	Vector3(5.24, 95.0, 0.08),
+]
+## The test builds its own range 30 m above the landscape: a flat slab with a
+## wall at each bearing. Shooting at open terrain measured the hillside as much
+## as the aim — a tree the sight line missed and the arrow did not (the eye is
+## half a metre right of the chest, so that is a real difference, just not the
+## one under test) turned an exact shot into a 3 m error.
+const AIMTEST_PAD_HEIGHT: float = 30.0
+## Launch speed and the project's gravity: everything past v²/g is out of
+## range, and a shot that lands short there is physics, not a broken aim.
+const AIMTEST_MAX_RANGE: float = 50.0 * 50.0 / 22.0
+## An arrow that lands within this much of the sight line counts as "went
+## where the crosshair was". Roughly the radius of the crosshair ring itself.
+const AIMTEST_TOL_PX: float = 12.0
+
+
+## A private firing range in the sky: a slab to stand on and one wall per
+## bearing, so every shot has a known, unobstructed face to land on.
+func _aimtest_build_range(base: Vector3) -> void:
+	# The phone HUD has to go first. A headless display server reports a
+	# touchscreen as available, so the virtual joystick is live and grabs the
+	# synthetic mouse presses this scenario fires — which latched movement on
+	# and had the archer running at 7 m/s while he was supposed to be a
+	# planted target-shooter (a moving loose is half power, so the shots were
+	# not even the shots under test).
+	var touch_ui := _find_node_named(get_tree().root, "TouchScreenUI")
+	if touch_ui != null:
+		touch_ui.queue_free()
+	else:
+		print("[CombatTest] AIMTEST: no TouchScreenUI found to remove")
+	# And the co-op companion: he follows the archer around and is solid, so
+	# he ends up standing in the sight line. Arrows pass THROUGH an ally
+	# (no friendly fire) but the aim ray does not, which would have the test
+	# measuring a shot at the paladin's back.
+	for mate in get_tree().get_nodes_in_group("companion"):
+		mate.queue_free()
+	for action in [&"move_forward", &"move_back", &"move_left", &"move_right"]:
+		Input.action_release(action)
+
+	var range_root := Node3D.new()
+	range_root.name = "AimTestRange"
+	get_tree().current_scene.add_child(range_root)
+
+	var pad := StaticBody3D.new()
+	var pad_shape := CollisionShape3D.new()
+	var pad_box := BoxShape3D.new()
+	pad_box.size = Vector3(320.0, 2.0, 320.0)
+	pad_shape.shape = pad_box
+	pad.add_child(pad_shape)
+	range_root.add_child(pad)
+	pad.global_position = base - Vector3(0.0, 1.0, 0.0)  # top face at base.y
+
+	# ONE wall, moved between shots. Six standing at once cannot be placed
+	# without them shadowing each other: a 60 m face 10 m away covers most of
+	# the sky, and the far shots were landing on the near walls.
+	var wall := StaticBody3D.new()
+	wall.name = "AimTestWall"
+	var wall_shape := CollisionShape3D.new()
+	var wall_box := BoxShape3D.new()
+	wall_box.size = Vector3(80.0, 50.0, 2.0)
+	wall_shape.shape = wall_box
+	wall.add_child(wall_shape)
+	range_root.add_child(wall)
+	_aim_wall = wall
+	_aim_base = base
+
+
+## Does the arrow go where the crosshair sits? One shot per camera angle,
+## alternating the sighted (right-button) and quick (left-button) shot, each
+## fired through the real draw path and followed to impact.
+func _drive_aimtest(_delta: float) -> void:
+	if _player == null:
+		return
+
+	if _aim_step == 0:
+		var base: Vector3 = _player.global_position + Vector3(0.0, AIMTEST_PAD_HEIGHT, 0.0)
+		_aimtest_build_range(base)
+		_player.global_position = base + Vector3(0.0, 0.2, 0.0)
+		_player.velocity = Vector3.ZERO
+		CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		if _player.character_class != _player.CharacterClass.ARCHER:
+			_player._switch_character_class(_player.CharacterClass.ARCHER)
+		_player._spawn_immunity_timer = 600.0
+		_aim_step = 1
+		_aim_next_t = _elapsed + 2.0
+		return
+
+	# Keep the archer planted. Something in a headless session (the phone HUD
+	# is live there — a headless display server reports a touchscreen) latches
+	# movement when the scenario clicks the mouse, and a moving loose is a
+	# half-power hip shot from the wrong spot: not the shot under test. The
+	# scenario measures aim, so it simply refuses to let him walk.
+	# Never while an arrow is in the air, though: the shot leaves from the
+	# archer's own chest, and teleporting him back onto a flat 50 m/s arrow
+	# knocks it off course — the launch was correct and the flight was not.
+	var arrow_up: bool = not _aim_pending.is_empty() and bool(_aim_pending["fired"])
+	if not arrow_up:
+		for action in [&"move_forward", &"move_back", &"move_left", &"move_right"]:
+			Input.action_release(action)
+		_player.velocity.x = 0.0
+		_player.velocity.z = 0.0
+		if _player.global_position.distance_to(_aim_base) > 0.3:
+			_player.global_position = _aim_base + Vector3(0.0, 0.2, 0.0)
+
+	# The pad layout is checked once, before any shooting: LT is aim, RB
+	# shoots, LB parries.
+	if not _aim_pad_done:
+		_aimtest_pad_check()
+		return
+
+	# One shot at a time: follow the one in the air before firing the next.
+	if not _aim_pending.is_empty():
+		_aimtest_track()
+		return
+	if _elapsed < _aim_next_t:
+		return
+
+	var idx: int = _aim_step - 1
+	if idx >= AIMTEST_VIEWS.size():
+		_aim_step += 2  # nothing left to fire; the dispatcher wraps up
+		return
+
+	# Point the camera and start the draw. Even steps take the sighted shot,
+	# odd ones the quick shot, so both paths are covered at several ranges.
+	var view: Vector3 = AIMTEST_VIEWS[idx]
+	# Stand the wall at this shot's range, on this shot's bearing.
+	if _aim_wall != null:
+		var out := Vector3(-sin(view.x), 0.0, -cos(view.x))
+		_aim_wall.global_position = _aim_base + out * view.y + Vector3(0.0, 25.0, 0.0)
+		_aim_wall.rotation.y = view.x
+	_player.camera_rotation = Vector2(view.x, view.z)
+	_player._camera_pivot.rotation.y = view.x
+	_player._camera_pivot.rotation.x = view.z
+	var aimed: bool = idx % 2 == 0
+	# Drive the real BUTTONS, not the draw functions: this is also what
+	# proves right-click reaches the sighted shot and left-click the quick
+	# one. parse_input_event runs the whole pipeline, so _unhandled_input
+	# sees the event and Input.is_action_pressed sees the held state.
+	# Every arrow already in the world belongs to an earlier shot: claim them
+	# all so the next one this scenario sees is unambiguously this shot's.
+	# (Without this a straggler — a second arrow from the previous loose —
+	# was picked up 0.01 s after the press and judged against this shot's
+	# crosshair.)
+	for old_arrow in get_tree().get_nodes_in_group("fire_arrows"):
+		_aim_seen_arrows[old_arrow.get_instance_id()] = true
+
+	# A drifting archer would shoot at half power from somewhere other than
+	# the spot the wall was placed for, so say so loudly rather than quietly
+	# measuring the wrong thing.
+	var drift: float = _player.global_position.distance_to(_aim_base)
+	var speed: float = Vector2(_player.velocity.x, _player.velocity.z).length()
+	if drift > 1.0 or speed > 0.8:
+		print("[CombatTest] AIMTEST WARNING shot %d: archer is not planted (drift=%.1fm speed=%.1f) node=%s ai=%s fwd=%.2f back=%.2f left=%.2f right=%.2f run=%s" % [
+				idx, drift, speed, _player.name, str(_player.ai_driven),
+				Input.get_action_strength(&"move_forward"),
+				Input.get_action_strength(&"move_back"),
+				Input.get_action_strength(&"move_left"),
+				Input.get_action_strength(&"move_right"),
+				str(Input.is_action_pressed(&"run"))])
+	# Clean slate first. A latched aim action is the harness's own worst
+	# enemy: leave it down and the NEXT shot silently becomes a sighted one
+	# (the archer reads the held aim), and the measurement stops being about
+	# the button that was actually pressed.
+	Input.action_release(&"block")
+	Input.action_release(&"aim")
+	# Hold the aim action as well as sending the button: the sighted draw
+	# heals a lost release by polling that action, and a synthetic press that
+	# only exists as an event would look like a finger that slid off.
+	if aimed:
+		Input.action_press(&"block")
+	_aimtest_mouse(MOUSE_BUTTON_RIGHT if aimed else MOUSE_BUTTON_LEFT, true)
+	_aim_pending = {
+		"idx": idx, "aimed": aimed, "t_start": _elapsed, "fired": false,
+		"released": false,
+		"draw_time": -1.0, "full_draw_t": -1.0, "arrow": null,
+		"target": Vector3.ZERO, "hit": false, "from": Vector3.ZERO,
+		"dir": Vector3.FORWARD, "fov": 55.0, "vp_h": 1080.0,
+		"min_dist": 1e9, "t_fire": 0.0, "body_x": -1.0,
+		"prev_pos": null, "crossed": false, "plane_perp": -1.0,
+		"flight_t": -1.0, "arm_x": 0.0, "arm_len": 0.0, "collider": "?",
+		"retries": 0, "trace": [],
+	}
+	_aim_step += 1
+
+
+## Per-frame half of AIMTEST: waits out the draw, catches the arrow the loose
+## spawns, then follows it until it stops.
+func _aimtest_track() -> void:
+	var p := _player
+	var pend: Dictionary = _aim_pending
+
+	if not bool(pend["fired"]):
+		# Hold the view exactly where the scenario put it. Anything that
+		# writes camera_rotation between the press and the loose (a look
+		# axis at rest that is not quite zero, a lock-on nudge) would move
+		# the crosshair off the wall during the second an aimed draw takes,
+		# and the shot would be judged against a sight line the archer no
+		# longer had.
+		var want: Vector3 = AIMTEST_VIEWS[int(pend["idx"])]
+		var yaw_drift: float = absf(_player.camera_rotation.x - want.x)
+		if yaw_drift > 0.001 and not bool(pend.get("drift_seen", false)):
+			pend["drift_seen"] = true
+			print("[CombatTest] AIMTEST shot %d: camera drifted %.3f rad from the set view" % [
+					int(pend["idx"]), yaw_drift])
+		_player.camera_rotation = Vector2(want.x, want.z)
+		_player._camera_pivot.rotation.y = want.x
+		_player._camera_pivot.rotation.x = want.z
+
+		# Sample the sight every frame: the camera is still sliding over the
+		# shoulder during a sighted draw, and the shot is solved against
+		# whatever the crosshair covers at the instant the string goes.
+		var aim: Dictionary = p.crosshair_target()
+		pend["target"] = aim["point"]
+		pend["hit"] = aim["hit"]
+		pend["from"] = aim["from"]
+		pend["dir"] = aim["dir"]
+		var col = aim.get("collider")
+		pend["collider"] = String(col.name) if col != null else "nothing"
+		if p._camera != null:
+			pend["fov"] = p._camera.fov
+			pend["vp_h"] = maxf(p.get_viewport().get_visible_rect().size.y, 1.0)
+			var body: Vector2 = p._camera.unproject_position(
+					p.global_position + Vector3(0, 1.0, 0))
+			pend["body_x"] = body.x / maxf(p.get_viewport().get_visible_rect().size.x, 1.0)
+
+		# A press that never became a draw gets sent again: the event can be
+		# swallowed (a UI node marking it handled, a leftover attack lock),
+		# and a shot that never happened measures nothing.
+		if not p.is_drawing_bow and not p.is_holding_bow \
+				and _elapsed - float(pend["t_start"]) > 0.4 \
+				and int(pend["retries"]) < 3:
+			pend["retries"] = int(pend["retries"]) + 1
+			pend["t_start"] = _elapsed
+			pend["released"] = false
+			print("[CombatTest] AIMTEST shot %d: press did not take (attacking=%s cooldown=%.2f floor=%s), retry %d" % [
+					int(pend["idx"]), str(p.is_attacking), float(p._attack_cooldown),
+					str(p.is_on_floor()), int(pend["retries"])])
+			if int(pend["retries"]) < 3:
+				_aimtest_mouse(MOUSE_BUTTON_RIGHT if bool(pend["aimed"]) else MOUSE_BUTTON_LEFT, true)
+			else:
+				# The button mapping is checked by the pad phase and by the
+				# first presses; what matters from here is that the SHOT
+				# gets measured, so drive the draw directly rather than lose
+				# the sample. Nothing is holding a button in that case, so
+				# drop the aim action and expect no release.
+				p._start_bow_draw(bool(pend["aimed"]), false)
+				pend["released"] = true
+				Input.action_release(&"block")
+				Input.action_release(&"aim")
+			return
+
+		if p.is_drawing_bow and not pend.has("state"):
+			pend["state"] = "sighted=%s hold_release=%s required=%.2fs" % [
+					str(p._bow_aimed), str(p._bow_hold_release), p._bow_draw_required()]
+		if p.is_holding_bow and float(pend["full_draw_t"]) < 0.0:
+			pend["full_draw_t"] = _elapsed - float(pend["t_start"])
+		# A sighted shot waits at full draw (that is what the hold is for),
+		# and half a second is also long enough for the camera slide to
+		# settle before the aim is judged.
+		if bool(pend["aimed"]) and p.is_holding_bow and not bool(pend["released"]) \
+				and _elapsed - float(pend["t_start"]) > float(pend["full_draw_t"]) + 0.5:
+			pend["released"] = true
+			Input.action_release(&"block")
+			_aimtest_mouse(MOUSE_BUTTON_RIGHT, false)
+		# The quick shot's button comes straight back up: a tap must still
+		# fire, since nothing but its own timer looses it.
+		if not bool(pend["aimed"]) and not bool(pend["released"]) \
+				and _elapsed - float(pend["t_start"]) > 0.05:
+			pend["released"] = true
+			_aimtest_mouse(MOUSE_BUTTON_LEFT, false)
+
+		var fresh: Node3D = _aimtest_new_arrow()
+		if fresh != null:
+			pend["arrow"] = fresh
+			pend["fired"] = true
+			pend["t_fire"] = _elapsed
+			pend["draw_time"] = float(pend["full_draw_t"]) if float(pend["full_draw_t"]) >= 0.0 \
+					else _elapsed - float(pend["t_start"])
+			_aim_draw_times["aimed" if bool(pend["aimed"]) else "quick"] = float(pend["draw_time"])
+			pend["arm_x"] = p._spring_arm.position.x
+			pend["arm_len"] = p._spring_arm.spring_length
+			var v: Vector3 = fresh.linear_velocity
+			pend["launch_speed"] = v.length()
+			pend["launch_elev"] = rad_to_deg(asin(clampf(v.normalized().y, -1.0, 1.0)))
+			if bool(pend["aimed"]):
+				_aim_body_x = float(pend["body_x"])
+		elif _elapsed - float(pend["t_start"]) > 5.0:
+			print("[CombatTest] AIMTEST shot %d NEVER FIRED (aimed=%s drawing=%s holding=%s)" % [
+					int(pend["idx"]), str(pend["aimed"]),
+					str(p.is_drawing_bow), str(p.is_holding_bow)])
+			_aimtest_mouse(MOUSE_BUTTON_RIGHT if bool(pend["aimed"]) else MOUSE_BUTTON_LEFT, false)
+			_aim_pending = {}
+			_aim_next_t = _elapsed + 0.5
+		return
+
+	# In flight. The claim under test is "the arrow goes through the point
+	# under the crosshair", so what is measured is how close the FLIGHT PATH
+	# comes to the sight line — as a continuous segment, not as sampled
+	# points. At 50 m/s a physics step is 0.8 m of travel, so judging by the
+	# frame the arrow happened to stop on would report that step, not the aim.
+	var arrow = pend["arrow"]
+	var landed: bool = false
+	var impact: Vector3 = Vector3.ZERO
+	if is_instance_valid(arrow):
+		# Track the HEAD, not the body origin. The capsule is 0.8 m long and
+		# the origin sits at its middle, so an arrow whose head is buried in
+		# the dirt reports an origin still 0.4 m short of the target — the
+		# aim would look wrong by exactly half an arrow.
+		impact = arrow.global_position \
+				- arrow.global_transform.basis.z.normalized() * 0.4
+		var d: float = impact.distance_to(pend["target"])
+		if d < float(pend["min_dist"]):
+			pend["min_dist"] = d
+		# Where is the arrow when it reaches the crosshair's DEPTH? That is
+		# the miss the player sees, and the only place the two lines are
+		# meant to meet: a parabola launched near the sight line crosses it
+		# once close to the muzzle as well, which flatters any other metric.
+		var prev = pend.get("prev_pos")
+		if prev != null and not bool(pend["crossed"]):
+			var rd: Vector3 = pend["dir"]
+			var tgt: Vector3 = pend["target"]
+			var da: float = (prev - tgt).dot(rd)
+			var db: float = (impact - tgt).dot(rd)
+			if da < 0.0 and db >= 0.0:
+				var f: float = -da / maxf(db - da, 1e-6)
+				var cross: Vector3 = prev + (impact - prev) * f
+				var off: Vector3 = cross - tgt
+				pend["crossed"] = true
+				pend["plane_perp"] = (off - rd * off.dot(rd)).length()
+				pend["flight_t"] = _elapsed - float(pend["t_fire"])
+		pend["prev_pos"] = impact
+		var trace: Array = pend["trace"]
+		if trace.size() < 6:
+			trace.append("t=%.2f d=%.1f v=%.1f" % [
+					_elapsed - float(pend["t_fire"]),
+					impact.distance_to(_player.global_position + Vector3(0, 1.5, 0)),
+					arrow.linear_velocity.length()])
+		landed = bool(arrow._has_hit)
+	else:
+		landed = true
+	if not landed and _elapsed - float(pend["t_fire"]) < 8.0:
+		return
+
+	pend["stop_t"] = _elapsed - float(pend["t_fire"])
+	pend["stop_pos"] = impact
+	_aimtest_finish(pend, impact)
+
+
+## Depth-first search for a node by name — the touch HUD is not always a
+## direct child of the current scene.
+func _find_node_named(root: Node, wanted: String) -> Node:
+	if root.name == wanted:
+		return root
+	for child in root.get_children():
+		var found := _find_node_named(child, wanted)
+		if found != null:
+			return found
+	return null
+
+
+## Feed a pad button or trigger through the real input pipeline.
+func _aimtest_pad_button(button: int, pressed: bool) -> void:
+	var ev := InputEventJoypadButton.new()
+	ev.device = 0
+	ev.button_index = button
+	ev.pressed = pressed
+	Input.parse_input_event(ev)
+
+
+func _aimtest_pad_axis(axis: int, value: float) -> void:
+	var ev := InputEventJoypadMotion.new()
+	ev.device = 0
+	ev.axis = axis
+	ev.axis_value = value
+	Input.parse_input_event(ev)
+
+
+## The gamepad layout, checked on the real input map and the real archer:
+##
+##   LT held  -> aim, and aim ALONE: the camera slides over the shoulder with
+##               no arrow on the string, and comes back when the trigger does.
+##   RB       -> shoots. Sighted (1.5x draw) while LT is down, quick when not,
+##               and either way the press is the whole input.
+##   LB       -> parry.
+##
+## Every step is one press through Input.parse_input_event, so a binding that
+## went to the wrong action fails here rather than in someone's hands.
+func _aimtest_pad_check() -> void:
+	var p := _player
+	if _aim_pad_t < 0.0:
+		_aim_pad_t = _elapsed
+	var t: float = _elapsed - _aim_pad_t
+	var step = func(key: String, at: float) -> bool:
+		if t >= at and not _aim_pad.has("step_" + key):
+			_aim_pad["step_" + key] = true
+			return true
+		return false
+
+	if step.call("lt_down", 0.2):
+		_aimtest_pad_axis(JOY_AXIS_TRIGGER_LEFT, 1.0)
+	if step.call("lt_check", 0.9):
+		_aim_pad["lt_is_aim"] = Input.is_action_pressed(&"aim")
+		_aim_pad["lt_aims_camera"] = p._spring_arm.spring_length < 3.0
+		_aim_pad["lt_no_draw"] = not p.is_drawing_bow and not p.is_holding_bow
+		_aim_pad["lt_crosshair"] = p._crosshair != null and p._crosshair.visible
+	if step.call("rb_tap", 1.0):
+		_aimtest_pad_button(JOY_BUTTON_RIGHT_SHOULDER, true)
+	if step.call("rb_check", 1.05):
+		_aim_pad["rb_is_attack"] = Input.is_action_pressed(&"attack")
+		_aim_pad["rb_draws_sighted"] = p.is_drawing_bow and p._bow_aimed
+		_aim_pad["sighted_draw_s"] = p._bow_draw_required()
+		_aimtest_pad_button(JOY_BUTTON_RIGHT_SHOULDER, false)  # a TAP: it must still fire
+	if step.call("rb_fired", 1.9):
+		_aim_pad["rb_tap_fired"] = _aimtest_new_arrow() != null
+	if step.call("lt_up", 2.0):
+		_aimtest_pad_axis(JOY_AXIS_TRIGGER_LEFT, 0.0)
+	if step.call("lt_up_check", 2.6):
+		_aim_pad["lt_release_stops_aim"] = not Input.is_action_pressed(&"aim") \
+				and p._spring_arm.spring_length > 3.5
+	if step.call("rb_quick", 2.7):
+		_aimtest_pad_button(JOY_BUTTON_RIGHT_SHOULDER, true)
+	if step.call("rb_quick_check", 2.75):
+		_aim_pad["rb_alone_is_quick"] = p.is_drawing_bow and not p._bow_aimed
+		_aim_pad["quick_draw_s"] = p._bow_draw_required()
+		# A hip shot shows no sight: the crosshair is aim mode's, not the
+		# bow's.
+		_aim_pad["quick_no_sight"] = p._crosshair != null and not p._crosshair.visible
+		_aimtest_pad_button(JOY_BUTTON_RIGHT_SHOULDER, false)
+	if step.call("quick_fired", 3.4):
+		_aim_pad["rb_quick_fired"] = _aimtest_new_arrow() != null
+	if step.call("lb", 3.5):
+		_aimtest_pad_button(JOY_BUTTON_LEFT_SHOULDER, true)
+	if step.call("lb_check", 3.6):
+		_aim_pad["lb_is_parry"] = Input.is_action_pressed(&"parry")
+		_aimtest_pad_button(JOY_BUTTON_LEFT_SHOULDER, false)
+	if t > 4.0:
+		_aim_pad_done = true
+		var ok: bool = bool(_aim_pad.get("lt_is_aim", false)) \
+				and bool(_aim_pad.get("lt_aims_camera", false)) \
+				and bool(_aim_pad.get("lt_no_draw", false)) \
+				and bool(_aim_pad.get("lt_crosshair", false)) \
+				and bool(_aim_pad.get("lt_release_stops_aim", false)) \
+				and bool(_aim_pad.get("rb_is_attack", false)) \
+				and bool(_aim_pad.get("rb_draws_sighted", false)) \
+				and bool(_aim_pad.get("rb_tap_fired", false)) \
+				and bool(_aim_pad.get("rb_alone_is_quick", false)) \
+				and bool(_aim_pad.get("quick_no_sight", false)) \
+				and bool(_aim_pad.get("rb_quick_fired", false)) \
+				and bool(_aim_pad.get("lb_is_parry", false)) \
+				and is_equal_approx(float(_aim_pad.get("sighted_draw_s", 0.0)), 0.45) \
+				and is_equal_approx(float(_aim_pad.get("quick_draw_s", 0.0)), 0.3)
+		print("[CombatTest] AIMTEST pad: LT->aim=%s camera=%s no_draw=%s sight=%s release_clears=%s | RB->attack=%s sighted=%s(%.2fs) tap_fired=%s | RB alone quick=%s(%.2fs) fired=%s no_sight=%s | LB->parry=%s => %s" % [
+				str(_aim_pad.get("lt_is_aim", false)), str(_aim_pad.get("lt_aims_camera", false)),
+				str(_aim_pad.get("lt_no_draw", false)), str(_aim_pad.get("lt_crosshair", false)),
+				str(_aim_pad.get("lt_release_stops_aim", false)),
+				str(_aim_pad.get("rb_is_attack", false)), str(_aim_pad.get("rb_draws_sighted", false)),
+				float(_aim_pad.get("sighted_draw_s", -1.0)), str(_aim_pad.get("rb_tap_fired", false)),
+				str(_aim_pad.get("rb_alone_is_quick", false)),
+				float(_aim_pad.get("quick_draw_s", -1.0)), str(_aim_pad.get("rb_quick_fired", false)),
+				str(_aim_pad.get("quick_no_sight", false)),
+				str(_aim_pad.get("lb_is_parry", false)), "PASS" if ok else "FAIL"])
+		_aim_next_t = _elapsed + 0.8
+
+
+## Feed a real mouse button through the input pipeline.
+func _aimtest_mouse(button: int, pressed: bool) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	ev.pressed = pressed
+	ev.position = get_viewport().get_visible_rect().size * 0.5
+	Input.parse_input_event(ev)
+
+
+## The arrow the last loose put in the world, or null while none is new.
+func _aimtest_new_arrow() -> Node3D:
+	for a in get_tree().get_nodes_in_group("fire_arrows"):
+		var id: int = a.get_instance_id()
+		if not _aim_seen_arrows.has(id):
+			_aim_seen_arrows[id] = true
+			return a
+	return null
+
+
+## Closest approach between the segment a→b and the ray (ro, rd). Returns the
+## distance and how far along the ray that happened.
+func _seg_ray_dist(a: Vector3, b: Vector3, ro: Vector3, rd: Vector3) -> Dictionary:
+	var u: Vector3 = b - a
+	var w0: Vector3 = a - ro
+	var uu: float = u.dot(u)
+	var ur: float = u.dot(rd)
+	var uw: float = u.dot(w0)
+	var rw: float = rd.dot(w0)
+	var denom: float = uu - ur * ur
+	var sc: float = 0.0
+	if denom > 1e-9:
+		sc = clampf((ur * rw - uw) / denom, 0.0, 1.0)
+	var on_seg: Vector3 = a + u * sc
+	var along: float = maxf((on_seg - ro).dot(rd), 0.001)
+	return {"dist": (on_seg - (ro + rd * along)).length(), "along": along}
+
+
+func _aimtest_finish(pend: Dictionary, impact: Vector3) -> void:
+	# Judge the shot against the SIGHT LINE, not against the camera at the
+	# moment of impact — by then the zoom has already eased back out. The
+	# ray recorded when the string went is the crosshair, permanently.
+	var ray_from: Vector3 = pend["from"]
+	var ray_dir: Vector3 = pend["dir"]
+	var target: Vector3 = pend["target"]
+	var rel: Vector3 = impact - ray_from
+	var stop_along: float = maxf(rel.dot(ray_dir), 0.001)
+	var stop_perp: float = (rel - ray_dir * stop_along).length()
+	# The arrow that never reached the crosshair's depth stopped short — a
+	# real miss, judged where it died.
+	var perp: float = stop_perp
+	var along: float = stop_along
+	if bool(pend["crossed"]):
+		perp = float(pend["plane_perp"])
+		along = maxf((target - ray_from).dot(ray_dir), 0.001)
+	var err_deg: float = rad_to_deg(atan2(perp, along))
+	# Godot keeps the VERTICAL fov, so degrees convert to pixels straight
+	# through the viewport height.
+	var err_px: float = err_deg / maxf(float(pend["fov"]), 1.0) * float(pend["vp_h"])
+	var range_m: float = Vector2(target.x - ray_from.x, target.z - ray_from.z).length()
+	var in_range: bool = bool(pend["hit"]) and range_m <= AIMTEST_MAX_RANGE
+	var ok: bool = in_range and err_px <= AIMTEST_TOL_PX
+
+	_aim_results.append({
+		"idx": pend["idx"], "aimed": pend["aimed"], "ok": ok,
+		"in_range": in_range, "err_px": err_px, "err_deg": err_deg,
+		"perp": perp, "miss_m": impact.distance_to(target),
+		"min_dist": pend["min_dist"], "range_m": range_m,
+		"draw_time": pend["draw_time"], "hit": pend["hit"],
+	})
+	print("[CombatTest] AIMTEST shot %d %s: %s range=%.1fm err=%.2fpx (%.3f deg, %.3fm from the crosshair point at its own depth) reached=%s flight=%.2fs stop_to_crosshair=%.2fm draw=%.2fs" % [
+			int(pend["idx"]), "aimed" if bool(pend["aimed"]) else "quick",
+			("OK" if ok else ("OUT_OF_RANGE" if not in_range else "MISS")),
+			range_m, err_px, err_deg, perp, str(pend["crossed"]),
+			float(pend["flight_t"]), impact.distance_to(target),
+			float(pend["draw_time"])])
+	if not ok:
+		print("[CombatTest] AIMTEST shot %d LAUNCH: speed=%.1fm/s elevation=%.1fdeg" % [
+				int(pend["idx"]), float(pend.get("launch_speed", -1.0)),
+				float(pend.get("launch_elev", 0.0))])
+		print("[CombatTest] AIMTEST shot %d TRACE: %s" % [
+				int(pend["idx"]), ", ".join(PackedStringArray(pend["trace"]))])
+		print("[CombatTest] AIMTEST shot %d WHERE: stop=%s target=%s spawn_dist=%.1fm stop_t=%.2fs" % [
+				int(pend["idx"]), str(pend.get("stop_pos", Vector3.ZERO)),
+				str(target),
+				(Vector3(pend.get("stop_pos", Vector3.ZERO)) - (_player.global_position + Vector3(0, 1.5, 0))).length(),
+				float(pend.get("stop_t", -1.0))])
+	print("[CombatTest] AIMTEST shot %d camera: body_screen_x=%.3f arm_side=%.3fm arm_len=%.2fm wall_at=%.0fm" % [
+			int(pend["idx"]), float(pend["body_x"]), float(pend["arm_x"]),
+			float(pend["arm_len"]), AIMTEST_VIEWS[int(pend["idx"])].y])
+	print("[CombatTest] AIMTEST shot %d draw was: %s" % [
+			int(pend["idx"]), str(pend.get("state", "?"))])
+	if not ok:
+		print("[CombatTest] AIMTEST shot %d crosshair sat on: %s" % [
+				int(pend["idx"]), str(pend["collider"])])
+	Input.action_release(&"block")
+	Input.action_release(&"aim")
+	_aim_pending = {}
+	_aim_next_t = _elapsed + 0.8
+
+
+func _aimtest_report() -> void:
+	var scored := 0
+	var passed := 0
+	var worst := 0.0
+	for r in _aim_results:
+		if not bool(r["in_range"]):
+			continue
+		scored += 1
+		if bool(r["ok"]):
+			passed += 1
+		worst = maxf(worst, float(r["err_px"]))
+	var quick: float = float(_aim_draw_times.get("quick", -1.0))
+	var aimed: float = float(_aim_draw_times.get("aimed", -1.0))
+	var ratio: float = aimed / quick if quick > 0.0 else -1.0
+	print("[CombatTest] AIMTEST summary: on_crosshair=%d/%d worst_err=%.2fpx (tol %.0f) draw quick=%.2fs aimed=%.2fs ratio=%.2f body_screen_x=%.3f" % [
+			passed, scored, worst, AIMTEST_TOL_PX, quick, aimed, ratio, _aim_body_x])
+
+
 func _drive_bowsim(_delta: float) -> void:
 	var once := func(key: String, t: float) -> bool:
 		if _elapsed >= t and not _bowsim_flags.has(key):
@@ -3058,29 +3707,30 @@ func _drive_bowsim(_delta: float) -> void:
 		Input.action_release(&"move_forward")
 		_bowsim_flags["input_held"] = false
 	if once.call("draw1", 2.3):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("shot1", 3.3):
 		_bowsim_release("standing")
 	if once.call("walk2_on", 4.0):
 		Input.action_press(&"move_forward")
 		_bowsim_flags["input_held"] = true
 	if once.call("draw2", 4.5):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("shot2", 5.5):
 		_bowsim_release("aim-walking")
 	if once.call("draw3", 6.3):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("shot3", 7.3):
 		_bowsim_release("aim-walking-2")
 	if once.call("walk2_off", 8.0):
 		Input.action_release(&"move_forward")
 		_bowsim_flags["input_held"] = false
 	if once.call("draw4", 8.2):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("cancel4", 8.35):
+		Input.action_release(&"aim")
 		_player._release_bow()  # early release: cancel path, no shot
 	if once.call("draw5", 8.7):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("shot5", 9.7):
 		_bowsim_release("standing-2")
 	if once.call("jump1", 10.3):
@@ -3089,13 +3739,13 @@ func _drive_bowsim(_delta: float) -> void:
 		Input.action_release(&"jump")
 	if once.call("airdraw", 10.55):
 		if not _player.is_on_floor():
-			_player._start_bow_draw()
+			_bowsim_draw()
 			_bowsim_flags["airdraw_blocked"] = not _player.is_drawing_bow
 			print("[CombatTest] BOWSIM: airborne draw attempt -> drawing=%s" % str(_player.is_drawing_bow))
 		else:
 			_bowsim_flags["airdraw_blocked"] = true  # landed too fast to test
 	if once.call("draw6", 11.4):
-		_player._start_bow_draw()
+		_bowsim_draw()
 	if once.call("jump2", 11.7):
 		Input.action_press(&"jump")
 	if once.call("jump2_off", 11.85):
@@ -3115,7 +3765,11 @@ func _drive_bowsim(_delta: float) -> void:
 			and bool(_bowsim_flags.get("input_held", false)):
 		# Locomotion counts only if the clip is actually RUNNING — a paused
 		# Walk while moving is precisely the frozen-legs bug.
-		var loco: bool = anim in ["archer/Walk", "archer/Run", "archer/StrafeLeft", "archer/StrafeRight"] \
+		# AimWalk is locomotion too — it is the clip a drawn archer walks with.
+		# Leaving it out had BOWSIM reporting ~190 frozen frames a run for a
+		# body that was walking perfectly well.
+		var loco: bool = anim in ["archer/Walk", "archer/Run", "archer/StrafeLeft",
+				"archer/StrafeRight", "archer/AimWalk"] \
 				and ap.is_playing()
 		var aim_burst: bool = anim == "archer/Attack" \
 				and (_player.is_attacking or _player.is_drawing_bow or _player.is_holding_bow)
@@ -3129,7 +3783,17 @@ func _drive_bowsim(_delta: float) -> void:
 
 ## Release the bow expecting a SHOT: verifies the loose animation is
 ## actually playing right after the arrow leaves.
+## Start a sighted draw the way the mouse's right button does: the draw waits
+## for a release. The action state matters too — a draw that waits heals a
+## lost release by polling the aim action, so one started without it is
+## cancelled a quarter of a second later.
+func _bowsim_draw() -> void:
+	Input.action_press(&"aim")
+	_player._start_bow_draw(true, true)
+
+
 func _bowsim_release(label: String) -> void:
+	Input.action_release(&"aim")
 	var was_ready: bool = _player.is_holding_bow
 	_player._release_bow()
 	_bowsim_flags["shots"] = int(_bowsim_flags.get("shots", 0)) + (1 if was_ready else 0)
@@ -3512,6 +4176,8 @@ func _drive_souls(delta: float) -> void:
 	if _souls_estus_start < 0 and "estus_charges" in _player:
 		_souls_estus_start = int(_player.estus_charges)
 
+	_player._lock_target = _bobba
+
 	# ── Geometry: always face Bobba (the lock-on equivalent) ──
 	var to_bobba: Vector3 = _bobba.global_position - _player.global_position
 	to_bobba.y = 0.0
@@ -3542,13 +4208,8 @@ func _drive_souls(delta: float) -> void:
 	# ── Defense: parry the incoming swing on reaction, holding ground ──
 	if bobba_attacking:
 		if not _player.is_parrying and not _souls_parried_this_attack:
-			# Press off predicted CONTACT, like a player reacting to the
-			# incoming fist — not off the windup. At the 1.8 m bait
-			# distance the fist arc reaches us a measured ~0.5s after the
-			# damage window arms (it needs full arm extension), so aim the
-			# press ~0.15s before that moment, mid-deflect-frames.
-			const CONTACT_AFTER_WINDOW: float = 0.50
-			var t_to_contact: float = _time_to_bobba_hit_window() + CONTACT_AFTER_WINDOW
+			#At bait distance the fist already overlaps when its window opens.
+			var t_to_contact: float = _time_to_bobba_hit_window()
 			if t_to_contact >= 0.10 and t_to_contact <= 0.20:
 				_player._try_parry()
 				_souls_parried_this_attack = _player.is_parrying
@@ -3588,7 +4249,9 @@ func _time_to_bobba_hit_window() -> float:
 	var anim_len: float = ap.current_animation_length
 	if anim_len <= 0.0:
 		return -1.0
-	return 0.3 * anim_len - ap.current_animation_position
+	var window: Vector2 = _bobba._current_attack_data()["window"]
+	var rate: float = maxf(absf(ap.get_playing_speed()), 0.01)
+	return (window.x * anim_len - ap.current_animation_position) / rate
 
 
 func _finish_souls(outcome: String) -> void:
@@ -3658,7 +4321,7 @@ func _scenario_a() -> void:
 func _scenario_b(dist: float) -> void:
 	# Paladin never blocks and backs off every third swing so the hit
 	# whiffs, giving Bobba the tempo to kill the 150-HP knight before
-	# Bobba's 1000 HP pool runs out.
+	# Bobba's 1500 HP pool runs out.
 	Input.action_release(&"block")
 	if _player.is_attacking and (_attack_count % 3 == 2):
 		var retreat_dir: Vector3 = (_player.global_position - _bobba.global_position).normalized()

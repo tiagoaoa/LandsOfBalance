@@ -22,7 +22,10 @@
       </div>
       <p class="lead">Third-person medieval fantasy. Runs on the server, plays in your browser: keyboard, mouse and gamepad all stream back.</p>
       <p id="capacity" class="chips"></p>
-      <div id="tokenRow" class="row" hidden>
+      <div id="touchRow" class="row" hidden>
+    <label class="check"><input id="touchOpt" type="checkbox" checked> Touch controls on screen (like the mobile game)</label>
+  </div>
+  <div id="tokenRow" class="row" hidden>
         <label for="token">Access token</label>
         <input id="token" type="password" placeholder="shared secret from the gateway">
       </div>
@@ -52,6 +55,7 @@
 <section id="stage" hidden>
   <video id="video" autoplay playsinline></video>
   <div id="banner" class="banner" hidden></div>
+  <div id="rotateHint" class="rotatehint">Rotate your phone sideways</div>
   <div id="hint" class="hint" hidden>Click to take the mouse</div>
   <div id="hud">
     <button id="hudToggle" title="Toggle HUD">≡</button>

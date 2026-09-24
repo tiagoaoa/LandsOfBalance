@@ -40,6 +40,7 @@ var _force_field_light: OmniLight3D
 var _force_field_material: ShaderMaterial
 var _is_casting: bool = false
 # Fire circle VFX for Archer
+var _fire_sigil: MeshInstance3D
 var _fire_circle_node: Node3D
 var _fire_circle_particles: Array[GPUParticles3D] = []
 var _fire_circle_light: OmniLight3D
@@ -51,10 +52,11 @@ const FIRE_CIRCLE_RADIUS: float = 2.5
 var _debug_frame_count: int = 0
 const DEBUG_LOG_INTERVAL: int = 60  # Log every 60 frames (~1 second at 60fps)
 const VERBOSE_REMOTE_PLAYER_LOGS: bool = false
-const FIRE_CIRCLE_EMITTERS: int = 8
+const FIRE_CIRCLE_EMITTERS: int = 12
 const FIRE_CIRCLE_DURATION: float = 4.0  # 4 seconds with 1/time intensity decay
 
 # Use Protocol.PlayerState for network sync compatibility
+const RitualVFX = preload("res://combat/ritual_vfx.gd")
 const Proto = preload("res://multiplayer/protocol.gd")
 const STATE_IDLE = Proto.PlayerState.STATE_IDLE
 const STATE_WALKING = Proto.PlayerState.STATE_WALKING
@@ -67,8 +69,8 @@ const STATE_DRAWING_BOW = Proto.PlayerState.STATE_DRAWING_BOW
 const STATE_HOLDING_BOW = Proto.PlayerState.STATE_HOLDING_BOW
 
 # Archer character and animations (default)
-const ARCHER_CHARACTER_PATH = "res://player/character/archer/Archer.fbx"
-var ArcherScene: PackedScene = preload("res://player/character/archer/Archer.fbx")
+const ARCHER_CHARACTER_PATH = "res://assets/characters/archer_v3.glb"
+var ArcherScene: PackedScene = preload("res://assets/characters/archer_v3.glb")
 const ARCHER_ANIM_PATHS: Dictionary = {
 	"Idle": "res://player/character/archer/Idle.fbx",
 	"Walk": "res://player/character/archer/Walk.fbx",
@@ -81,9 +83,14 @@ const ARCHER_ANIM_PATHS: Dictionary = {
 }
 
 # Paladin character and animations
-const PALADIN_CHARACTER_PATH = "res://player/character/armed/Paladin.fbx"
-var PaladinScene: PackedScene = preload("res://player/character/armed/Paladin.fbx")
+const PALADIN_CHARACTER_PATH = "res://assets/characters/paladin_armed_v3.glb"
+var PaladinScene: PackedScene = preload("res://assets/characters/paladin_armed_v3.glb")
+const SwordMoves = preload("res://player/sword_moves.gd")
 const PALADIN_ANIM_PATHS: Dictionary = {
+	"SwordSlash": "res://player/character/armed/SwordSlash.fbx",
+	"Attack1": "res://player/character/armed/Attack1.fbx",
+	"Attack2": "res://player/character/armed/Attack2.fbx",
+	"HeavyAttack": "res://player/character/armed/Attack2.fbx",
 	"Idle": "res://player/character/armed/Idle.fbx",
 	"Walk": "res://player/character/armed/Walk.fbx",
 	"Run": "res://player/character/armed/Run.fbx",
@@ -137,6 +144,7 @@ func _physics_process(delta: float) -> void:
 	var smooth_factor: float = 1.0 - exp(-interpolation_speed * delta)
 
 	# Interpolate position directly (no physics for remote players)
+	var previous := global_position
 	if target_position != Vector3.ZERO:
 		var distance_to_target := global_position.distance_to(target_position)
 		if distance_to_target < SNAP_THRESHOLD:
@@ -162,6 +170,38 @@ func _physics_process(delta: float) -> void:
 
 	# Update spell VFX based on casting state
 	_update_spell_vfx(delta)
+	_update_audio(previous)
+
+
+var _step_distance := 0.0
+var _sound_anim := ""
+var _swing_sounded := false
+
+
+func _update_audio(previous: Vector3) -> void:
+	var moved := Vector2(global_position.x - previous.x, global_position.z - previous.z).length()
+	var walking := "Walk" in current_anim_name or "Run" in current_anim_name \
+			or "Strafe" in current_anim_name or "Sprint" in current_anim_name
+	if walking and moved < 1.0:
+		_step_distance += moved
+		if _step_distance >= (2.1 if current_state == STATE_RUNNING else 1.68):
+			_step_distance = 0.0
+			var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP,
+					global_position - Vector3.UP * .5, 1, [get_rid()])
+			var hit := get_world_3d().direct_space_state.intersect_ray(query)
+			if not hit.is_empty():
+				Sfx.play3d("step_" + Sfx.surface(hit.collider), global_position, -7.0)
+	else:
+		_step_distance = 0.0
+	if _sound_anim != _current_playing_anim:
+		_sound_anim = _current_playing_anim
+		_swing_sounded = false
+	var step := SwordMoves.NAMES.find(_sound_anim.get_slice("/", 1))
+	if character_class == 0 and step >= 0 and not _swing_sounded:
+		var progress := _anim_player.current_animation_position / _anim_player.current_animation_length
+		if progress >= SwordMoves.WINDOWS[step].x:
+			_swing_sounded = true
+			Sfx.play3d("sword_whoosh_%d" % mini(step + 1, 3), global_position + Vector3.UP, -6.0)
 
 
 func update_from_network(data: Dictionary) -> void:
@@ -222,6 +262,7 @@ func _setup_character_model() -> void:
 		call_deferred("_finalize_setup")
 		return
 
+	preload("res://player/character_materials.gd").apply(_character_model)
 	_character_model.name = "Model"
 	add_child(_character_model)
 	print("RemotePlayer [%d]: Character model instantiated and added" % player_id)
@@ -245,6 +286,8 @@ func _setup_character_model() -> void:
 		print("RemotePlayer [%d]: No skeleton or no bones, using 0.01 scale" % player_id)
 		_character_model.scale = Vector3(0.01, 0.01, 0.01)
 	print("RemotePlayer [%d]: Final scale = %s" % [player_id, _character_model.scale])
+	if skeleton:
+		preload("res://player/cape.gd").install(_character_model, skeleton, character_class == 0)
 
 	# Find existing AnimationPlayer in the model
 	_anim_player = _find_animation_player(_character_model)
@@ -449,6 +492,11 @@ func _load_animations(skeleton: Skeleton3D) -> void:
 
 			# Retarget animation tracks to our skeleton
 			_retarget_animation(new_anim, skel_path, skeleton)
+			var step: int = SwordMoves.NAMES.find(anim_name)
+			if character_class == 0 and step >= 0:
+				var trim: Vector2 = SwordMoves.TRIMS[SwordMoves.KEYS[step]]
+				new_anim = ClipTrim.sub(new_anim, trim.x, trim.y)
+
 
 			# Add to library with correct prefix
 			if not _anim_player.has_animation_library(anim_prefix):
@@ -462,6 +510,7 @@ func _load_animations(skeleton: Skeleton3D) -> void:
 	# peer walking with their shield up doesn't look frozen mid-stride
 	# (their client sends the clip name, e.g. "armed/BlockWalk").
 	BlockStanceAnim.compose(_anim_player, str(anim_prefix))
+	preload("res://player/bow_anims.gd").compose(_anim_player, str(anim_prefix))
 
 	print("RemotePlayer: Animation library has: ", _anim_player.get_animation_list())
 
@@ -544,6 +593,8 @@ func _apply_remote_player_tint() -> void:
 
 
 func _apply_tint_recursive(node: Node) -> void:
+	if node.has_meta("retired_cape"):
+		return
 	if node is MeshInstance3D:
 		var mesh_instance = node as MeshInstance3D
 		# FORCE visibility - ensure mesh is on layer 1 and visible
@@ -619,7 +670,12 @@ func _update_animation() -> void:
 	# Try to play the animation if it exists and different from current
 	if _anim_player.has_animation(full_anim_name):
 		if _current_playing_anim != full_anim_name:
-			_anim_player.play(full_anim_name)
+			var rate := 1.0
+			var step: int = SwordMoves.NAMES.find(anim_name)
+			if character_class == 0 and step >= 0:
+				rate = _anim_player.get_animation(full_anim_name).length \
+						/ SwordMoves.DURATIONS[step]
+			_anim_player.play(full_anim_name, 0.1, rate)
 			_current_playing_anim = full_anim_name
 
 
@@ -627,11 +683,17 @@ func _update_animation() -> void:
 # SPELL VFX
 # =============================================================================
 
+var _spell_arcs: Array[Node3D] = []
+var _spell_audio: Node3D
+
+
 func _setup_spell_vfx() -> void:
 	# Container for spell effects
 	_spell_effects = Node3D.new()
 	_spell_effects.name = "SpellEffects"
 	add_child(_spell_effects)
+	_spell_audio = preload("res://combat/spell_audio.gd").new()
+	_spell_effects.add_child(_spell_audio)
 
 	# Spell light (blue glow)
 	_spell_light = OmniLight3D.new()
@@ -643,59 +705,17 @@ func _setup_spell_vfx() -> void:
 	_spell_light.position = Vector3(0, 1.5, 0)
 	_spell_effects.add_child(_spell_light)
 
-	# Spark particles
-	_spell_particles = GPUParticles3D.new()
-	_spell_particles.name = "SpellParticles"
-	_spell_particles.emitting = false
-	_spell_particles.amount = 100
-	_spell_particles.lifetime = 0.8
-	_spell_particles.explosiveness = 0.2
-	_spell_particles.position = Vector3(0, 1.0, 0)
-
-	var particle_mat = ParticleProcessMaterial.new()
-	particle_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	particle_mat.emission_sphere_radius = 0.5
-	particle_mat.direction = Vector3(0, 1, 0)
-	particle_mat.spread = 180.0
-	particle_mat.initial_velocity_min = 2.0
-	particle_mat.initial_velocity_max = 5.0
-	particle_mat.gravity = Vector3(0, -2, 0)
-	particle_mat.scale_min = 0.05
-	particle_mat.scale_max = 0.15
-	particle_mat.color = Color(0.5, 0.7, 1.0)
-	_spell_particles.process_material = particle_mat
-
-	# Simple quad mesh for particles
-	var quad = QuadMesh.new()
-	quad.size = Vector2(0.1, 0.1)
-	var quad_mat = StandardMaterial3D.new()
-	quad_mat.albedo_color = Color(0.6, 0.8, 1.0)
-	quad_mat.emission_enabled = true
-	quad_mat.emission = Color(0.4, 0.6, 1.0)
-	quad_mat.emission_energy_multiplier = 3.0
-	quad_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	quad_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	quad.material = quad_mat
-	_spell_particles.draw_pass_1 = quad
+	_spell_particles = RitualVFX.sparks(true)
 	_spell_effects.add_child(_spell_particles)
+	for i in range(7):
+		var arc := preload("res://combat/channel_arc.gd").new()
+		arc.visible = false
+		_spell_effects.add_child(arc)
+		_spell_arcs.append(arc)
+	RitualVFX.place_arcs(_spell_arcs)
 
-	# Magic circle on ground
-	_magic_circle = MeshInstance3D.new()
-	_magic_circle.name = "MagicCircle"
-	var circle_mesh = PlaneMesh.new()
-	circle_mesh.size = Vector2(3.0, 3.0)
-	_magic_circle.mesh = circle_mesh
-	_magic_circle.position = Vector3(0, 0.05, 0)
+	_magic_circle = RitualVFX.sigil(Color(0.32, 0.65, 1.0), 4.5)
 	_magic_circle.visible = false
-
-	var circle_mat = StandardMaterial3D.new()
-	circle_mat.albedo_color = Color(0.3, 0.5, 1.0, 0.5)
-	circle_mat.emission_enabled = true
-	circle_mat.emission = Color(0.2, 0.4, 1.0)
-	circle_mat.emission_energy_multiplier = 2.0
-	circle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	circle_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_magic_circle.material_override = circle_mat
 	_spell_effects.add_child(_magic_circle)
 
 	# Force field bubble sphere for Paladin
@@ -712,7 +732,7 @@ func _setup_spell_vfx() -> void:
 	var shader = Shader.new()
 	shader.code = """
 shader_type spatial;
-render_mode blend_add, depth_draw_opaque, cull_front, unshaded;
+render_mode blend_add, depth_draw_never, cull_front, unshaded;
 
 uniform vec4 bubble_color : source_color = vec4(0.0, 0.8, 1.0, 0.3);
 uniform float fresnel_power : hint_range(0.5, 10.0) = 3.0;
@@ -720,7 +740,7 @@ uniform float edge_intensity : hint_range(0.0, 5.0) = 2.0;
 uniform float pulse_speed : hint_range(0.0, 10.0) = 3.0;
 
 void fragment() {
-	float fresnel = pow(1.0 - dot(NORMAL, VIEW), fresnel_power);
+	float fresnel = pow(1.0 - abs(dot(NORMAL, VIEW)), fresnel_power);
 	float pulse = sin(TIME * pulse_speed) * 0.15 + 0.85;
 	float intensity = fresnel * edge_intensity * pulse;
 	ALBEDO = bubble_color.rgb * intensity;
@@ -730,9 +750,9 @@ void fragment() {
 """
 	_force_field_material = ShaderMaterial.new()
 	_force_field_material.shader = shader
-	_force_field_material.set_shader_parameter("bubble_color", Color(0.0, 0.9, 1.0, 0.4))
-	_force_field_material.set_shader_parameter("fresnel_power", 3.0)
-	_force_field_material.set_shader_parameter("edge_intensity", 2.5)
+	_force_field_material.set_shader_parameter("bubble_color", Color(0.25, 0.5, 0.9, 0.10))
+	_force_field_material.set_shader_parameter("fresnel_power", 5.0)
+	_force_field_material.set_shader_parameter("edge_intensity", 0.65)
 	_force_field_material.set_shader_parameter("pulse_speed", 3.0)
 	_force_field_sphere.material_override = _force_field_material
 
@@ -760,6 +780,9 @@ func _setup_fire_circle_vfx() -> void:
 	_fire_circle_node = Node3D.new()
 	_fire_circle_node.name = "FireCircleSpell"
 	add_child(_fire_circle_node)
+	_fire_sigil = RitualVFX.sigil(Color(1.0, 0.38, 0.08), 5.8)
+	_fire_sigil.visible = false
+	_fire_circle_node.add_child(_fire_sigil)
 
 	# Fire circle light (orange glow)
 	_fire_circle_light = OmniLight3D.new()
@@ -771,82 +794,18 @@ func _setup_fire_circle_vfx() -> void:
 	_fire_circle_light.position = Vector3(0, 0.5, 0)
 	_fire_circle_node.add_child(_fire_circle_light)
 
-	# Create fire emitters in a circle
 	_fire_circle_particles.clear()
 	for i in range(FIRE_CIRCLE_EMITTERS):
-		var angle = (float(i) / FIRE_CIRCLE_EMITTERS) * TAU
-		var x = cos(angle) * FIRE_CIRCLE_RADIUS
-		var z = sin(angle) * FIRE_CIRCLE_RADIUS
-
-		var fire = GPUParticles3D.new()
-		fire.name = "FireEmitter_%d" % i
-		fire.emitting = false
-		fire.amount = 80  # More particles for smoother look
-		fire.lifetime = 1.2  # Longer lifetime
-		fire.explosiveness = 0.05  # More gradual emission
-		fire.randomness = 0.5
-		fire.position = Vector3(x, 0.1, z)
-
-		var fire_mat = ParticleProcessMaterial.new()
-		fire_mat.direction = Vector3(0, 1, 0)
-		fire_mat.spread = 20.0
-		fire_mat.initial_velocity_min = 1.0
-		fire_mat.initial_velocity_max = 2.5
-		fire_mat.gravity = Vector3(0, 0.5, 0)  # Fire rises gently
-		fire_mat.damping_min = 0.5
-		fire_mat.damping_max = 1.5
-
-		# Color gradient: white core -> yellow -> orange -> red -> dark red
-		var color_gradient = Gradient.new()
-		color_gradient.offsets = PackedFloat32Array([0.0, 0.15, 0.35, 0.55, 0.75, 1.0])
-		color_gradient.colors = PackedColorArray([
-			Color(1.0, 1.0, 0.9, 0.9),   # White-yellow core
-			Color(1.0, 0.85, 0.3, 1.0),  # Bright yellow
-			Color(1.0, 0.5, 0.1, 1.0),   # Orange
-			Color(0.95, 0.25, 0.05, 0.9), # Bright red
-			Color(0.7, 0.1, 0.02, 0.6),  # Deep red
-			Color(0.3, 0.05, 0.01, 0.0)  # Dark red fade out
-		])
-		var color_tex = GradientTexture1D.new()
-		color_tex.gradient = color_gradient
-		color_tex.width = 256  # Smoother gradient
-		fire_mat.color_ramp = color_tex
-
-		# Scale curve: grow then shrink for organic flame shape
-		var scale_curve = Curve.new()
-		scale_curve.add_point(Vector2(0.0, 0.3))
-		scale_curve.add_point(Vector2(0.2, 1.0))
-		scale_curve.add_point(Vector2(0.6, 0.7))
-		scale_curve.add_point(Vector2(1.0, 0.1))
-		var scale_tex = CurveTexture.new()
-		scale_tex.curve = scale_curve
-		fire_mat.scale_curve = scale_tex
-		fire_mat.scale_min = 0.4
-		fire_mat.scale_max = 0.8
-
-		fire_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-		fire_mat.emission_sphere_radius = 0.25
-		fire.process_material = fire_mat
-
-		# Larger, softer fire mesh
-		var fire_mesh = QuadMesh.new()
-		fire_mesh.size = Vector2(0.6, 0.8)  # Taller flame shape
-		var mesh_mat = StandardMaterial3D.new()
-		mesh_mat.albedo_color = Color(1.0, 0.8, 0.5, 0.9)
-		mesh_mat.emission_enabled = true
-		mesh_mat.emission = Color(1.0, 0.4, 0.1)
-		mesh_mat.emission_energy_multiplier = 3.0
-		mesh_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-		mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mesh_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD  # Additive blending for glow
-		mesh_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mesh_mat.vertex_color_use_as_albedo = true  # Use particle color
-		fire_mesh.material = mesh_mat
-		fire.draw_pass_1 = fire_mesh
-
+		var angle := TAU * i / FIRE_CIRCLE_EMITTERS
+		var pos := Vector3(cos(angle), 0, sin(angle)) * FIRE_CIRCLE_RADIUS
+		var fire := RitualVFX.ring_flame(pos + Vector3.UP * .1)
 		_fire_circle_node.add_child(fire)
 		_fire_circle_particles.append(fire)
-
+	var embers := RitualVFX.sparks(true, Color(1.0, .5, .12))
+	embers.process_material.emission_ring_radius = FIRE_CIRCLE_RADIUS
+	embers.process_material.emission_ring_inner_radius = FIRE_CIRCLE_RADIUS - .3
+	_fire_circle_node.add_child(embers)
+	_fire_circle_particles.append(embers)
 
 func _update_spell_vfx(delta: float) -> void:
 	var should_cast = (current_state == STATE_CASTING)
@@ -877,6 +836,7 @@ func _update_spell_vfx(delta: float) -> void:
 
 
 func _start_spell_vfx() -> void:
+	_spell_audio.start(character_class == 1)
 	if character_class == 1:  # Archer - fire circle
 		_start_fire_circle_vfx()
 	else:  # Paladin - lightning
@@ -884,6 +844,7 @@ func _start_spell_vfx() -> void:
 
 
 func _stop_spell_vfx() -> void:
+	_spell_audio.stop()
 	if character_class == 1:  # Archer - fire circle
 		_stop_fire_circle_vfx()
 	else:  # Paladin - lightning
@@ -891,6 +852,9 @@ func _stop_spell_vfx() -> void:
 
 
 func _start_lightning_vfx() -> void:
+	for arc in _spell_arcs:
+		arc.visible = true
+	RitualVFX.place_arcs(_spell_arcs)
 	if _spell_light:
 		_spell_light.light_energy = 3.0
 	if _spell_particles:
@@ -902,10 +866,12 @@ func _start_lightning_vfx() -> void:
 		_force_field_sphere.visible = true
 		_force_field_sphere.scale = Vector3(1.0, 1.0, 1.0)
 	if _force_field_light:
-		_force_field_light.light_energy = 2.0
+		_force_field_light.light_energy = 0.6
 
 
 func _stop_lightning_vfx() -> void:
+	for arc in _spell_arcs:
+		arc.visible = false
 	if _spell_light:
 		_spell_light.light_energy = 0.0
 	if _spell_particles:
@@ -922,6 +888,7 @@ func _stop_lightning_vfx() -> void:
 
 func _start_fire_circle_vfx() -> void:
 	_fire_circle_active = true
+	_fire_sigil.visible = true
 	_fire_circle_time = 0.0
 	# Join "ground_fire" so this is a REAL fire to every AI, exactly as the
 	# local caster's is (player.gd:_start_fire_circle_spell). Without it a
@@ -940,6 +907,7 @@ func _start_fire_circle_vfx() -> void:
 
 func _stop_fire_circle_vfx() -> void:
 	_fire_circle_active = false
+	_fire_sigil.visible = false
 	# The reveal ends with the flames, or the ally would light the field
 	# permanently from wherever he happened to cast.
 	if _fire_circle_node and _fire_circle_node.is_in_group("ground_fire"):

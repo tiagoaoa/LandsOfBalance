@@ -54,8 +54,9 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// Create starts a new game instance (asynchronously) and returns it.
-func (m *Manager) Create() (*Session, error) {
+// Create starts a new game instance (asynchronously) and returns it. With
+// touch, the game shows its native touch controls (a phone is playing).
+func (m *Manager) Create(touch bool) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.sessions) >= m.cfg.MaxSessions {
@@ -75,6 +76,7 @@ func (m *Manager) Create() (*Session, error) {
 		m.displays[num] = true
 	}
 	s := newSession(m.cfg, newID(), num, m.forget)
+	s.touch = touch
 	m.sessions[s.ID] = s
 	log.Printf("session %s: created (display %d)", s.ID, num)
 	go s.start(m.ctx)

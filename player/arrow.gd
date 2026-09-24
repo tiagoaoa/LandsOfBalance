@@ -7,7 +7,6 @@ class_name Arrow
 const DamageAuraAreaClass := preload("res://combat/damage_aura_area.gd")
 
 const ARROW_SPEED: float = 50.0
-const GRAVITY: float = 9.8
 const LIFETIME: float = 10.0
 ## Direct-hit damage, in HP. Fully negated when the target is blocking.
 ##
@@ -16,16 +15,16 @@ const LIFETIME: float = 10.0
 ## archery: an arrow did 5 to the archer and 50 to Bobba, and EVERY enemy died
 ## in exactly twenty arrows however its HP was tuned. Raising a boss's health
 ## bought it nothing against a bow. 35 restores the intent already written
-## into SkeletonWarrior.MAX_HP ("~5 arrows") and makes a boss's 1000 HP mean
+## into SkeletonWarrior.MAX_HP ("~5 arrows") and makes a boss's 1500 HP mean
 ## what it says.
 const DIRECT_HIT_DAMAGE: float = 35.0
 # A shot loosed mid-air has no planted stance behind it: its flame runs
 # at half brightness and the hit carries only this fraction of the damage.
 const AIRBORNE_SHOT_DAMAGE_MULT: float = 0.5
 var airborne_shot: bool = false
-# Launch force multiplier: 1.0 for a planted loose, 0.5 when shot on the
-# move (half force → ~quarter ballistic range; damage scales with it).
+#Launch speed: quick 1.0, sighted 1.5; moving halves either shot.
 var shot_power: float = 1.0
+var _flight_velocity := Vector3.ZERO
 ## Ground fire DoT, in HP per second, to any character inside the radius for
 ## as long as the fire burns. Also absolute now, and deliberately modest: at
 ## 5% of max HP it was doing 50 a second to Bobba, which made a patch of
@@ -57,12 +56,19 @@ func _ready() -> void:
 	# Enable contact monitoring for body_entered signal
 	contact_monitor = true
 	max_contacts_reported = 4
+	continuous_cd = true
 
 	# Connect body entered signal
 	body_entered.connect(_on_body_entered)
 
 	# Set physics properties
 	gravity_scale = 1.0
+	# DRAG-FREE, and it has to be said twice. `linear_damp = 0.0` alone does
+	# not mean zero: the default damp mode COMBINES the body's value with the
+	# space's, and the project ships Godot's 0.1 default there — which quietly
+	# bled ~7% of an arrow's speed over a 35 m flight. The companion solves
+	# its trajectory from speed and gravity alone; hidden drag invalidates it.
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	linear_damp = 0.0
 	angular_damp = 0.0
 
@@ -80,17 +86,33 @@ func _physics_process(delta: float) -> void:
 
 	# Rotate arrow to face velocity direction
 	if linear_velocity.length() > 0.1 and not _has_hit:
-		look_at(global_position + linear_velocity.normalized(), Vector3.UP)
+		#Keep the incoming velocity: contact response can stop the body
+		#before body_entered reports the hit.
+		_flight_velocity = linear_velocity
+		var dir := linear_velocity.normalized()
+		var up := Vector3.RIGHT if absf(dir.y) > .99 else Vector3.UP
+		look_at(global_position + dir, up)
 
 
 func launch(direction: Vector3) -> void:
 	# Apply initial velocity (a moving loose leaves the string at half force)
-	linear_velocity = direction.normalized() * ARROW_SPEED * shot_power
+	var dir := direction.normalized()
+	linear_velocity = dir * ARROW_SPEED * shot_power
+	_flight_velocity = linear_velocity
+	var up := Vector3.RIGHT if absf(dir.dot(Vector3.UP)) > .99 else Vector3.UP
+	look_at(global_position + dir, up)
 	# No gravity tricks needed: ballistic range goes with v², so half the
 	# launch force by itself caps the MAXIMUM (arced) flight at one quarter.
 
 
 func _setup_arrow_mesh() -> void:
+	var visual := create_visual()
+	add_child(visual)
+	_mesh = visual.get_node("ArrowShaft")
+
+
+static func create_visual() -> Node3D:
+	var visual := Node3D.new()
 	# Proper fletched war arrow, built procedurally: tapered cedar shaft,
 	# forged bodkin head with a metal collar, horn nock, three swept feather
 	# vanes (two off-white + the traditional single "cock feather" accent).
@@ -105,17 +127,17 @@ func _setup_arrow_mesh() -> void:
 	metal.roughness = 0.35
 
 	# Shaft — slightly tapered toward the nock.
-	_mesh = MeshInstance3D.new()
-	_mesh.name = "ArrowShaft"
+	var shaft := MeshInstance3D.new()
+	shaft.name = "ArrowShaft"
 	var shaft_mesh := CylinderMesh.new()
 	shaft_mesh.top_radius = 0.010   # nock end (cylinder +Y maps to +Z after rotation)
 	shaft_mesh.bottom_radius = 0.013
 	shaft_mesh.height = 0.92
 	shaft_mesh.radial_segments = 8
-	_mesh.mesh = shaft_mesh
-	_mesh.material_override = wood
-	_mesh.rotation.x = deg_to_rad(-90)  # -Y (thick end) points forward (-Z)
-	add_child(_mesh)
+	shaft.mesh = shaft_mesh
+	shaft.material_override = wood
+	shaft.rotation.x = deg_to_rad(-90)  # -Y (thick end) points forward (-Z)
+	visual.add_child(shaft)
 
 	# Bodkin head — a slim forged spike (cone), far more arrow-like than
 	# the old two-prism "V".
@@ -130,7 +152,7 @@ func _setup_arrow_mesh() -> void:
 	head.material_override = metal
 	head.rotation.x = deg_to_rad(-90)
 	head.position = Vector3(0, 0, -0.53)
-	add_child(head)
+	visual.add_child(head)
 
 	# Collar where the head is socketed onto the shaft.
 	var collar := MeshInstance3D.new()
@@ -144,7 +166,7 @@ func _setup_arrow_mesh() -> void:
 	collar.material_override = metal
 	collar.rotation.x = deg_to_rad(-90)
 	collar.position = Vector3(0, 0, -0.44)
-	add_child(collar)
+	visual.add_child(collar)
 
 	# Horn nock at the tail.
 	var nock := MeshInstance3D.new()
@@ -161,7 +183,7 @@ func _setup_arrow_mesh() -> void:
 	nock.material_override = horn
 	nock.rotation.x = deg_to_rad(-90)
 	nock.position = Vector3(0, 0, 0.465)
-	add_child(nock)
+	visual.add_child(nock)
 
 	# Fletching — three thin vanes with a slight helical cant (real fletch
 	# spin). Goose-grey pair + one red cock feather.
@@ -181,7 +203,9 @@ func _setup_arrow_mesh() -> void:
 		vane.position = Vector3(cos(angle) * 0.013, sin(angle) * 0.013, 0.38)
 		vane.rotation = Vector3(0, deg_to_rad(6.0), angle + PI / 2.0)
 		vane.position += Vector3(cos(angle), sin(angle), 0) * 0.026
-		add_child(vane)
+		visual.add_child(vane)
+
+	return visual
 
 
 var _fire_trail: SlashTrail = null
@@ -227,12 +251,12 @@ func _setup_collision() -> void:
 	add_child(_collision)
 
 
-## The arrow's damage in HP. It used to have to read the target's max-HP field
-## and multiply, with a fallback for bodies that exposed neither - all of that
-## existed only to turn a percentage back into the flat number the network
-## message and Player.take_hit already wanted.
+#Gravity trades vertical speed for height; horizontal speed carries through.
+#Scale damage by arrival speed, not launch power a second time.
 func _compute_flat_arrow_damage(_body: Node) -> float:
-	return DIRECT_HIT_DAMAGE
+	var speed := _flight_velocity.length() / ARROW_SPEED
+	var air := AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0
+	return DIRECT_HIT_DAMAGE * speed * air
 
 
 func _on_body_entered(body: Node) -> void:
@@ -251,12 +275,16 @@ func _on_body_entered(body: Node) -> void:
 		return
 
 	_has_hit = true
-	Sfx.play3d("arrow_impact", global_position, -4.0)
+	var surface := "flesh" if body.has_method("take_hit") \
+			or body.has_method("take_damage_flat") else Sfx.surface(body)
+	if surface not in ["flesh", "wood"]:
+		surface = "stone"
+	Sfx.play3d("arrow_impact_" + surface, global_position, -4.0)
 
 	# Stop movement
 	freeze = true
 
-	# Deal damage. Arrow direct hit = 5% of target max HP.
+	#Direct damage is in HP and includes the velocity at impact.
 	# * Players: route through take_hit so block fully negates the hit.
 	# * NPCs: direct take_damage_flat (they don't block).
 	# Also call take_arrow_hit on Bobba for its "flee from arrows" reaction.
@@ -266,7 +294,6 @@ func _on_body_entered(body: Node) -> void:
 
 	var flat_damage_for_network: float = _compute_flat_arrow_damage(body)
 
-	var shot_mult: float = (AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 1.0) * shot_power
 	var is_player: bool = "is_blocking" in body and body.has_method("take_hit")
 	# Did this land in something that can WALK AWAY? A shaft frozen in world
 	# space where a body used to be is left hanging in mid-air the moment that
@@ -276,17 +303,16 @@ func _on_body_entered(body: Node) -> void:
 			or body.has_method("take_arrow_hit")
 	if is_player:
 		# Player hit — honor block state (blocks fully negate arrows).
-		var impulse: Vector3 = linear_velocity.normalized() * 3.0
+		var impulse: Vector3 = _flight_velocity.normalized() * 3.0
 		impulse.y = 0.1
 		var blocked: bool = bool(body.is_blocking)
-		body.take_hit(flat_damage_for_network * shot_mult, impulse, blocked, shooter, true)
+		body.take_hit(flat_damage_for_network, impulse, blocked, shooter, true)
 	elif body.has_method("take_damage_flat"):
-		# NPC — percent-based damage, doesn't block.
-		body.take_damage_flat(DIRECT_HIT_DAMAGE * shot_mult)
+		body.take_damage_flat(flat_damage_for_network)
 		# Dry bones catch: a landed fire arrow sets skeletons alight —
 		# a weaker mid-air shot clings for a shorter burn.
 		if body.has_method("ignite"):
-			body.ignite(4.0 * shot_mult if airborne_shot else 4.0)
+			body.ignite(4.0 * AIRBORNE_SHOT_DAMAGE_MULT if airborne_shot else 4.0)
 
 	# Keep the legacy arrow-retreat reaction for Bobba (runs in addition
 	# to the damage above).
@@ -345,7 +371,7 @@ func _create_body_fire(body: Node) -> void:
 func _create_ground_fire() -> void:
 	# Full fire composition (lights + flames + embers + smoke + scorch,
 	# with burn-down and auto-free) comes from the shared FireFX factory.
-	# Node name must keep "GroundFire" — Bobba's fire avoidance scans for it.
+	# Named for the log; Bobba finds it through the "ground_fire" group.
 	var fire_node: Node3D = FireFX.create_ground_fire(
 			get_tree().current_scene, global_position,
 			"ArrowGroundFire", GROUND_FIRE_LIFETIME, true)
@@ -388,6 +414,6 @@ func _attach_fire_aura(fire_node: Node3D) -> void:
 				print("Arrow fire DoT tick: %s took %.1f HP" % [
 					b.name, GROUND_FIRE_DAMAGE_PER_SEC
 				]))
-		fire_node.add_child(aura)
+		#Impacts arrive inside the physics contact callback.
+		fire_node.add_child.call_deferred(aura)
 	# (FireFX.create_ground_fire owns the burn-down and auto-free.)
-

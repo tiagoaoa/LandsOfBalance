@@ -120,9 +120,7 @@ var _spell_time: float = 0.0
 var _lightning_bolts_3d: Array = []
 var _character_aura_material: ShaderMaterial
 var _original_character_materials: Array[Dictionary] = []
-var _audio_scream: AudioStreamPlayer3D
-var _audio_static: AudioStreamPlayer3D
-var _audio_discharge: AudioStreamPlayer3D
+var _spell_audio: Node3D
 var _force_field_sphere: MeshInstance3D
 var _force_field_light: OmniLight3D
 var _force_field_material: ShaderMaterial
@@ -576,7 +574,10 @@ func _input(event: InputEvent) -> void:
 			CloudInput.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	# Quit with Q
-	if event is InputEventKey and event.pressed and event.keycode == KEY_Q:
+	# Q sits next to WASD; on a cloud session a brushed key must not end
+	# the stream ("Session ended: game exited"). Desktop keeps the shortcut.
+	if event is InputEventKey and event.pressed and event.keycode == KEY_Q \
+			and not CloudInput.is_cloud_session:
 		get_tree().quit()
 
 	# Release mouse with Escape
@@ -1036,6 +1037,8 @@ func _clear_hit_flash_recursive(node: Node) -> void:
 
 #region Spell Effects (Preserved from original)
 func _create_spell_effects() -> void:
+	_spell_audio = preload("res://combat/spell_audio.gd").new()
+	add_child(_spell_audio)
 	_spell_effects_container = Node3D.new()
 	_spell_effects_container.name = "SpellEffects"
 	add_child(_spell_effects_container)
@@ -1096,13 +1099,7 @@ func _start_spell_effects() -> void:
 	for bolt in _lightning_bolts_3d:
 		bolt.visible = true
 
-	# Play audio
-	if _audio_scream and _audio_scream.stream:
-		_audio_scream.pitch_scale = randf_range(0.9, 1.1)
-		_audio_scream.play()
-	if _audio_static and _audio_static.stream:
-		_audio_static.play()
-
+	_spell_audio.start(false)
 
 func _stop_spell_effects() -> void:
 	if _spell_tween:
@@ -1139,9 +1136,5 @@ func _stop_spell_effects() -> void:
 	for bolt in _lightning_bolts_3d:
 		bolt.visible = false
 
-	# Stop audio
-	if _audio_static and _audio_static.playing:
-		_audio_static.stop()
-	if _audio_discharge and _audio_discharge.stream:
-		_audio_discharge.play()
+	_spell_audio.stop()
 #endregion

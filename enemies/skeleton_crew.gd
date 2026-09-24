@@ -6,7 +6,9 @@ extends Node3D
 ## The pack rises GROUPED at a random dark spot not far from Bobba's
 ## spawn (25-40 m out, random bearing — the whole field is night, so any
 ## spot away from fires is "dark"). Each killed skeleton lies where it
-## fell and RISES AGAIN 10 seconds later somewhere else inside the haunt.
+## fell and RISES AGAIN a minute later somewhere else inside the haunt — long
+## enough that clearing the pack is worth something, short enough that the
+## haunt is never permanently safe.
 
 const SkeletonScript := preload("res://enemies/skeleton.gd")
 
@@ -21,7 +23,7 @@ const PACK_SIZE_PERF := 3
 const HAUNT_MIN_DIST := 25.0     # from Bobba's spawn
 const HAUNT_MAX_DIST := 40.0
 const CLUSTER_RADIUS := 5.0      # how tightly the pack rises together
-const REVIVE_SECONDS := 20.0
+const REVIVE_SECONDS := 60.0
 const REVIVE_SCATTER_MIN := 8.0  # "somewhere else": new spot in the haunt
 const REVIVE_SCATTER_MAX := 22.0
 

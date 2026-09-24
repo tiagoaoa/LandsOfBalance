@@ -315,7 +315,7 @@ class ArrowData:
 	var x: float = 0.0           # 4 bytes - spawn position
 	var y: float = 0.0           # 4 bytes
 	var z: float = 0.0           # 4 bytes
-	var dir_x: float = 0.0       # 4 bytes - direction
+	var dir_x: float = 0.0       # 4 bytes - direction * launch strength
 	var dir_y: float = 0.0       # 4 bytes
 	var dir_z: float = 0.0       # 4 bytes
 	var active: bool = true      # 1 byte

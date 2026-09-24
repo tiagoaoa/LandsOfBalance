@@ -90,6 +90,7 @@ Every flag has an `LOB_*` environment twin (`lobcloud -h`). The ones that matter
 | `--token` | shared secret; the client asks for it | open |
 | `--public-ip` | advertise this IP in ICE candidates (cloud VM / 1:1 NAT) | — |
 | `--udp-min --udp-max` | port range for WebRTC media; open it in the firewall | ephemeral |
+| `--ice-tcp-public` | external port that reaches `--ice-tcp` when the host maps ports (vast.ai: `-ice-tcp 10200 -ice-tcp-public $VAST_TCP_PORT_10200`) | same as `--ice-tcp` |
 | `--ice` | `stun:…`, `turn:user:pass@host:port` for players behind hard NAT | Google STUN |
 | `--game-server` | also run `server/game_server` so sessions share one multiplayer world | off (`--singleplayer` is passed) |
 | `--reconnect-grace` | how long the game survives after its player drops | 90 s |
@@ -153,6 +154,15 @@ Per-session process logs live in `--log-dir` (`godot.log`, `ffmpeg-video.log`,
 ends in `error`.
 
 ## Running on vast.ai (and similar container GPU rentals)
+
+`scripts/deploy.sh` wraps the recipe below: `scripts/deploy.sh local` streams
+from this laptop; `VAST_SSH=ssh://root@HOST:PORT scripts/deploy.sh vast all`
+builds, rsyncs, installs the deps and starts the gateway on the rented box
+(then `vast status | logs | stop`). Vast's stock image already owns 8080
+(Jupyter) and the caddy ports, so pick two free mapped tcp ports:
+`LOB_PORT=10100 LOB_ICE_TCP_MAP=10200:$EXTERNAL scripts/deploy.sh vast start`.
+With no 1:1 UDP mapping the stream rides ICE-TCP; `bin/lobprobe -tcp -url …`
+checks that path from the outside.
 
 `--display-mode weston` was built for exactly this. Verified recipe (Debian-based image):
 

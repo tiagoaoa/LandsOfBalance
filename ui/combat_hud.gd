@@ -1,18 +1,7 @@
 extends VBoxContainer
 
-## Top-right combat HUD — lists HP for every other combatant besides the
-## local player: nearby NPCs (Bobba, Dragon) and all remote players.
-##
-## The panel auto-refreshes every REFRESH_INTERVAL seconds: it scans for
-## live targets and updates their row; rows for targets that have left the
-## scene (or died) are removed.
-##
-## Each row looks like:
-##   Name #id           120 / 150
-##   ████████░░░░░░░░
-##
-## Kept intentionally simple — no animation, no sorting beyond discovery
-## order. Add sorting / distance-based filtering later if the list gets long.
+# Party health and nearby threats. Locked targets include their posture
+# so the player can see when committing another attack might break guard.
 
 const REFRESH_INTERVAL: float = 0.25
 
@@ -54,7 +43,18 @@ func _refresh() -> void:
 		if row == null:
 			row = _create_row(t.color)
 			_rows[t.node] = row
-		_update_row(row, t.name, t.hp, t.max_hp, t.color)
+		var title: String = t.name
+		var me := get_tree().get_first_node_in_group("player")
+		if me and me._lock_target == t.node:
+			title = "◆ " + title
+		if t.node.has_method("is_riposte_ready") and t.node.is_riposte_ready():
+			title += "  ·  OPEN"
+		_update_row(row, title, t.hp, t.max_hp, t.color)
+		var poise: Node = t.node.get("_poise") if "_poise" in t.node else null
+		row.poise.visible = poise != null
+		if poise:
+			row.poise.max_value = poise.max_poise
+			row.poise.value = poise.current_poise
 
 
 func _collect_targets() -> Array:
@@ -86,35 +86,23 @@ func _collect_targets() -> Array:
 			"color": Color(0.4, 0.7, 1.0),
 		})
 
-	# NPCs
-	for b in get_tree().get_nodes_in_group("bobba"):
-		if not is_instance_valid(b):
-			continue
-		var hp: float = float(b.health) if "health" in b else 0.0
-		var mx: float = float(b.MAX_HEALTH) if "MAX_HEALTH" in b else 1000.0
-		if hp <= 0.0:
-			continue
-		out.append({
-			"node": b,
-			"name": "Bobba",
-			"hp": hp,
-			"max_hp": mx,
-			"color": Color(1.0, 0.35, 0.25),
-		})
-	for d in get_tree().get_nodes_in_group("dragon"):
-		if not is_instance_valid(d):
-			continue
-		var hp: float = float(d.health) if "health" in d else 0.0
-		var mx: float = float(d.MAX_HEALTH) if "MAX_HEALTH" in d else 500.0
-		if hp <= 0.0:
-			continue
-		out.append({
-			"node": d,
-			"name": "Dragon",
-			"hp": hp,
-			"max_hp": mx,
-			"color": Color(0.85, 0.15, 0.15),
-		})
+	for group in ["bobba", "dragon", "skeletons"]:
+		for enemy in get_tree().get_nodes_in_group(group):
+			if not is_instance_valid(enemy) or me == null:
+				continue
+			var selected: bool = me._lock_target == enemy
+			if not selected and me.global_position.distance_to(enemy.global_position) > 18.0:
+				continue
+			if group == "skeletons" and not selected:
+				continue
+			var hp: float = enemy.hp if group == "skeletons" else enemy.health
+			if hp <= 0.0:
+				continue
+			out.append({"node": enemy,
+				"name": "Skeleton" if group == "skeletons" else ("Bobba" if group == "bobba" else "Dragon"),
+				"hp": hp,
+				"max_hp": enemy.MAX_HP if group == "skeletons" else enemy.MAX_HEALTH,
+				"color": Color(0.82, 0.25, 0.17)})
 
 	# Remote players (other clients connected to the server)
 	var nm := get_node_or_null("/root/NetworkManager")
@@ -170,11 +158,22 @@ func _create_row(color: Color) -> Dictionary:
 	style_fill.corner_radius_bottom_right = 3
 	bar.add_theme_stylebox_override("fill", style_fill)
 	container.add_child(bar)
+	var poise := ProgressBar.new()
+	poise.custom_minimum_size = Vector2(200, 4)
+	poise.show_percentage = false
+	poise.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	poise.tooltip_text = "Posture: break this bar to open a critical attack"
+	poise.add_theme_stylebox_override("background", style_bg.duplicate())
+	var posture_fill := StyleBoxFlat.new()
+	posture_fill.bg_color = Color(0.82, 0.66, 0.32)
+	poise.add_theme_stylebox_override("fill", posture_fill)
+	container.add_child(poise)
 
 	return {
 		"container": container,
 		"label": label,
 		"bar": bar,
+		"poise": poise,
 		"style_fill": style_fill,
 	}
 

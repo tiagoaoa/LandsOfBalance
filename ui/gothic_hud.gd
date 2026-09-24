@@ -1,6 +1,6 @@
 extends CanvasLayer
 
-## Dark-fantasy gothic HUD for Douglass the Keeper.
+## Dark-fantasy gothic HUD for Lands of Balance.
 ##
 ## Four regions, all built from nested Panels + StyleBoxFlat frames so we
 ## stay asset-free and moddable without a texture atlas:

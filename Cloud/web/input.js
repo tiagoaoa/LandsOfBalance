@@ -74,6 +74,10 @@ export class InputCapture {
     this.pending = { dx: 0, dy: 0, moved: false, x: 640, y: 360 };
     this.buttons = 0;
     this.pads = new Map(); // index → {buttons:[], axes:[]}
+    // Touch mode: the game shows its native on-screen controls and gets
+    // real multi-touch events; pointer lock plays no part.
+    this.touchMode = false;
+    this._touchSlots = new Map(); // Touch.identifier → {slot, x, y}
     this.raf = 0;
     this.onLockChange = () => {};
     this._bind();
@@ -107,6 +111,7 @@ export class InputCapture {
   }
 
   wantsLock() {
+    if (this.touchMode) return false;
     return this.gameMouseMode === P.MOUSE_MODE.CAPTURED || this.gameMouseMode === P.MOUSE_MODE.CONFINED_HIDDEN;
   }
 
@@ -213,6 +218,37 @@ export class InputCapture {
     const releaseAll = () => { if (this.active) { this.buttons = 0; this.send(P.encodeReleaseAll(), true); } };
     window.addEventListener('blur', releaseAll);
     doc.addEventListener('visibilitychange', () => { if (doc.hidden) releaseAll(); });
+
+    // Multi-touch → the game's native touch UI. preventDefault stops the
+    // browser from also synthesizing mouse events (the game synthesizes its
+    // own from our touch frames) and from scrolling/zooming the page.
+    const touch = (e, pressed, isMove) => {
+      if (!this.active || !this.touchMode) return;
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        let st = this._touchSlots.get(t.identifier);
+        if (!st) {
+          if (!pressed) continue;
+          let slot = 0;
+          const used = new Set([...this._touchSlots.values()].map(v => v.slot));
+          while (used.has(slot)) slot++;
+          st = { slot, x: 0, y: 0 };
+          this._touchSlots.set(t.identifier, st);
+        }
+        const p = this._toStream(t.clientX, t.clientY);
+        if (isMove) {
+          this.send(P.encodeTouchDrag(st.slot, p.x, p.y, p.x - st.x, p.y - st.y), false);
+        } else {
+          this.send(P.encodeTouch(st.slot, pressed, p.x, p.y), true);
+          if (!pressed) this._touchSlots.delete(t.identifier);
+        }
+        st.x = p.x; st.y = p.y;
+      }
+    };
+    v.addEventListener('touchstart', (e) => touch(e, true, false), { passive: false });
+    v.addEventListener('touchmove', (e) => touch(e, true, true), { passive: false });
+    v.addEventListener('touchend', (e) => touch(e, false, false), { passive: false });
+    v.addEventListener('touchcancel', (e) => touch(e, false, false), { passive: false });
 
     window.addEventListener('gamepadconnected', (e) => this._padConnected(e.gamepad));
     window.addEventListener('gamepaddisconnected', (e) => {

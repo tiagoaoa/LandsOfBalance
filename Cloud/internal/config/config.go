@@ -45,10 +45,10 @@ type Config struct {
 	Verbose bool
 
 	// Game process.
-	GodotBin  string
-	GameDir   string
-	GameArgs  []string
-	GameEnv   []string
+	GodotBin      string
+	GameDir       string
+	GameArgs      []string
+	GameEnv       []string
 	GameServerBin string // optional: start the C game_server once for all sessions
 	RunGameServer bool
 
@@ -62,12 +62,12 @@ type Config struct {
 	FPS         int
 
 	// Encoding.
-	Encoder      string // auto | nvenc | vaapi | x264
-	VaapiDevice  string
-	BitrateKbps  int
-	AudioKbps    int
-	H264Profile  string
-	Audio        bool
+	Encoder     string // auto | nvenc | vaapi | x264
+	VaapiDevice string
+	BitrateKbps int
+	AudioKbps   int
+	H264Profile string
+	Audio       bool
 
 	// Sessions.
 	MaxSessions    int
@@ -76,11 +76,12 @@ type Config struct {
 	StartTimeout   time.Duration
 
 	// WebRTC.
-	PublicIP   string
-	UDPPortMin int
-	UDPPortMax int
-	ICETCPPort int
-	ICEServers []string // stun:host:port | turn:user:pass@host:port[?transport=tcp]
+	PublicIP         string
+	UDPPortMin       int
+	UDPPortMax       int
+	ICETCPPort       int
+	ICETCPPublicPort int      // what the browser dials when ICETCPPort is port-mapped (vast.ai)
+	ICEServers       []string // stun:host:port | turn:user:pass@host:port[?transport=tcp]
 }
 
 func envOr(key, def string) string {
@@ -176,6 +177,7 @@ func Parse(args []string) (*Config, error) {
 	fs.IntVar(&c.UDPPortMin, "udp-min", envInt("LOB_UDP_MIN", 0), "lowest UDP port for WebRTC media (0 = ephemeral)")
 	fs.IntVar(&c.UDPPortMax, "udp-max", envInt("LOB_UDP_MAX", 0), "highest UDP port for WebRTC media")
 	fs.IntVar(&c.ICETCPPort, "ice-tcp", envInt("LOB_ICE_TCP", 0), "also offer WebRTC over TCP on this port (NATs that block UDP; needs --public-ip)")
+	fs.IntVar(&c.ICETCPPublicPort, "ice-tcp-public", envInt("LOB_ICE_TCP_PUBLIC", 0), "external port that reaches --ice-tcp when the host maps ports (0 = same port)")
 	fs.StringVar(&ice, "ice", envOr("LOB_ICE", "stun:stun.l.google.com:19302"), "comma separated ICE servers: stun:host:port, turn:user:pass@host:port")
 
 	if err := fs.Parse(args); err != nil {

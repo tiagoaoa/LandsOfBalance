@@ -155,7 +155,7 @@ func _build_ui() -> void:
 	canvas.add_child(_round_label)
 
 	var help := Label.new()
-	help.text = "Jump (Space) evades — airborne hits deal half damage"
+	help.text = "LT / LMB: light   ·   RB / V: heavy   ·   B / X: dodge   ·   RT / RMB: guard   ·   LB / G: parry   ·   R3 / T: lock"
 	help.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	help.offset_top = 48
 	help.offset_bottom = 72

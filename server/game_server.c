@@ -1,5 +1,5 @@
 /*
- * Douglass The Keeper - Multiplayer UDP Server
+ * Lands of Balance - Multiplayer UDP Server
  *
  * A simple UDP game server that handles multiple players.
  * Single-threaded event loop with non-blocking UDP socket.
@@ -1475,7 +1475,7 @@ int main(int argc, char *argv[]) {
     memset(dragons, 0, sizeof(dragons));
 
     printf("===========================================\n");
-    printf("  Douglass The Keeper - Game Server\n");
+    printf("  Lands of Balance - Game Server\n");
     printf("===========================================\n");
     printf("Listening on UDP port %d\n", port);
     printf("Max players: %d\n", MAX_PLAYERS);

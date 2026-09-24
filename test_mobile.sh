@@ -4,8 +4,8 @@
 
 PROJECT_DIR="/home/talves/mthings/LandsOfBalance"
 GODOT="/home/talves/bin/godot"
-APK_PATH="$PROJECT_DIR/build/douglass_the_keeper.apk"
-PACKAGE_NAME="com.tpgame.douglassthekeeper"
+APK_PATH="$PROJECT_DIR/build/lands_of_balance.apk"
+PACKAGE_NAME="com.tpgame.landsofbalance"
 
 echo "=== Mobile Deployment (Android via USB-C) ==="
 
@@ -99,7 +99,7 @@ echo "Launching app on device..."
 adb -s "$DEVICE" shell am start -n "$PACKAGE_NAME/com.godot.game.GodotApp"
 
 echo ""
-echo "=== Douglass The Keeper is now running on your device ==="
+echo "=== Lands of Balance is now running on your device ==="
 echo ""
 echo "Useful commands:"
 echo "  adb logcat -s godot:V     # View Godot logs"

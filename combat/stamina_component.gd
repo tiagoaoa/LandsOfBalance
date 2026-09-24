@@ -19,7 +19,9 @@ signal exhausted()  # fired when try_spend fails
 @export var block_regen_modifier: float = 0.35
 
 var current_stamina: float = 100.0
+var cost_multiplier: float = 1.0
 var blocking: bool = false
+var committed: bool = false
 var _recover_timer: float = 0.0
 
 
@@ -28,6 +30,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if committed:
+		_recover_timer = recover_delay
+		return
 	if _recover_timer > 0.0:
 		_recover_timer = maxf(0.0, _recover_timer - delta)
 		return
@@ -39,6 +44,7 @@ func _process(delta: float) -> void:
 
 
 func try_spend(cost: float) -> bool:
+	cost *= cost_multiplier
 	if cost <= 0.0:
 		return true
 	if current_stamina < cost:
@@ -52,3 +58,14 @@ func try_spend(cost: float) -> bool:
 
 func ratio() -> float:
 	return current_stamina / max_stamina if max_stamina > 0.0 else 0.0
+
+
+func absorb(cost: float) -> bool:
+	cost *= cost_multiplier
+	var held := current_stamina >= cost
+	current_stamina = maxf(0.0, current_stamina - cost)
+	_recover_timer = recover_delay
+	stamina_changed.emit(current_stamina, max_stamina)
+	if not held:
+		exhausted.emit()
+	return held
