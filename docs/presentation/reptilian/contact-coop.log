@@ -1,0 +1,1110 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+NetworkManager: Ready, player name: Player_8810
+NetworkManager: Logging to /tmp/lob-boss-contact-sim/godot/app_userdata/Lands of Balance/multiplayer_Player_8810.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Spectate mode enabled (both classes are bots)
+GameSettings: Character class forced to Paladin
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+LightingManager: applying NIGHT (sun energy -> 0.0)
+Player: _ready() starting (ai_companion=false, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4113)
+         [3] _ready (res://player/player.gd:677)
+         [4] _make_body (res://tests/boss_arena/boss_arena.gd:146)
+         [5] _spawn_party (res://tests/boss_arena/boss_arena.gd:117)
+         [6] _ready (res://tests/boss_arena/boss_arena.gd:89)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Spawned at point 3 (-82.5, 2.0, -36.4) - immune for 2.0s
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+Player: Multiplayer disabled - running in singleplayer mode
+Spectate: watching Player (Archer)
+CompanionAI: archer behaviour online
+CompanionAI: archer behaviour online
+NetworkManager: Singleplayer mode - skipping server connection
+Player: Selected character class from GameSettings: 0
+Switched to PALADIN class (HP: 150)
+Player: Could not find Bobba to connect death signal
+NetworkManager: Game scene marked as ready - processing 0 pending remote players
+Player: Notified NetworkManager that game scene is ready
+Player: Notified NetworkManager that game scene is ready
+CompanionAI: paladin behaviour online
+CompanionAI[archer]: idle → b_perch
+CompanionAI[paladin]: idle → b_anchor
+CompanionAI[archer]: b_perch → b_mouth
+CompanionAI[archer]: b_mouth shot at (-1.0, 4.0, -6.0)
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_mouth → b_perch
+CompanionAI[paladin]: b_plunge → b_head
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_perch → b_mouth
+Player: Attack window ACTIVE at progress 0.32462646256188 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_ARMOR
+Player: Attack window ENDED at progress 0.50734704627943
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+Player: Attack window ACTIVE at progress 0.35432161739778 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.55945675008751
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.37500218397139 (mode: armed)
+Knight sword attack: 135.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.59999784218015
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30441175717934 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_ARMOR
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+Player: Attack window ENDED at progress 0.50734998745583
+CompanionAI[paladin]: b_head → b_anchor
+CompanionAI[archer]: b_mouth → b_perch
+Player: Attack ended
+CompanionAI[archer]: b_perch → b_snipe
+CompanionAI[archer]: b_head shot at (0.0, 4.0, -5.0)
+CompanionAI[paladin]: b_anchor → b_hand
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.32470881550102 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_R
+Player: Attack window ENDED at progress 0.50735586980862
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_fist shot at (-8.0, 1.0, -8.0)
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_R
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_R
+Player: Attack window ENDED at progress 0.55913512846972
+CompanionAI[paladin]: b_hand → b_anchor
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (0.0, 7.0, -7.0)
+CompanionAI[archer]: b_snipe → b_mouth
+CompanionAI[archer]: b_mouth shot at (3.0, 5.0, -6.0)
+CompanionAI[archer]: b_mouth → b_snipe
+CompanionAI[paladin]: b_anchor → b_climb
+CompanionAI[archer]: b_snipe → b_mouth
+CompanionAI[paladin]: b_climb → b_head
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth → b_snipe
+CompanionAI[paladin]: b_head → b_ride
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Player: Attack window ENDED at progress 0.52734116343214
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[paladin]: b_ride → b_hand
+CompanionAI[archer]: b_fist shot at (-9.0, 6.0, -16.0)
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Player: Attack ended
+Player: take_damage(10.0) - HP: 150.0 -> 140.0
+Player hit! Damage: 10.0 (blocked: false, blockable: false) HP: 140.0/150.0
+CompanionAI[paladin]: b_hand → b_anchor
+CompanionAI[archer]: b_head shot at (0.0, 6.0, -7.0)
+CompanionAI[archer]: b_head shot at (8.0, 6.0, 2.0)
+CompanionAI[archer]: b_snipe → b_mouth
+CompanionAI[archer]: b_mouth shot at (5.0, 4.0, 4.0)
+CompanionAI[archer]: b_mouth → b_snipe
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_snipe → b_mouth
+CompanionAI[paladin]: b_plunge → b_head
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Player: HIT LANDED on enemy: @StaticBody3D@140
+CompanionAI[archer]: b_mouth shot at (1.0, 2.0, 1.0)
+Player: Attack window ENDED at progress 0.54049729085407
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.37478261874811 (mode: armed)
+Knight sword attack: 135.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.58466088524704
+CompanionAI[archer]: b_mouth shot at (1.0, 2.0, 1.0)
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.32451763903516 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+CompanionAI[archer]: b_mouth shot at (1.0, 2.0, 1.0)
+Player: Attack window ENDED at progress 0.50705881099244
+CompanionAI[archer]: b_mouth → b_perch
+CompanionAI[paladin]: b_head → b_anchor
+Player: Attack ended
+Player: Attack ended
+Player: take_damage(10.0) - HP: 100.0 -> 90.0
+Player hit! Damage: 10.0 (blocked: false, blockable: false) HP: 90.0/100.0
+[BossArena] MATCH FALL in 36.2s boss_hp=1127 phase=2 events={"acid_interrupt":3,"climb":1,"dismount":1,"glance_Forearm_L_paladin":2,"glance_ReptilianTorso_archer":1,"glance_ReptilianTorso_paladin":1,"hit_armor_archer":1,"hit_armor_paladin":3,"hit_burn_archer":66,"hit_hand_archer":1,"hit_hand_paladin":3,"hit_head_archer":10,"hit_head_paladin":5,"hit_mouth_archer":4,"hit_plunge_paladin":1,"ignite":10,"mounted":1,"phase2":1,"plunge":1,"roar":2,"roar_braced":1,"roar_hit":2,"spell":4,"spit":3,"stagger":3,"sweep":1,"sweep_cleared":1}
+Player: Spawned at point 2 (-42.7, 2.0, -99.4) - immune for 2.0s
+CompanionAI[archer]: b_perch → b_mouth
+Player: Spawned at point 2 (-46.8, 2.0, -102.6) - immune for 2.0s
+CompanionAI[archer]: b_mouth → b_perch
+Player: Spawned at point 2 (-43.3, 2.0, -106.0) - immune for 2.0s
+Player: Spawned at point 2 (-41.5, 2.0, -98.4) - immune for 2.0s
+LightingManager: applying NIGHT (sun energy -> 0.0)
+Player: _ready() starting (ai_companion=false, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4113)
+         [3] _ready (res://player/player.gd:677)
+         [4] _make_body (res://tests/boss_arena/boss_arena.gd:146)
+         [5] _spawn_party (res://tests/boss_arena/boss_arena.gd:117)
+         [6] _ready (res://tests/boss_arena/boss_arena.gd:89)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Spawned at point 2 (-42.6, 2.0, -100.7) - immune for 2.0s
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+Player: Multiplayer disabled - running in singleplayer mode
+Spectate: watching Player (Archer)
+Player: Selected character class from GameSettings: 0
+Switched to PALADIN class (HP: 150)
+Player: Could not find Bobba to connect death signal
+Player: Notified NetworkManager that game scene is ready
+Player: Notified NetworkManager that game scene is ready
+CompanionAI: paladin behaviour online
+CompanionAI: archer behaviour online
+CompanionAI[paladin]: idle → b_anchor
+CompanionAI[archer]: idle → b_perch
+Player: Hit dodged - roll i-frames (t=0.28)
+CompanionAI[paladin]: b_anchor → b_plunge
+Player: PARRY! deflected 45.0 damage from Hit_HAND_L (t=0.17)
+Player: Attack ended
+Player: take_damage(17.5) - HP: 150.0 -> 132.5
+Player hit! Damage: 17.5 (blocked: false, blockable: false) HP: 132.5/150.0
+CompanionAI[archer]: b_perch → b_snipe
+CompanionAI[archer]: b_fist shot at (3.0, 1.0, -10.0)
+CompanionAI[paladin]: b_plunge → b_climb
+CompanionAI[paladin]: b_climb → b_anchor
+CompanionAI[archer]: b_head shot at (-1.0, 6.0, -7.0)
+CompanionAI[archer]: b_head shot at (-1.0, 5.0, -6.0)
+CompanionAI[paladin]: b_anchor → b_hand
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_L
+CompanionAI[archer]: b_fist shot at (-1.0, 1.0, -6.0)
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_L
+Player: Attack window ENDED at progress 0.54049729085407
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.37478261874811 (mode: armed)
+Knight sword attack: 135.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_MOUTH
+CompanionAI[paladin]: b_hand → b_climb
+Player: Attack window ENDED at progress 0.58466088524704
+CompanionAI[archer]: b_fist shot at (-3.0, 1.0, -4.0)
+CompanionAI[archer]: b_snipe → b_mouth
+Player: Attack ended
+CompanionAI[paladin]: b_climb → b_head
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[archer]: b_mouth shot at (0.0, 2.0, -1.0)
+CompanionAI[paladin]: b_head → b_ride
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_mouth → b_snipe
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: @StaticBody3D@531
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Player: Attack window ENDED at progress 0.54049729085407
+CompanionAI[archer]: b_head shot at (0.0, 6.0, -6.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.38977392349803 (mode: armed)
+Player: Attack window ENDED at progress 0.58466088524704
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (0.0, 7.0, -6.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Player: Attack window ENDED at progress 0.50705881099244
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (0.0, 7.0, -6.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Player: Attack window ENDED at progress 0.52734116343214
+CompanionAI[archer]: b_head shot at (-1.0, 6.0, -6.0)
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (-1.0, 5.0, -5.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Player: Attack window ENDED at progress 0.52734116343214
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (-1.0, 7.0, -7.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+CompanionAI[archer]: b_head shot at (-1.0, 4.0, -5.0)
+Player: Attack window ENDED at progress 0.50705881099244
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (-1.0, 8.0, -8.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Player: Attack window ENDED at progress 0.50705881099244
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (-1.0, 10.0, -11.0)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+CompanionAI[archer]: b_head shot at (-1.0, 6.0, -7.0)
+Player: Attack window ENDED at progress 0.50705881099244
+CompanionAI[paladin]: b_ride → b_anchor
+Player: Attack ended
+CompanionAI[archer]: b_head shot at (-7.0, 5.0, 2.0)
+CompanionAI[archer]: b_head shot at (-7.0, 6.0, 3.0)
+Player: Attack ended
+Player: take_damage(45.0) - HP: 132.5 -> 87.5
+Player hit! Damage: 45.0 (blocked: false, blockable: false) HP: 87.5/150.0
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_fist shot at (-5.0, 1.0, 3.0)
+CompanionAI[paladin]: b_plunge → b_anchor
+CompanionAI[archer]: b_fist shot at (-5.0, 4.0, 0.0)
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_head shot at (-5.0, 2.0, 10.0)
+CompanionAI[archer]: b_fist shot at (-4.0, 4.0, 6.0)
+CompanionAI[paladin]: b_plunge → b_anchor
+CompanionAI[archer]: b_head shot at (-10.0, 9.0, 3.0)
+CompanionAI[archer]: b_head shot at (-7.0, 6.0, 1.0)
+CompanionAI[archer]: b_head shot at (-7.0, 6.0, 2.0)
+Player: Attack ended
+Player: take_damage(45.0) - HP: 87.5 -> 42.5
+Player hit! Damage: 45.0 (blocked: false, blockable: false) HP: 42.5/150.0
+CompanionAI[paladin]: breaking off at 28% hp
+CompanionAI[archer]: b_head shot at (-6.0, 1.0, 3.0)
+CompanionAI[paladin]: b_anchor → b_hand
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.32451763903516 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_L
+CompanionAI[paladin]: b_hand → b_climb
+Player: Attack window ENDED at progress 0.50705881099244
+Player: Attack ended
+CompanionAI[archer]: b_fist shot at (-6.0, 1.0, 3.0)
+CompanionAI[paladin]: b_climb → b_anchor
+CompanionAI[archer]: b_head shot at (-5.0, 4.0, 0.0)
+CompanionAI[paladin]: b_anchor → b_climb
+CompanionAI[archer]: b_fist shot at (-5.0, 1.0, 10.0)
+CompanionAI[paladin]: b_climb → b_anchor
+CompanionAI[archer]: b_head shot at (-6.0, 6.0, 2.0)
+CompanionAI[paladin]: b_anchor → b_drink
+Player: drinking estus (2 left)
+CompanionAI[archer]: b_head shot at (-6.0, 4.0, 0.0)
+Player: estus drunk — HP 110.0/150.0 (2 charges left)
+CompanionAI[paladin]: healed — back in
+Player: drinking estus (1 left)
+CompanionAI[paladin]: b_drink → b_anchor
+Player: Attack ended
+Player: estus drink INTERRUPTED — charge wasted (1 left)
+Player: take_damage(35.0) - HP: 110.0 -> 75.0
+Player hit! Damage: 35.0 (blocked: false, blockable: false) HP: 75.0/150.0
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_head shot at (-5.0, 2.0, 10.0)
+CompanionAI[archer]: b_fist shot at (-4.0, 4.0, 6.0)
+CompanionAI[paladin]: b_plunge → b_anchor
+CompanionAI[archer]: b_snipe → b_mouth
+CompanionAI[archer]: b_mouth shot at (-6.0, 5.0, -1.0)
+CompanionAI[paladin]: b_anchor → b_plunge
+CompanionAI[archer]: b_mouth → b_snipe
+CompanionAI[paladin]: b_plunge → b_head
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_fist shot at (-3.0, 1.0, 4.0)
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+CompanionAI[archer]: b_snipe → b_mouth
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.55913512846972
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.37478261874811 (mode: armed)
+Knight sword attack: 135.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_L
+Player: Attack window ENDED at progress 0.59965218999697
+CompanionAI[archer]: b_mouth shot at (-1.0, 2.0, 0.0)
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.32451763903516 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Player: HIT LANDED on enemy: Hit_HAND_L
+Player: Attack window ENDED at progress 0.50705881099244
+Player: Attack ended
+CompanionAI[archer]: b_mouth shot at (-1.0, 2.0, 0.0)
+CompanionAI[paladin]: b_head → b_anchor
+CompanionAI[archer]: b_mouth → b_snipe
+CompanionAI[archer]: b_head shot at (-5.0, 6.0, 2.0)
+CompanionAI[archer]: b_head shot at (-10.0, 11.0, 4.0)
+CompanionAI[archer]: b_head shot at (-6.0, 8.0, 2.0)
+CompanionAI[paladin]: b_anchor → b_rite
+Applied aura to 5 meshes
+CompanionAI[paladin]: rite of healing at the ally's side
+CompanionAI[paladin]: b_rite → b_anchor
+CompanionAI[archer]: b_head shot at (-8.0, 8.0, 1.0)
+CompanionAI[paladin]: b_anchor → b_hand
+CompanionAI[archer]: b_snipe → b_perch
+CompanionAI[paladin]: b_hand → b_anchor
+CompanionAI[archer]: b_perch → b_mouth
+CompanionAI[archer]: b_mouth shot at (-7.0, 4.0, -1.0)
+CompanionAI[paladin]: b_anchor → b_climb
+CompanionAI[archer]: b_mouth → b_perch
+CompanionAI[paladin]: b_climb → b_head
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_perch → b_mouth
+Player: Attack window ACTIVE at progress 0.30423528659546 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+[BossArena] MATCH WIN in 79.5s boss_hp=0 phase=2 events={"acid_interrupt":2,"climb":1,"clung":3,"died":1,"flask":1,"flung":1,"glance_Hand_R_archer":1,"glance_ReptilianTorso_archer":4,"glance_ReptilianTorso_paladin":1,"grab":1,"grab_missed":1,"hit_armor_archer":5,"hit_armor_paladin":1,"hit_burn_archer":84,"hit_hand_archer":3,"hit_hand_paladin":5,"hit_head_archer":31,"hit_head_paladin":4,"hit_mouth_archer":7,"ignite":12,"mounted":1,"parry":1,"phase2":1,"poise_break":1,"roar":3,"roar_braced":2,"shake":3,"slam":6,"slam_hit":2,"slam_miss":3,"spell":5,"spit":2,"stagger":3,"sweep":2,"sweep_cleared":2,"sweep_high":2,"sweep_hit":2}
+Player: HIT LANDED on enemy: Hit_HEAD
+Player: Attack window ENDED at progress 0.50705881099244
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+CompanionAI[archer]: b_mouth shot at (-3.0, 5.0, 1.0)
+Player: Attack window ACTIVE at progress 0.35411891469749 (mode: armed)
+CompanionAI[paladin]: b_head → sweep
+CompanionAI[archer]: b_mouth → sweep
+Player: Attack window ENDED at progress 0.54049729085407
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.37478261874811 (mode: armed)
+Player: Attack window ENDED at progress 0.58466088524704
+CompanionAI[archer]: light your path shot at (-2.0, 0.0, -1.0)
+Player: Attack ended
+Arrow ground fire created at: (-2.17624, 0.108455, -1.880813)
+[BossArena] 2 matches done — quitting
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2514)

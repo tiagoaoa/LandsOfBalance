@@ -1,0 +1,507 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+NetworkManager: Ready, player name: Player_9667
+NetworkManager: Logging to /tmp/lob-arena-profile/godot/app_userdata/Lands of Balance/multiplayer_Player_9667.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Spectate mode enabled (both classes are bots)
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+LightingManager: applying NIGHT (sun energy -> 0.0)
+TERRAIN POINTS tail1 rigid=20 blend=73
+TERRAIN POINTS thigh.R rigid=15 blend=97
+TERRAIN POINTS pelvis rigid=0 blend=251
+TERRAIN POINTS thigh.L rigid=0 blend=294
+TERRAIN POINTS neck rigid=0 blend=337
+TERRAIN POINTS upperarm.L rigid=54 blend=352
+TERRAIN POINTS head rigid=503 blend=17
+TERRAIN POINTS spine rigid=0 blend=470
+TERRAIN POINTS forearm.L rigid=31 blend=173
+TERRAIN POINTS hand.L rigid=71 blend=116
+TERRAIN POINTS chest rigid=0 blend=196
+TERRAIN POINTS upperarm.R rigid=24 blend=286
+TERRAIN POINTS forearm.R rigid=17 blend=152
+TERRAIN POINTS hand.R rigid=59 blend=240
+TERRAIN POINTS jaw rigid=218 blend=0
+Player: _ready() starting (ai_companion=false, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4121)
+         [3] _ready (res://player/player.gd:677)
+         [4] _make_body (res://tests/boss_arena/boss_arena.gd:164)
+         [5] _spawn_party (res://tests/boss_arena/boss_arena.gd:130)
+         [6] _ready (res://tests/boss_arena/boss_arena.gd:94)
+         [7] _ready (res://tests/boss_arena/terrain_review.gd:21)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Spawned at point 1 (-62.3, 2.0, -84.9) - immune for 2.0s
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+Player: Multiplayer disabled - running in singleplayer mode
+Spectate: watching Player (Archer)
+CompanionAI: archer behaviour online
+CompanionAI: archer behaviour online
+NetworkManager: Singleplayer mode - skipping server connection
+Player: Selected character class from GameSettings: 1
+Player: Could not find Bobba to connect death signal
+NetworkManager: Game scene marked as ready - processing 0 pending remote players
+Player: Notified NetworkManager that game scene is ready
+Switched to PALADIN class (HP: 150)
+Player: Notified NetworkManager that game scene is ready
+CompanionAI: paladin behaviour online
+CompanionAI[archer]: idle → b_perch
+CompanionAI[paladin]: idle → b_anchor
+[BossTerrain] idle angle=0 depth=0.000 back=0.62 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.31, "skin": 1.86, "contacts": 0.68 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.31, "skin": 1.86, "contacts": 0.68, "blend": 2.21, "cook": 0.15, "intersect": 5.01, "blocked": 6.6, "floor": 1.38 }
+[BossTerrain] slam angle=0 depth=0.000 back=0.77 {  }
+[BossTerrain] slam angle=0 depth=0.000 back=0.62 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.84, "skin": 2.12, "contacts": 0.96 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.84, "skin": 2.12, "contacts": 0.96, "blend": 2.33, "cook": 0.16, "intersect": 5.35, "blocked": 7.23, "floor": 1.26 }
+[BossTerrain] sweep angle=0 depth=0.000 back=0.93 {  }
+BOSS CPU ms/tick { "state": 0.1, "pose": 8.59, "skin": 2.03, "contacts": 0.72 }
+BOSS TERRAIN ms/tick { "state": 0.1, "pose": 8.59, "skin": 2.03, "contacts": 0.72, "blend": 2.26, "cook": 0.15, "intersect": 5.28, "blocked": 7.14, "floor": 1.13 }
+[BossTerrain] sweep angle=0 depth=0.000 back=0.93 {  }
+BOSS CPU ms/tick { "state": 0.13, "pose": 8.7, "skin": 2.05, "contacts": 0.7 }
+BOSS TERRAIN ms/tick { "state": 0.13, "pose": 8.7, "skin": 2.05, "contacts": 0.7, "blend": 2.28, "cook": 0.15, "intersect": 5.36, "blocked": 7.26, "floor": 1.13 }
+[BossTerrain] grab angle=0 depth=0.000 back=1.08 {  }
+BOSS CPU ms/tick { "state": 1.27, "pose": 10.0, "skin": 1.82, "contacts": 0.61 }
+BOSS TERRAIN ms/tick { "state": 1.27, "pose": 10.0, "skin": 1.82, "contacts": 0.61, "blend": 2.67, "cook": 0.18, "intersect": 6.05, "blocked": 8.08, "floor": 1.56 }
+[BossTerrain] stagger angle=0 depth=0.000 back=0.93 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 5.73, "skin": 1.81, "contacts": 0.59 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 5.73, "skin": 1.81, "contacts": 0.59, "blend": 1.7, "cook": 0.11, "intersect": 3.12, "blocked": 4.21, "floor": 1.23 }
+[BossTerrain] shift angle=-103 depth=0.000 back=0.00 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 3.05, "skin": 1.83, "contacts": 0.44 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 3.05, "skin": 1.83, "contacts": 0.44, "blocked": 1.54, "blend": 1.09, "cook": 0.08, "floor": 1.27, "intersect": 1.2 }
+[BossTerrain] idle angle=62 depth=0.000 back=0.62 {  }
+[BossTerrain] slam angle=62 depth=0.000 back=2.12 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.36, "skin": 1.8, "contacts": 0.96 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.36, "skin": 1.8, "contacts": 0.96, "blend": 2.2, "cook": 0.14, "intersect": 5.11, "blocked": 6.91, "floor": 1.11 }
+[BossTerrain] slam angle=62 depth=0.000 back=4.07 {  }
+BOSS CPU ms/tick { "state": 0.1, "pose": 8.61, "skin": 2.18, "contacts": 1.14 }
+BOSS TERRAIN ms/tick { "state": 0.1, "pose": 8.61, "skin": 2.18, "contacts": 1.14, "blend": 2.32, "cook": 0.15, "intersect": 5.26, "blocked": 7.26, "floor": 1.03 }
+[BossTerrain] sweep angle=62 depth=0.000 back=1.22 {  }
+BOSS CPU ms/tick { "state": 0.1, "pose": 8.32, "skin": 2.2, "contacts": 0.79 }
+BOSS TERRAIN ms/tick { "state": 0.1, "pose": 8.32, "skin": 2.2, "contacts": 0.79, "blend": 2.19, "cook": 0.14, "intersect": 5.14, "blocked": 7.09, "floor": 0.89 }
+[BossTerrain] sweep angle=62 depth=0.000 back=0.77 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 7.69, "skin": 1.79, "contacts": 0.71 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 7.69, "skin": 1.79, "contacts": 0.71, "intersect": 4.56, "blocked": 6.21, "blend": 2.1, "cook": 0.13, "floor": 1.17 }
+[BossTerrain] grab angle=62 depth=0.000 back=3.77 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.63, "skin": 1.75, "contacts": 0.81 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.63, "skin": 1.75, "contacts": 0.81, "blend": 2.33, "cook": 0.15, "intersect": 5.19, "blocked": 7.08, "floor": 1.2 }
+[BossTerrain] stagger angle=62 depth=0.000 back=0.92 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 4.57, "skin": 1.72, "contacts": 0.48 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 4.57, "skin": 1.72, "contacts": 0.48, "blend": 1.31, "cook": 0.09, "intersect": 2.46, "blocked": 3.17, "floor": 1.15 }
+[BossTerrain] shift angle=-33 depth=0.000 back=0.00 {  }
+[BossTerrain] idle angle=-62 depth=0.000 back=0.62 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 5.23, "skin": 1.75, "contacts": 0.47 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 5.23, "skin": 1.75, "contacts": 0.47, "blend": 1.63, "cook": 0.11, "intersect": 2.7, "blocked": 3.69, "floor": 1.25 }
+[BossTerrain] slam angle=-62 depth=0.000 back=3.77 {  }
+[BossTerrain] slam angle=-62 depth=0.000 back=0.77 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.84, "skin": 1.71, "contacts": 0.51 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.84, "skin": 1.71, "contacts": 0.51, "blend": 2.19, "cook": 0.15, "intersect": 5.61, "blocked": 7.42, "floor": 1.08 }
+[BossTerrain] sweep angle=-62 depth=0.000 back=0.92 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 11.12, "skin": 2.55, "contacts": 0.8 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 11.12, "skin": 2.55, "contacts": 0.8, "blend": 2.76, "cook": 0.19, "intersect": 7.02, "blocked": 9.36, "floor": 1.35 }
+[BossTerrain] sweep angle=-62 depth=0.000 back=0.92 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 10.37, "skin": 2.48, "contacts": 0.74 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 10.37, "skin": 2.48, "contacts": 0.74, "blend": 2.7, "cook": 0.18, "intersect": 6.49, "blocked": 8.98, "floor": 1.0 }
+[BossTerrain] grab angle=-62 depth=0.000 back=0.92 {  }
+BOSS CPU ms/tick { "state": 2.31, "pose": 12.53, "skin": 2.39, "contacts": 0.73 }
+BOSS TERRAIN ms/tick { "state": 2.31, "pose": 12.53, "skin": 2.39, "contacts": 0.73, "blend": 3.46, "cook": 0.25, "intersect": 7.12, "blocked": 9.45, "floor": 2.56 }
+[BossTerrain] stagger angle=-62 depth=0.000 back=0.93 {  }
+BOSS CPU ms/tick { "state": 0.14, "pose": 11.52, "skin": 2.42, "contacts": 0.91 }
+BOSS TERRAIN ms/tick { "state": 0.14, "pose": 11.52, "skin": 2.42, "contacts": 0.91, "blend": 2.95, "cook": 0.21, "intersect": 7.12, "blocked": 9.57, "floor": 1.51 }
+BOSS CPU ms/tick { "state": 0.15, "pose": 4.17, "skin": 2.37, "contacts": 0.58 }
+BOSS TERRAIN ms/tick { "state": 0.15, "pose": 4.17, "skin": 2.37, "contacts": 0.58, "blend": 1.42, "cook": 0.11, "intersect": 1.75, "blocked": 2.24, "floor": 1.61 }
+[BossTerrain] shift angle=33 depth=0.000 back=0.00 {  }
+[BossTerrain] idle angle=140 depth=0.000 back=3.63 {  }
+[BossTerrain] slam angle=140 depth=0.000 back=4.67 {  }
+BOSS CPU ms/tick { "state": 0.14, "pose": 12.61, "skin": 2.31, "contacts": 0.56 }
+BOSS TERRAIN ms/tick { "state": 0.14, "pose": 12.61, "skin": 2.31, "contacts": 0.56, "blocked": 10.88, "blend": 2.57, "cook": 0.21, "floor": 1.26, "intersect": 8.6 }
+[BossTerrain] slam angle=140 depth=0.000 back=4.52 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 11.19, "skin": 2.23, "contacts": 0.63 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 11.19, "skin": 2.23, "contacts": 0.63, "blend": 2.34, "cook": 0.19, "intersect": 7.61, "blocked": 9.83, "floor": 0.93 }
+[BossTerrain] sweep angle=140 depth=0.000 back=4.82 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 8.66, "skin": 1.97, "contacts": 0.5 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 8.66, "skin": 1.97, "contacts": 0.5, "blend": 2.21, "cook": 0.15, "intersect": 5.43, "blocked": 7.36, "floor": 0.95 }
+[BossTerrain] sweep angle=140 depth=0.000 back=4.52 {  }
+BOSS CPU ms/tick { "state": 0.1, "pose": 8.91, "skin": 1.93, "contacts": 0.46 }
+BOSS TERRAIN ms/tick { "state": 0.1, "pose": 8.91, "skin": 1.93, "contacts": 0.46, "blend": 2.34, "cook": 0.16, "intersect": 5.57, "blocked": 7.56, "floor": 1.09 }
+[BossTerrain] grab angle=140 depth=0.000 back=3.62 {  }
+BOSS CPU ms/tick { "state": 0.11, "pose": 10.93, "skin": 1.81, "contacts": 0.48 }
+BOSS TERRAIN ms/tick { "state": 0.11, "pose": 10.93, "skin": 1.81, "contacts": 0.48, "blend": 2.49, "cook": 0.19, "intersect": 7.25, "blocked": 9.57, "floor": 0.96 }
+[BossTerrain] stagger angle=140 depth=0.000 back=4.97 {  }
+BOSS CPU ms/tick { "state": 0.12, "pose": 5.59, "skin": 1.74, "contacts": 0.38 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 5.59, "skin": 1.74, "contacts": 0.38, "blend": 1.63, "cook": 0.1, "intersect": 3.14, "blocked": 4.27, "floor": 1.04 }
+[BossTerrain] shift angle=223 depth=0.000 back=0.00 {  }
+BOSS CPU ms/tick { "state": 0.13, "pose": 4.64, "skin": 1.83, "contacts": 0.35 }
+BOSS TERRAIN ms/tick { "state": 0.13, "pose": 4.64, "skin": 1.83, "contacts": 0.35, "blocked": 3.01, "blend": 1.54, "cook": 0.1, "floor": 1.35, "intersect": 2.24 }
+BOSS CPU ms/tick { "state": 0.13, "pose": 5.35, "skin": 1.85, "contacts": 0.39 }
+BOSS TERRAIN ms/tick { "state": 0.13, "pose": 5.35, "skin": 1.85, "contacts": 0.39, "blend": 1.77, "cook": 0.12, "intersect": 2.67, "blocked": 3.7, "floor": 1.37 }
+[BossTerrain] relocate angle=332 depth=0.000 back=0.65 {  }
+BOSS CPU ms/tick { "state": 0.13, "pose": 6.12, "skin": 1.82, "contacts": 0.45 }
+BOSS TERRAIN ms/tick { "state": 0.13, "pose": 6.12, "skin": 1.82, "contacts": 0.45, "blend": 1.85, "cook": 0.12, "intersect": 3.31, "blocked": 4.4, "floor": 1.43 }
+BOSS CPU ms/tick { "state": 0.12, "pose": 3.36, "skin": 1.8, "contacts": 0.41 }
+BOSS TERRAIN ms/tick { "state": 0.12, "pose": 3.36, "skin": 1.8, "contacts": 0.41, "blend": 1.22, "cook": 0.08, "intersect": 1.37, "blocked": 1.92, "floor": 1.19 }
+[BossTerrain] death angle=332 depth=0.000 back=0.00 {  }
+[BossTerrain] frames=1224 failures=0 blocked=16 pose_ms=10.70
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2514)

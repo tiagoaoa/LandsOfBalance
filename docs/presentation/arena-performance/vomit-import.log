@@ -1,0 +1,58 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+ERROR: Condition "_sock == -1" is true. Returning: FAILED
+   at: open (drivers/unix/net_socket_unix.cpp:267)
+ERROR: Condition "err != OK" is true. Returning: ERR_CANT_CREATE
+   at: listen (core/io/tcp_server.cpp:57)
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Started Project initialization (5 steps)[39m[0m
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Scanning file structure...[39m[0m
+[  16% ] [90m[1mfirst_scan_filesystem[22m | Loading global class names...[39m[0m
+[  33% ] [90m[1mfirst_scan_filesystem[22m | Verifying GDExtensions...[39m[0m
+[  50% ] [90m[1mfirst_scan_filesystem[22m | Creating autoload scripts...[39m[0m
+[  66% ] [90m[1mfirst_scan_filesystem[22m | Initializing plugins...[39m[0m
+[Godot MCP - AutoReload] Plugin activated - watching for external changes
+ERROR: Condition "_sock == -1" is true. Returning: FAILED
+   at: open (drivers/unix/net_socket_unix.cpp:267)
+   GDScript backtrace (most recent call first):
+       [0] _attempt_connection (res://addons/godot_mcp_editor/mcp_client.gd:100)
+       [1] connect_to_server (res://addons/godot_mcp_editor/mcp_client.gd:67)
+       [2] _enter_tree (res://addons/godot_mcp_editor/plugin.gd:27)
+ERROR: [MCP Editor] Failed to connect: 1
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _attempt_connection (res://addons/godot_mcp_editor/mcp_client.gd:102)
+       [1] connect_to_server (res://addons/godot_mcp_editor/mcp_client.gd:67)
+       [2] _enter_tree (res://addons/godot_mcp_editor/plugin.gd:27)
+[MCP Runtime] Plugin loaded
+[  83% ] [90m[1mfirst_scan_filesystem[22m | Starting file scan...[39m[0m
+[92m[ DONE ][39m [1mfirst_scan_filesystem[22m
+[0m
+[   0% ] [90m[1mupdate_scripts_classes[22m | Started Registering global classes... (11 steps)[39m[0m
+[   0% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[   8% ] [90m[1mupdate_scripts_classes[22m | ColossusBoss[39m[0m
+[  16% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[  25% ] [90m[1mupdate_scripts_classes[22m | AIRole[39m[0m
+[  33% ] [90m[1mupdate_scripts_classes[22m | ArcherRole[39m[0m
+[  41% ] [90m[1mupdate_scripts_classes[22m | PaladinRole[39m[0m
+[  50% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[  58% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[  66% ] [90m[1mupdate_scripts_classes[22m | BossArena[39m[0m
+[  75% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[  83% ] [90m[1mupdate_scripts_classes[22m | [39m[0m
+[92m[ DONE ][39m [1mupdate_scripts_classes[22m
+[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Started Loading editor (5 steps)[39m[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Loading editor layout...[39m[0m
+[  16% ] [90m[1mloading_editor_layout[22m | Loading docks...[39m[0m
+[  33% ] [90m[1mloading_editor_layout[22m | Reopening scenes...[39m[0m
+[  50% ] [90m[1mloading_editor_layout[22m | Loading central editor layout...[39m[0m
+[  66% ] [90m[1mloading_editor_layout[22m | Loading plugin window layout...[39m[0m
+[  83% ] [90m[1mloading_editor_layout[22m | Editor layout ready.[39m[0m
+[92m[ DONE ][39m [1mloading_editor_layout[22m
+[0m
+ERROR: Condition "_sock == -1" is true. Returning: FAILED
+   at: open (drivers/unix/net_socket_unix.cpp:267)
+ERROR: Condition "err != OK" is true. Returning: ERR_CANT_CREATE
+   at: listen (core/io/tcp_server.cpp:57)
+[Godot MCP - AutoReload] Plugin deactivated
+[MCP Runtime] Plugin unloaded

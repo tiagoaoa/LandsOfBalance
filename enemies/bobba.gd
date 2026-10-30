@@ -53,7 +53,7 @@ const FLEE_HP_FRACTION: float = 0.22   # badly wounded → disengage and run
 const FLEE_RECOVER_FRACTION: float = 0.55
 const REGEN_DELAY: float = 12.0         # seconds without damage before healing starts
 const REGEN_PCT_PER_SEC: float = 0.03  # out-of-combat recovery — fleeing has a payoff
-const ATTACK_DISTANCE: float = 2.0  # Distance to start attack animation
+const ATTACK_DISTANCE: float = 2.35
 const ROAM_CHANGE_TIME: float = 3.0  # Time between direction changes
 const ROTATION_SPEED: float = 5.0
 
@@ -71,9 +71,9 @@ const KNOCKBACK_FORCE: float = 7.0
 var is_blocking: bool = false
 var _block_timer: float = 0.0
 var _block_check_cooldown: float = 0.0
-const BLOCK_DURATION: float = 0.8
+const BLOCK_DURATION: float = 0.5
 const BLOCK_CHECK_INTERVAL: float = 3.0
-const BLOCK_CHANCE: float = 0.25
+const BLOCK_CHANCE: float = 0.12
 # Procedural "X-guard": both arms raised and crossed in front of the chest.
 # Right arm comes across the body, left arm mirrors it; forearms bend hard
 # at the elbow to form the X. Values are tuned by eye against the mutant rig.
@@ -124,6 +124,18 @@ var attack_cooldown: float = 0.0
 var _strike_direction := Vector3.FORWARD
 var _punish_left := 0.0
 var _combo_limit := 1
+var kindled_left := 0.0
+var _fire_break_cd := 0.0
+var _leap_cd := 3.0
+var _gap_close := false
+var _leap_travel := 0.0
+var _circle_sign := 1.0
+var _impact_played := false
+var _fire_glow := FireGlow.new()
+var _swing_hits: Array[Node3D] = []
+var _fist_left := preload("res://combat/strike_sweep.gd").new()
+var _fist_right := preload("res://combat/strike_sweep.gd").new()
+var _axe_sweep := preload("res://combat/strike_sweep.gd").new()
 
 # Combat
 var _left_hand_hitbox: Area3D
@@ -161,15 +173,12 @@ const HAND_HITBOX_END: float = 0.7    # Disable hitbox at 70% of attack animatio
 # chain reads as three separate decisions to dodge/block/parry, and a parry
 # on any step breaks the whole chain (on_parried → STUNNED). After the chain
 # ends there's a long punish cooldown — that's the player's opening.
-## "speed" is the playback rate for the step's clip. The raw mixamo
-## jump-attack clip is 3.7 s — far longer than its useful attack portion —
-## so the finisher plays at 1.5x (2.47 s total): the slam still reads, the
-## recovery tail shrinks to ~0.5 s, and the step ends well inside the 3 s
-## stuck-state watchdog. Progress-based windows are playback-rate agnostic.
+#Durations keep the first swipe readable (465 ms tell), followed by a
+#quicker punch (297 ms). The low-health slam has a 613 ms windup.
 const COMBO_ATTACKS: Array[Dictionary] = [
-	{"anim": &"bobba/Attack", "damage": 34.0, "window": Vector2(0.30, 0.52), "kb_mult": 1.0, "lunge": 1.5, "speed": 1.0},
-	{"anim": &"bobba/Punch", "damage": 28.0, "window": Vector2(0.22, 0.43), "kb_mult": 0.8, "lunge": 2.5, "speed": 1.0},
-	{"anim": &"bobba/JumpAttack", "damage": 48.0, "window": Vector2(0.35, 0.57), "kb_mult": 1.5, "lunge": 3.2, "speed": 1.5},
+	{"anim": &"bobba/Attack", "damage": 34.0, "window": Vector2(0.30, 0.52), "kb_mult": 1.0, "lunge": 1.5, "duration": 1.55},
+	{"anim": &"bobba/Punch", "damage": 28.0, "window": Vector2(0.22, 0.43), "kb_mult": 0.8, "lunge": 2.5, "duration": 1.35},
+	{"anim": &"bobba/JumpAttack", "damage": 48.0, "window": Vector2(0.35, 0.57), "kb_mult": 1.5, "lunge": 3.2, "duration": 1.75},
 ]
 ## The axe swing is a separate decision from the fist chain, not a step in it.
 ## What buys the player the read is that it is slow, frontal, and reaches much
@@ -214,10 +223,10 @@ const AXE_HITBOX_RADIUS: float = 0.75
 ## Burying the axe in the ground leaves him open — a longer punish than the
 ## chain. The clip's own recovery runs from 1.1 s to 2.27 s, so this sits on
 ## top of a swing that is already committed for over a second after impact.
-const AXE_END_COOLDOWN: float = 1.8
+const AXE_END_COOLDOWN: float = 0.85
 
 const COMBO_CHAIN_RANGE: float = 4.0   # can still chain if the target backs off a bit
-const COMBO_END_COOLDOWN: float = 1.3  # punish window after the chain resolves
+const COMBO_END_COOLDOWN: float = 0.65
 
 var _hold_left: float = 0.0
 var _hold_spent: float = 0.0
@@ -294,6 +303,8 @@ func _ready() -> void:
 	_find_player()
 	_setup_attack_hitbox()  # Must be before _setup_model which attaches hitboxes to bones
 	_setup_model()
+	_ensure_flash_materials()
+	_fire_glow.collect(_model)
 	_setup_hit_label()
 	_pick_new_roam_direction()
 	_setup_network()
@@ -318,6 +329,8 @@ func _setup_poise_component() -> void:
 	_poise = PoiseComponentClass.new()
 	_poise.name = "PoiseComponent"
 	_poise.max_poise = 100.0
+	_poise.max_consecutive_staggers = 1
+	_poise.unstoppable_duration = 3.0
 	add_child(_poise)
 	_poise.staggered.connect(_on_staggered)
 	_poise.unstoppable_started.connect(func() -> void:
@@ -442,6 +455,9 @@ func _select_target() -> void:
 
 	# Always update player list to catch new players
 	_update_player_list()
+	#A tell belongs to one target until the attack or its recovery ends.
+	if state == State.ATTACKING or _punish_left > 0.0:
+		return
 
 	# Keep/lose: a tracked target is followed until it BOTH breaks the 50 m
 	# scent range AND can no longer be seen — a fire-lit runner stays marked.
@@ -489,6 +505,11 @@ func _select_target() -> void:
 func _set_attacker_as_target(attacker: Node3D) -> void:
 	# When attacked, prioritize the attacker as target
 	if attacker and is_instance_valid(attacker):
+		if state == State.ATTACKING:
+			return
+		if is_instance_valid(target) and target != attacker \
+				and global_position.distance_to(target.global_position) < 6.0:
+			return
 		target = attacker
 		if state == State.ROAMING or state == State.IDLE:
 			state = State.CHASING
@@ -514,6 +535,7 @@ func _setup_model() -> void:
 
 		_anim_player = _find_animation_player(_model)
 		if _anim_player:
+			_anim_player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS
 			print("Bobba: Found AnimationPlayer: ", _anim_player.name)
 			print("Bobba: AnimationPlayer root node: ", _anim_player.root_node)
 			_anim_player.animation_finished.connect(_on_animation_finished)
@@ -544,9 +566,7 @@ func _setup_attack_hitbox() -> void:
 	_left_hand_hitbox = _create_hand_hitbox("LeftHandHitbox")
 	_right_hand_hitbox = _create_hand_hitbox("RightHandHitbox")
 
-	# Connect signals
-	_left_hand_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
-	_right_hand_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
+	#Contacts are sampled by the active weapon sweep, not by idle fists.
 
 	# Ember claw streaks — drawn only while the fists are live.
 	_left_claw_trail = SlashTrail.attach(self, _left_hand_hitbox,
@@ -693,7 +713,7 @@ func _setup_hit_label() -> void:
 	_hit_label.outline_modulate = Color(0.2, 0.0, 0.0)
 	_hit_label.outline_size = 6
 	_hit_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_hit_label.no_depth_test = true
+	_hit_label.no_depth_test = false
 	_hit_label.position = Vector3(0, 3.0, 0)
 	_hit_label.visible = false
 	add_child(_hit_label)
@@ -707,7 +727,8 @@ func _setup_hit_label() -> void:
 	health_label.outline_modulate = Color(0.2, 0.0, 0.0)
 	health_label.outline_size = 6
 	health_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	health_label.no_depth_test = true
+	health_label.no_depth_test = false
+	health_label.visible = false
 	health_label.position = Vector3(0, 4.0, 0)  # Above name label
 	add_child(health_label)
 
@@ -720,7 +741,7 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 	if not _hitbox_active_window:
 		return
 
-	if _has_hit_this_attack:
+	if _swing_hits.has(body):
 		return
 
 	# Only process CharacterBody3D (ignore ground, walls, etc.)
@@ -742,6 +763,7 @@ func _on_attack_hitbox_body_entered(body: Node3D) -> void:
 	if is_player and is_instance_valid(body):
 		print("Bobba: Hit player: ", body.name)
 		_has_hit_this_attack = true
+		_swing_hits.append(body)
 
 		# Calculate knockback direction (from Bobba to hit body)
 		var knockback_dir = (body.global_position - global_position).normalized()
@@ -802,6 +824,11 @@ func enable_attack_hitbox() -> void:
 	# Reset attack hit tracking - called when attack starts
 	print("Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false")
 	_has_hit_this_attack = false
+	_swing_hits.clear()
+	_fist_left.reset()
+	_fist_right.reset()
+	_axe_sweep.reset()
+	_impact_played = false
 	_attack_anim_progress = 0.0
 	_hitbox_active_window = false
 	# Keep hitboxes monitoring always - we control damage via _hitbox_active_window
@@ -873,27 +900,49 @@ func _update_attack_hitbox_timing() -> void:
 	if _axe_smear != null:
 		_axe_smear.emitting = _hitbox_active_window and _axe_attack_active
 
-	# Check for hits during active window
-	if _hitbox_active_window and not _has_hit_this_attack:
-		# An axe swing damages with the blade; the fists are irrelevant to it
-		# (and would otherwise land a punch at axe range).
-		if _axe_attack_active:
-			if _axe_hitbox != null:
-				for body in _axe_hitbox.get_overlapping_bodies():
-					_on_attack_hitbox_body_entered(body)
-					if _has_hit_this_attack:
-						return
-			return
-		var left_bodies = _left_hand_hitbox.get_overlapping_bodies()
-		var right_bodies = _right_hand_hitbox.get_overlapping_bodies()
-		for body in left_bodies:
-			_on_attack_hitbox_body_entered(body)
-			if _has_hit_this_attack:
-				return
-		for body in right_bodies:
-			_on_attack_hitbox_body_entered(body)
-			if _has_hit_this_attack:
-				return
+	_sample_strike()
+	if not _impact_played and _attack_anim_progress >= window.y \
+			and (_axe_attack_active or _combo_step == 2):
+		_impact_played = true
+		_ground_impact()
+
+
+func _sample_strike() -> void:
+	var space := get_world_3d().direct_space_state
+	var contacts: Array[Node3D] = []
+	if _axe_attack_active and _axe_hitbox:
+		var point: Vector3 = _axe_hitbox.global_transform * Vector3(0, 1.3, 0)
+		contacts = _axe_sweep.contacts(space, point, AXE_HITBOX_RADIUS,
+				_hitbox_active_window, [get_rid()])
+	else:
+		contacts = _fist_left.contacts(space, _left_hand_hitbox.global_position,
+				0.35, _hitbox_active_window, [get_rid()])
+		contacts.append_array(_fist_right.contacts(space, _right_hand_hitbox.global_position,
+				0.35, _hitbox_active_window, [get_rid()]))
+	for body in contacts:
+		if state != State.ATTACKING:
+			break
+		_on_attack_hitbox_body_entered(body)
+
+
+func _ground_impact() -> void:
+	var point := global_position + _strike_direction * 2.2
+	if _axe_attack_active and _axe_hitbox:
+		point = _axe_hitbox.global_transform * Vector3(0, 1.3, 0)
+	var ray := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 2.0,
+			point - Vector3.UP * 4.0, 1, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
+	if hit.is_empty():
+		return
+	point = hit.position + Vector3.UP * 0.06
+	Sfx.play3d("death_thud", point, -2.0)
+	SlashTrail.spawn_hit_spark(self, point, Color(0.9, 0.63, 0.28))
+	if DisplayServer.get_name() != "headless":
+		var dust := FireFX.add_smoke(get_tree().current_scene, point, 0.75, 16)
+		dust.one_shot = true
+		dust.explosiveness = 1.0
+		dust.emitting = true
+		get_tree().create_timer(3.0).timeout.connect(dust.queue_free)
 
 
 ## Parry → riposte state. Set when a player deflects one of our punches;
@@ -956,6 +1005,11 @@ func take_hit(damage: float, knockback: Vector3, _blocked: bool = false,
 		_set_attacker_as_target(attacker)
 	if poise_damage < 0.0:
 		poise_damage = SWORD_POISE_DAMAGE if damage >= 50.0 else 0.0
+	#Fire softens his guard. A sword following the archer's mark builds
+	#posture faster, without making either class mandatory for damage.
+	if kindled_left > 0.0 and attacker is Player and not attacker.is_archer():
+		damage *= 1.2
+		poise_damage *= 1.45
 	var frontal := false
 	if attacker and _model:
 		var incoming := attacker.global_position - global_position
@@ -1121,18 +1175,24 @@ func _apply_bone_euler(bone_idx: int, euler_deg: Vector3) -> void:
 ## chip damage is not a boss. Now the shaft burns on him (player/arrow.gd puts
 ## the fire on the body) and he keeps walking at the nearest thing he can
 ## reach; only fire ON THE GROUND is something to step around.
+func fire_interrupt_ready() -> bool:
+	if _fire_break_cd > 0.0 or state == State.DEAD or state == State.STUNNED:
+		return false
+	return is_blocking or (state == State.ATTACKING
+			and _attack_anim_progress < _current_attack_data()["window"].x - 0.025)
+
+
 func take_arrow_hit(_arrow_position: Vector3, _arrow_node: Node3D = null) -> void:
-	# NOTE: Damage is now the arrow's responsibility (take_damage_flat).
-	# The HP label is also driven by the HealthComponent.damaged signal.
-	# Flash orange for arrow hit
+	if state == State.DEAD:
+		return
+	kindled_left = 8.0
 	_flash_hit(Color(1.0, 0.6, 0.2))
-	# Deliberately NOT done here any more:
-	#   * no retreat — he keeps closing;
-	#   * no ground fire registered at the impact point — the flame is on him;
-	#   * no switch of target to a distant archer — _select_target already
-	#     runs at the CLOSEST character he can perceive, which is the one who
-	#     can actually be reached.
-	print("Bobba: took an arrow (%.0f/%.0f) — still coming" % [health, MAX_HEALTH])
+	if fire_interrupt_ready():
+		_fire_break_cd = 9.0
+		_on_staggered()
+		_stun_timer = 1.35
+		_show_hit_label("FIRE BREAK")
+		print("Bobba: fire broke the windup; paladin opening")
 
 
 ## Register a ground fire position to avoid
@@ -1160,6 +1220,7 @@ func _cleanup_old_fires() -> void:
 ## group and is not terrain to be avoided — running from a fire you are
 ## wearing just means running forever.
 func _scan_for_scene_fires() -> void:
+	_ground_fires.clear()
 	var fire_nodes := get_tree().get_nodes_in_group("ground_fire")
 	for fire_node in fire_nodes:
 		if is_instance_valid(fire_node) and not fire_node.is_in_group("body_fire"):
@@ -1431,52 +1492,12 @@ func _apply_material_recursive(node: Node, mat: Material) -> void:
 		_apply_material_recursive(child, mat)
 
 
-## Bobba's axe: a rigid mesh on a BoneAttachment3D at the right hand, so every
-## existing mutant clip carries it without touching the animations.
-##
-## The offsets are in BOBBA'S OWN frame rather than the bone's — the mixamorig
-## hand bone points down the arm, so a hand-guessed euler there is unreadable.
-## `_axe_local_basis` solves for the bone-local rotation that lands the axe
-## upright-and-forward relative to the body, the same trick the player's gear
-## uses.
+#The handle crosses the palm along the hand's local X axis.
 const AXE_SCENE := "res://assets/bobba/war_axe.glb"
-const AXE_POS := Vector3(0.0, -0.05, 0.06)   # metres, in Bobba's frame
-const AXE_ROT := Vector3(-18.0, 0.0, 8.0)    # degrees: haft near-upright, head up, raked back
+const AXE_POS := Vector3(0.0, 0.13, -0.045)
 const AXE_SCALE := 1.0
 
-## Extra rotation applied to the axe IN ITS OWN FRAME while the swing plays.
-##
-## The axe is rigid on the hand bone, so its orientation is whatever the clip
-## does to the wrist — and the imported chop was authored for a weapon gripped
-## differently from the carry pose AXE_ROT was solved for. Uncorrected, the
-## blade never gets above the hand after the wind-up: it hangs under it through
-## the apex and is BELOW GROUND from the moment of impact onward.
-##
-## 90 degrees of roll, not 180. Solved by sweeping candidates through
-## tools/measure_clip.gd's prop mode and reading where the blade actually ends
-## up — the capture rig cannot answer this, since it does not control Bobba's
-## yaw and two runs are not comparable frame to frame. What 90 buys, in blade
-## world-height across the swing:
-##
-##     t=0.35  y 2.34 behind      rising past the shoulder
-##     t=0.45  y 3.05 behind      cocked overhead — the highest point
-##     t=0.65  y 2.89             apex, blade well above the hand (2.10)
-##     t=0.75  y 3.04 forward     sweeping over the top
-##     t=0.85  y 0.18 forward     impact, driven down 0.8 m ahead of the hand
-##
-## A full 180 puts the apex right too, but it inverts the FIRST half instead —
-## blade at y 0.05 while he lifts — and leaves the blade above the hand at the
-## moment of impact, so he appears to chop with the axe pointing at the sky.
-## Zero this out to see the raw clip again.
-const AXE_ATTACK_ROT := Vector3(0.0, 0.0, 90.0)
-## How fast the grip changes over. Fast enough not to read as the axe turning
-## in his hand, slow enough not to pop on the frame he commits.
-const AXE_GRIP_BLEND: float = 14.0
-
 var _axe: Node3D
-## The solved carry orientation, kept so the attack grip is an offset FROM it
-## rather than a second hand-tuned euler that has to be kept in sync.
-var _axe_carry_basis: Basis = Basis.IDENTITY
 
 
 func _setup_axe(skeleton: Skeleton3D) -> void:
@@ -1496,16 +1517,9 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 
 	_axe = scene.instantiate() as Node3D
 	_axe.name = "WarAxe"
-	var rest: Basis = (skeleton.global_transform
-			* skeleton.get_bone_global_rest(idx)).basis.orthonormalized()
-	var want: Basis = global_transform.basis.orthonormalized() \
-			* Basis.from_euler(AXE_ROT * (PI / 180.0))
-	# Kept unscaled — _update_axe_grip slerps this and applies AXE_SCALE once,
-	# so folding the scale in here would square it every frame.
-	_axe_carry_basis = (rest.inverse() * want).orthonormalized()
 	_axe.transform = Transform3D(
-			_axe_carry_basis.scaled(Vector3.ONE * AXE_SCALE),
-			rest.inverse() * AXE_POS)
+			Basis(Vector3.BACK, -PI / 2).scaled(Vector3.ONE * AXE_SCALE),
+			AXE_POS)
 	attach.add_child(_axe)
 	# Wind smear along the haft and out past the head — a long axe moves a lot
 	# of air, and the arc is what makes a heavy swing read as heavy.
@@ -1525,33 +1539,11 @@ func _setup_axe(skeleton: Skeleton3D) -> void:
 	axe_shape.position = Vector3(0, 1.30, 0)   # at the head, up the haft
 	_axe_hitbox.add_child(axe_shape)
 	_axe.add_child(_axe_hitbox)
-	_axe_hitbox.body_entered.connect(_on_attack_hitbox_body_entered)
 
 	_axe_smear = SlashTrail.attach_smear(self, _axe,
 			Vector3(0, -0.30, 0), Vector3(0, 1.45, 0),
 			Color(0.86, 0.90, 1.0, 0.16), 1.2)
 	print("Bobba: axe attached to bone ", attach.bone_name)
-
-
-## Ease the axe between its carry grip and its swing grip. The hitbox and the
-## wind smear are children of the axe, so they follow the flip for free —
-## damage keeps coming from wherever the blade actually is, which is the whole
-## point of hanging them off the mesh rather than off the hand.
-func _update_axe_grip(delta: float) -> void:
-	if _axe == null or not is_instance_valid(_axe):
-		return
-	# Keyed off the CLIP, not the attack flag: the grip belongs to the
-	# animation, so anything that plays the swing — the fight, the animation
-	# lab, a frame-by-frame capture — shows the same axe.
-	var swinging: bool = _anim_player != null \
-			and _anim_player.current_animation == String(AXE_ATTACK["anim"])
-	var want: Basis = _axe_carry_basis
-	if swinging and AXE_ATTACK_ROT != Vector3.ZERO:
-		want = _axe_carry_basis * Basis.from_euler(AXE_ATTACK_ROT * (PI / 180.0))
-	var q: Quaternion = _axe.transform.basis.orthonormalized().get_rotation_quaternion()
-	var target: Quaternion = want.orthonormalized().get_rotation_quaternion()
-	var t: float = clampf(AXE_GRIP_BLEND * delta, 0.0, 1.0)
-	_axe.transform.basis = Basis(q.slerp(target, t)).scaled(Vector3.ONE * AXE_SCALE)
 
 
 ## True when the mesh already carries a real, textured material of its own.
@@ -1746,8 +1738,7 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		if state == State.ATTACKING and not _axe_attack_active \
 				and _combo_step < _combo_limit \
 				and target != null and is_instance_valid(target) \
-				and global_position.distance_to(target.global_position) <= COMBO_CHAIN_RANGE \
-				and not _is_in_fire_panic_zone():
+				and global_position.distance_to(target.global_position) <= COMBO_CHAIN_RANGE:
 			print("Bobba: Combo chain → step %d" % (_combo_step + 1))
 			_start_combo_attack(_combo_step + 1)
 			return
@@ -1756,8 +1747,10 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		attack_cooldown = AXE_END_COOLDOWN if _axe_attack_active \
 				else (COMBO_END_COOLDOWN if _combo_step > 0 else 0.7)
 		# The end of a combo is a reliable opening, even after a blocked hit.
-		attack_cooldown = maxf(attack_cooldown, 1.1)
-		_punish_left = 0.8
+		attack_cooldown = maxf(attack_cooldown, 0.65)
+		_punish_left = 0.5
+		_circle_sign = -_circle_sign
+		_gap_close = false
 		_last_swing_blocked = false
 		_combo_step = 0
 		_axe_attack_active = false
@@ -1783,6 +1776,12 @@ func _pick_new_roam_direction() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	#Fire needs to reveal the body, including the side facing away from it.
+	if _hit_flash_tween == null or not _hit_flash_tween.is_running():
+		_fire_glow.update(Perception.fire_lit_amount(self), delta, 0.18, true)
+	kindled_left = maxf(0.0, kindled_left - delta)
+	_fire_break_cd = maxf(0.0, _fire_break_cd - delta)
+	_leap_cd = maxf(0.0, _leap_cd - delta)
 	if attack_cooldown > 0:
 		attack_cooldown -= delta
 
@@ -1792,11 +1791,7 @@ func _physics_process(delta: float) -> void:
 		_fire_scan_timer = FIRE_SCAN_INTERVAL
 		_scan_for_scene_fires()
 
-	# Update hand hitbox timing based on attack animation progress
 	_update_attack_hitbox_timing()
-
-	# Keep the axe the right way up for whatever clip is running.
-	_update_axe_grip(delta)
 
 	# Block state machine: tick timers and maybe enter block.
 	_update_block_state(delta)
@@ -2095,48 +2090,10 @@ func _roar() -> void:
 
 
 func _handle_chasing(delta: float, distance_to_target: float) -> void:
-	# FIRE PANIC CHECK - if too close to fire, flee even while chasing!
-	if _is_in_fire_panic_zone():
-		var fire_avoid := _get_fire_avoidance_direction()
-		if fire_avoid.length() > 0.1:
-			velocity.x = fire_avoid.x * CHASE_SPEED
-			velocity.z = fire_avoid.z * CHASE_SPEED
-			if _model:
-				var flee_rot := atan2(fire_avoid.x, fire_avoid.z)
-				_model.rotation.y = lerp_angle(_model.rotation.y, flee_rot, ROTATION_SPEED * 2.0 * delta)
-			_play_anim(_carry_anim(&"Run"))
-			if not _panicking:
-				_panicking = true
-				print("Bobba: PANIC while chasing — fire too close")
-			return
-		_panicking = false
-
-	# If target escapes beyond LOSE_RADIUS, _select_target will clear it
-	# Here we just check if we lost target
-	if target == null or not is_instance_valid(target):
+	if not is_instance_valid(target):
 		state = State.ROAMING
 		_pick_new_roam_direction()
 		return
-
-	# Don't attack if standing near fire - back off first
-	var near_fire := _is_near_fire(global_position)
-	if near_fire and distance_to_target <= ATTACK_DISTANCE:
-		# Back away from fire instead of attacking
-		var fire_avoid := _get_fire_avoidance_direction()
-		if fire_avoid.length() > 0.1:
-			velocity.x = fire_avoid.x * RETREAT_SPEED
-			velocity.z = fire_avoid.z * RETREAT_SPEED
-			if _model:
-				var retreat_rot := atan2(fire_avoid.x, fire_avoid.z)
-				_model.rotation.y = lerp_angle(_model.rotation.y, retreat_rot, ROTATION_SPEED * delta)
-			_play_anim(_carry_anim(&"Walk"))
-			if not _fire_shy:
-				_fire_shy = true
-				print("Bobba: won't attack — too close to fire, backing off")
-			return
-
-	_fire_shy = false
-
 	var direction := target.global_position - global_position
 	direction.y = 0.0
 	direction = direction.normalized()
@@ -2153,20 +2110,29 @@ func _handle_chasing(delta: float, distance_to_target: float) -> void:
 		return
 	var facing := _model.global_basis.z.normalized().dot(direction) if _model else 1.0
 	if attack_cooldown <= 0.0 and facing > 0.8:
+		if _leap_cd <= 0.0 and distance_to_target > 5.0 and distance_to_target < 8.5:
+			_start_combo_attack(2)
+			_gap_close = true
+			_leap_travel = distance_to_target - 2.0
+			_leap_cd = 9.0
+			return
 		if not _last_attack_was_axe and _can_axe_attack(distance_to_target):
 			_start_axe_attack()
 			return
 		if distance_to_target <= ATTACK_DISTANCE:
 			_start_combo_attack(0)
 			return
-	# Hold nearby during recovery. Do not erase the opening by backpedalling.
 	if distance_to_target < 2.5 and attack_cooldown > 0.0:
 		_play_anim(_carry_anim(&"Idle"))
 		return
 	var move_dir := direction
-	var fire_avoid := _get_fire_avoidance_direction()
-	if fire_avoid.length() > 0.1:
-		move_dir = (move_dir + fire_avoid * 3.0).normalized()
+	#Circle between exchanges and skirt fire without abandoning the fight.
+	#The first half-second after a chain remains a stationary punish window.
+	if distance_to_target < 9.0 and attack_cooldown > 0.0:
+		move_dir = (direction * 0.25 + direction.cross(Vector3.UP) * _circle_sign).normalized()
+	var avoid := _get_fire_avoidance_direction()
+	if distance_to_target > AXE_ATTACK_RANGE and avoid.length() > 0.1:
+		move_dir = (move_dir + avoid * 0.65).normalized()
 	var speed := CHASE_SPEED if distance_to_target > 4.0 else ROAM_SPEED
 	velocity.x = move_dir.x * speed
 	velocity.z = move_dir.z * speed
@@ -2190,7 +2156,7 @@ func _can_axe_attack(distance: float) -> bool:
 		return false
 	if not _anim_player.has_animation(AXE_ATTACK["anim"]):
 		return false
-	if distance > AXE_ATTACK_RANGE or target == null or not is_instance_valid(target):
+	if distance < 2.7 or distance > AXE_ATTACK_RANGE or target == null or not is_instance_valid(target):
 		return false
 	var to_target: Vector3 = (target as Node3D).global_position - global_position
 	to_target.y = 0.0
@@ -2216,6 +2182,7 @@ func _commit_attack_direction() -> void:
 
 ## Commit to the overhead chop.
 func _start_axe_attack() -> void:
+	_gap_close = false
 	_axe_attack_active = true
 	_last_attack_was_axe = true
 	_combo_step = 0
@@ -2239,6 +2206,7 @@ func _start_axe_attack() -> void:
 ## the wind-up must stay readable even mid-chain (fun rule: visible
 ## decision → visible consequence).
 func _start_combo_attack(step: int) -> void:
+	_gap_close = false
 	_axe_attack_active = false
 	if step == 0:
 		_last_attack_was_axe = false   # chain done — the axe comes back round
@@ -2254,7 +2222,8 @@ func _start_combo_attack(step: int) -> void:
 		_hold_left = 0.0
 		_combo_limit = 2 if health < MAX_HEALTH * 0.5 else 1
 	_commit_attack_direction()
-	_play_anim(attack_anim, COMBO_ATTACKS[step].get("speed", 1.0))
+	var duration: float = COMBO_ATTACKS[step]["duration"]
+	_play_anim(attack_anim, _anim_player.get_animation(attack_anim).length / duration)
 	enable_attack_hitbox()  # fresh swing — each chain step can land its own hit
 	velocity.x = 0
 	velocity.z = 0
@@ -2262,20 +2231,6 @@ func _start_combo_attack(step: int) -> void:
 
 
 func _handle_attacking(delta: float) -> void:
-	# FIRE PANIC - abort attack if too close to fire!
-	if _is_in_fire_panic_zone():
-		print("Bobba: ABORTING ATTACK - fire too close!")
-		disable_attack_hitbox()
-		_hold_left = 0.0
-		if _anim_player != null:
-			_anim_player.speed_scale = 1.0
-		_combo_step = 0
-		_axe_attack_active = false
-		attack_cooldown = 0.2  # Short cooldown after abort
-		state = State.CHASING
-		_current_anim = &""
-		_attack_state_time = 0.0
-		return
 
 	velocity.x = 0.0
 	velocity.z = 0.0
@@ -2288,8 +2243,18 @@ func _handle_attacking(delta: float) -> void:
 			_model.rotation.y = lerp_angle(_model.rotation.y,
 					atan2(towards.x, towards.z), minf(3.0 * delta, 1.0))
 			_strike_direction = _model.global_basis.z.normalized()
-	if _attack_anim_progress < _current_attack_data()["window"].y:
-		var speed: float = _current_attack_data()["lunge"]
+	var window: Vector2 = _current_attack_data()["window"]
+	var start := 0.16 if _gap_close else window.x - 0.08
+	if not _axe_attack_active and _combo_step == 1:
+		start = 0.08
+	if _attack_anim_progress >= start and _attack_anim_progress < window.y:
+		var speed: float = _current_attack_data()["lunge"] * 1.5
+		if not _axe_attack_active:
+			#Keep the authored step distance when shortening the attack clip.
+			speed *= _anim_player.get_playing_speed() / (1.5 if _combo_step == 2 else 1.0)
+		if _gap_close:
+			speed = minf(8.0, _leap_travel / maxf(delta, 0.001))
+			_leap_travel = maxf(0.0, _leap_travel - speed * delta)
 		velocity.x = _strike_direction.x * speed
 		velocity.z = _strike_direction.z * speed
 	_attack_state_time += delta

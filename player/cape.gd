@@ -200,7 +200,7 @@ func _reset(pose: Transform3D) -> void:
 
 
 func _process_modification_with_delta(delta: float) -> void:
-	if not cloth or not is_visible_in_tree():
+	if not cloth or not is_inside_tree() or not is_visible_in_tree():
 		sleeping = true
 		step_usec = 0
 		return

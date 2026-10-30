@@ -39,6 +39,10 @@ func collect(root: Node) -> void:
 		var mi := node as MeshInstance3D
 		if mi.mesh == null:
 			continue
+		if mi.material_override is StandardMaterial3D:
+			if not _materials.has(mi.material_override):
+				_materials.append(mi.material_override)
+			continue
 		for si in mi.mesh.get_surface_count():
 			var m := mi.get_surface_override_material(si) as StandardMaterial3D
 			if m != null and not _materials.has(m):
@@ -50,11 +54,11 @@ func has_materials() -> bool:
 
 
 ## Ease toward `target` (0..1, from Perception.fire_lit_amount) and write it.
-func update(target: float, delta: float) -> void:
+func update(target: float, delta: float, energy: float = GLOW_ENERGY, force: bool = false) -> void:
 	if _materials.is_empty():
 		return
 	var next: float = move_toward(_amount, clampf(target, 0.0, 1.0), GLOW_RATE * delta)
-	if is_equal_approx(next, _amount):
+	if is_equal_approx(next, _amount) and not force:
 		return
 	_amount = next
 	for m in _materials:
@@ -67,5 +71,7 @@ func update(target: float, delta: float) -> void:
 			m.emission_enabled = false
 			continue
 		m.emission_enabled = true
+		#Keep the skin/bone texture in the fill instead of painting a flat silhouette.
+		m.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
 		m.emission = GLOW_COLOR
-		m.emission_energy_multiplier = GLOW_ENERGY * _amount
+		m.emission_energy_multiplier = energy * _amount

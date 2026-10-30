@@ -1,0 +1,37 @@
+{
+  "endpoint": "https://api.meshy.ai/openapi/v1/multi-image-to-3d",
+  "options": {
+    "ai_model": "meshy-6",
+    "should_texture": true,
+    "enable_pbr": true,
+    "texture_resolution": "4k",
+    "should_remesh": false,
+    "pose_mode": "a-pose",
+    "image_enhancement": false,
+    "remove_lighting": true,
+    "target_formats": [
+      "glb"
+    ]
+  },
+  "images": [
+    {
+      "path": "tools/art/reference/helmeted_lizard/front.png",
+      "sha256": "11560f13de374a27bfae0be3ad9bfec005f996ded0432f30635d6aa4011e9e17"
+    },
+    {
+      "path": "tools/art/reference/helmeted_lizard/left.png",
+      "sha256": "dc886be62324d6f830a0711bf9056ab35c4d09e6b7958227e00929968a0ffad2"
+    },
+    {
+      "path": "tools/art/reference/helmeted_lizard/back.png",
+      "sha256": "1a66017ede8df7a436cf79dff5c7d53ea0c5ae8eb58a3453ee81fc73ffbd6ed1"
+    },
+    {
+      "path": "tools/art/reference/helmeted_lizard/right.png",
+      "sha256": "09362565e5b64a1c1eecddc0f19f1a13f5ee03b14b7e6a9067c7520f8113c630"
+    }
+  ],
+  "estimated_credits": 30,
+  "pricing_source": "https://docs.meshy.ai/en/api/pricing",
+  "next_step": "Blender topology inspection, articulated mouth, skinning and combat calibration."
+}

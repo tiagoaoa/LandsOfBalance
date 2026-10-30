@@ -321,10 +321,9 @@ func _scan_enemies() -> void:
 					continue
 				# The shared night rules, asked with the fire list we already
 				# have in hand instead of re-walking the scene per question.
-				if d <= Perception.moonlight_range(a.node):
-					seen = true
-				elif lit and d <= Perception.FIRE_SIGHT_RADIUS:
-					seen = true
+				if d <= Perception.moonlight_range(a.node) \
+						or (lit and d <= Perception.FIRE_SIGHT_RADIUS):
+					seen = Perception.clear_sight(a.node, enemy)
 			var c: Contact = _contact_for_node(enemy)
 			c.lit = lit
 			c.seen_now = seen

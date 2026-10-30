@@ -1,0 +1,21 @@
+{
+  "model": "microsoft/TRELLIS.2-4B (MIT)",
+  "pipeline": "1536_cascade",
+  "views": [
+    "three_quarter",
+    "front"
+  ],
+  "seeds": [
+    20261024,
+    7
+  ],
+  "faces": 300000,
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "elapsed_seconds": 705.0405894259457,
+  "sha256": {
+    "trellis_three_quarter_20261024.glb": "c6bafb9f0d6bef7d2566a87f6663d7c1a2cc33ea1d06d77047c8cfbcbd8d3417",
+    "trellis_three_quarter_7.glb": "b44791f324528073f21bbed0775e98046a74bf03e04f2944c542cc43a5736e41",
+    "trellis_front_20261024.glb": "a2afdfe2f99e80b64c44ca169a84206518dd21c005f8b926fcce6de660d83dc5",
+    "trellis_front_7.glb": "411efda0674e4d3322cd287f14f1d9c57424342178209dd547869d2f6178fb85"
+  }
+}

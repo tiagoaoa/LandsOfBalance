@@ -1,0 +1,79 @@
+{
+  "front": {
+    "box": [
+      0,
+      0,
+      766,
+      498
+    ],
+    "label_painted": [
+      0,
+      0,
+      140,
+      42
+    ],
+    "background": [
+      161,
+      162,
+      162
+    ]
+  },
+  "left": {
+    "box": [
+      770,
+      0,
+      1536,
+      498
+    ],
+    "label_painted": [
+      0,
+      0,
+      140,
+      42
+    ],
+    "background": [
+      164,
+      164,
+      165
+    ]
+  },
+  "back": {
+    "box": [
+      0,
+      502,
+      766,
+      1024
+    ],
+    "label_painted": [
+      0,
+      0,
+      140,
+      42
+    ],
+    "background": [
+      164,
+      165,
+      164
+    ]
+  },
+  "three_quarter": {
+    "box": [
+      770,
+      502,
+      1536,
+      1024
+    ],
+    "label_painted": [
+      0,
+      0,
+      200,
+      42
+    ],
+    "background": [
+      165,
+      165,
+      166
+    ]
+  },
+  "right": "left.png mirrored (the sheet has no right side view)"
+}

@@ -49,6 +49,8 @@ func _refresh() -> void:
 			title = "◆ " + title
 		if t.node.has_method("is_riposte_ready") and t.node.is_riposte_ready():
 			title += "  ·  OPEN"
+		elif t.node is Bobba and t.node.kindled_left > 0.0:
+			title += "  ·  KINDLED"
 		_update_row(row, title, t.hp, t.max_hp, t.color)
 		var poise: Node = t.node.get("_poise") if "_poise" in t.node else null
 		row.poise.visible = poise != null
@@ -89,6 +91,13 @@ func _collect_targets() -> Array:
 	for group in ["bobba", "dragon", "skeletons"]:
 		for enemy in get_tree().get_nodes_in_group(group):
 			if not is_instance_valid(enemy) or me == null:
+				continue
+			var seen := Perception.can_see(me, enemy)
+			for label_name in ["HealthLabel", "NameLabel"]:
+				var world_label := enemy.get_node_or_null(label_name) as Label3D
+				if world_label:
+					world_label.visible = seen and me.global_position.distance_to(enemy.global_position) > 18.0
+			if not seen:
 				continue
 			var selected: bool = me._lock_target == enemy
 			if not selected and me.global_position.distance_to(enemy.global_position) > 18.0:

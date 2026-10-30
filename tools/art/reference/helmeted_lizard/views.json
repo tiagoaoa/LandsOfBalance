@@ -1,0 +1,46 @@
+{
+  "source": "/home/talves/Downloads/Photorealistic Helmeted Lizard Turnaround Sheet.png",
+  "size": [
+    1536,
+    1024
+  ],
+  "rectangles": {
+    "front": [
+      72,
+      5,
+      424,
+      455
+    ],
+    "left": [
+      551,
+      5,
+      1015,
+      455
+    ],
+    "back": [
+      1120,
+      5,
+      1445,
+      460
+    ],
+    "right": [
+      5,
+      493,
+      461,
+      951
+    ],
+    "front_three_quarter": [
+      572,
+      493,
+      1009,
+      949
+    ],
+    "back_three_quarter": [
+      1111,
+      493,
+      1528,
+      951
+    ]
+  },
+  "note": "Exact pixel crops; no generated or repainted details."
+}

@@ -301,7 +301,8 @@ static func create_ground_fire(scene_root: Node, world_pos: Vector3,
 	# off pursuers during a retreat. Big bright pool, well beyond the 5m
 	# damage aura — raised off the ground so the knee-high grass doesn't
 	# swallow the throw.
-	var light := add_fire_light(fire, Vector3(0, 1.4, 0), 30.0, 18.0, shadows)
+	var light := add_fire_light(fire, Vector3(0, 2.1, 0), 18.0,
+			Perception.FIRE_REVEAL_RADIUS, shadows)
 	var core := add_flames(fire, Vector3(0, 0.15, 0), 1.2, 60)
 	var outer := add_flames(fire, Vector3(0, 0.1, 0), 1.8, 40)
 	var embers := add_embers(fire, Vector3(0, 0.3, 0), 1.2, 48)
@@ -339,6 +340,7 @@ static func create_ground_fire(scene_root: Node, world_pos: Vector3,
 		tw.tween_property(light, "light_energy", 0.0, 2.5)
 		if crackle != null and is_instance_valid(crackle):
 			tw.parallel().tween_property(crackle, "volume_db", -40.0, 2.5)
-	fire.get_tree().create_timer(maxf(lifetime - 3.0, 0.1)).timeout.connect(burn_down)
-	fire.get_tree().create_timer(lifetime).timeout.connect(fire.queue_free)
+	# Bound timers die with the fire when the boss arena restarts.
+	fire.create_tween().tween_interval(maxf(lifetime - 3.0, 0.1)).finished.connect(burn_down)
+	fire.create_tween().tween_interval(lifetime).finished.connect(fire.queue_free)
 	return fire

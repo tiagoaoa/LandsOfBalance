@@ -1,0 +1,432 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+NetworkManager: Ready, player name: Player_1381
+NetworkManager: Logging to /tmp/lob-final-6-60/godot/app_userdata/Lands of Balance/multiplayer_Player_1381.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Spectate mode enabled (both classes are bots)
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+LightingManager: applying NIGHT (sun energy -> 0.0)
+Player: _ready() starting (ai_companion=false, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4121)
+         [3] _ready (res://player/player.gd:677)
+         [4] _make_body (res://tests/boss_arena/boss_arena.gd:151)
+         [5] _spawn_party (res://tests/boss_arena/boss_arena.gd:117)
+         [6] _ready (res://tests/boss_arena/boss_arena.gd:89)
+         [7] _ready (res://tests/boss_arena/terrain_review.gd:21)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Spawned at point 3 (-81.8, 2.0, -42.0) - immune for 2.0s
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+Player: Multiplayer disabled - running in singleplayer mode
+Spectate: watching Player (Archer)
+CompanionAI: archer behaviour online
+CompanionAI: archer behaviour online
+NetworkManager: Singleplayer mode - skipping server connection
+Player: Selected character class from GameSettings: 1
+Player: Could not find Bobba to connect death signal
+NetworkManager: Game scene marked as ready - processing 0 pending remote players
+Player: Notified NetworkManager that game scene is ready
+Switched to PALADIN class (HP: 150)
+Player: Notified NetworkManager that game scene is ready
+CompanionAI: paladin behaviour online
+CompanionAI[paladin]: idle → b_anchor
+CompanionAI[archer]: idle → b_perch
+[BossTerrain] idle angle=0 depth=0.000 back=0.77 {  }
+[BossTerrain] slam angle=0 depth=0.000 back=0.93 {  }
+[BossTerrain] slam angle=0 depth=0.000 back=0.78 {  }
+[BossTerrain] sweep angle=0 depth=0.000 back=2.43 {  }
+[BossTerrain] sweep angle=0 depth=0.000 back=2.13 {  }
+[BossTerrain] grab angle=0 depth=0.000 back=1.08 {  }
+[BossTerrain] stagger angle=0 depth=0.000 back=1.08 {  }
+[BossTerrain] shift angle=-118 depth=0.000 back=0.00 {  }
+[BossTerrain] idle angle=62 depth=0.000 back=0.92 {  }
+[BossTerrain] slam angle=62 depth=0.000 back=3.18 {  }
+[BossTerrain] slam angle=62 depth=0.000 back=3.03 {  }
+[BossTerrain] sweep angle=62 depth=0.000 back=2.58 {  }
+[BossTerrain] sweep angle=62 depth=0.000 back=2.28 {  }
+[BossTerrain] grab angle=62 depth=0.000 back=1.38 {  }
+[BossTerrain] stagger angle=62 depth=0.000 back=2.73 {  }
+[BossTerrain] shift angle=150 depth=0.000 back=0.00 {  }
+[BossTerrain] idle angle=-62 depth=0.000 back=0.92 {  }
+[BossTerrain] slam angle=-62 depth=0.000 back=3.18 {  }
+[BossTerrain] slam angle=-62 depth=0.000 back=3.03 {  }
+[BossTerrain] sweep angle=-62 depth=0.000 back=2.58 {  }
+[BossTerrain] sweep angle=-62 depth=0.000 back=2.28 {  }
+[BossTerrain] grab angle=-62 depth=0.000 back=0.33 {  }
+[BossTerrain] stagger angle=-62 depth=0.000 back=2.88 {  }
+[BossTerrain] shift angle=-165 depth=0.000 back=0.00 {  }
+[BossTerrain] idle angle=140 depth=0.000 back=0.77 {  }
+[BossTerrain] slam angle=140 depth=0.000 back=6.02 {  }
+[BossTerrain] slam angle=140 depth=0.000 back=3.02 {  }
+[BossTerrain] sweep angle=140 depth=0.000 back=4.97 {  }
+[BossTerrain] sweep angle=140 depth=0.000 back=1.67 {  }
+[BossTerrain] grab angle=140 depth=0.000 back=8.87 {  }
+[BossTerrain] stagger angle=140 depth=0.000 back=3.62 {  }
+[BossTerrain] shift angle=227 depth=0.000 back=0.00 {  }
+[BossTerrain] relocate angle=336 depth=0.000 back=0.70 {  }
+[BossTerrain] death angle=336 depth=0.000 back=0.00 {  }
+[BossTerrain] frames=1224 failures=0 blocked=17 pose_ms=15.98
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2514)

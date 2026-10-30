@@ -1,0 +1,25 @@
+=== Co-op AI test: 1 human + AI companion (full game) ===
+  class : menu picks
+  log   : /tmp/lob_coop_ai.log
+Godot running (PID 1787206). Ctrl+C stops it.
+=== Mode lines from the log ===
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Co-op mode enabled (AI companion)
+GameSettings: Singleplayer mode (offline, no server connection)
+Player: _ready() starting (ai_companion=false, ai_driven=false)
+Player: Selected character class from GameSettings: 0
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+         [4] _spawn_companion_if_coop (res://player/player.gd:971)
+Player: Co-op companion spawned (Archer)
+CompanionAI: archer behaviour online
+CompanionAI[archer]: idle → sweep
+CompanionAI[archer]: search shot at (-41.0, 1.0, -116.0) (69m)
+CompanionAI[archer]: taking the high ground at (-81.0, 35.0, -79.0) (+33m, 42m away)
+CompanionAI[archer]: search shot at (-56.0, 1.0, -129.0) (64m)
+CompanionAI[archer]: search shot at (-31.0, 1.0, -126.0) (70m)
+CompanionAI[archer]: search shot at (-19.0, 1.0, -115.0) (57m)
+CompanionAI[archer]: search-trail shot at (24.0, 1.0, -38.0) (88m)
+CompanionAI[archer]: search-trail shot at (16.0, 1.0, -1.0) (96m)
+CompanionAI[archer]: sweep → kite
+CompanionAI[archer]: search shot at (8.0, 1.0, -57.0) (34m)
+Bobba: New target acquired at 86.0m - Companion (seen)

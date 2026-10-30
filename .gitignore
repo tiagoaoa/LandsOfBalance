@@ -3,6 +3,7 @@
 
 # Godot-specific ignores
 *.import
+!assets/environment/arena_backdrops/*.png.import
 
 # Exported binaries (use GitHub Releases for APKs)
 build/
@@ -34,7 +35,9 @@ lands-of-balance-web/
 
 # Local tooling scratch
 .codex/
+.claude/settings.local.json
 adblog.txt
+docs/presentation/**/screenrecording-*.mp4
 
 # Blender auto-backups and Python bytecode
 *.blend1

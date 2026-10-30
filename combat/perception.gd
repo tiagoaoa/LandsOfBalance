@@ -27,7 +27,7 @@ const ARROW_REVEAL_RADIUS := 6.0   # = the burning arrow's light range in flight
 ## Moonlight shows you a shape, not a threat, and only right on top of you.
 ## Deliberately shorter than Bobba's 10 m sense of smell: he finds you in the
 ## dark by scent BEFORE he can make you out, which is the intended order.
-const MOON_REVEAL_RADIUS := 8.0
+const MOON_REVEAL_RADIUS := 5.0
 const DAY_REVEAL_RADIUS := 120.0   # daylight (GRASS/MOVE test presets)
 const FIRE_SIGHT_RADIUS := 90.0    # a fire-LIT character is visible across the field
 
@@ -54,9 +54,23 @@ static func can_see(observer: Node3D, target: Node3D) -> bool:
 			or not is_instance_valid(observer) or not is_instance_valid(target):
 		return false
 	var dist := observer.global_position.distance_to(target.global_position)
-	if dist <= moonlight_range(observer):
-		return true
-	return dist <= FIRE_SIGHT_RADIUS and is_lit_by_fire(target)
+	var revealed := dist <= moonlight_range(observer) \
+			or (dist <= FIRE_SIGHT_RADIUS and is_lit_by_fire(target))
+	return revealed and clear_sight(observer, target)
+
+
+static func clear_sight(observer: Node3D, target: Node3D) -> bool:
+	var excluded: Array[RID] = []
+	for ally in all_characters(observer.get_tree()):
+		if ally is CollisionObject3D:
+			excluded.append(ally.get_rid())
+	if observer is CollisionObject3D and not excluded.has(observer.get_rid()):
+		excluded.append(observer.get_rid())
+	var ray := PhysicsRayQueryParameters3D.create(
+			observer.global_position + Vector3.UP * 1.5,
+			target.global_position + Vector3.UP * 1.3, 1, excluded)
+	var hit := observer.get_world_3d().direct_space_state.intersect_ray(ray)
+	return hit.is_empty() or hit.collider == target
 
 
 ## How strongly fire falls on `node`: 1.0 standing in the flames, easing to

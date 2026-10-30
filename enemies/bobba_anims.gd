@@ -59,6 +59,64 @@ static func compose(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> void:
 	if not supplied.is_empty():
 		print("Bobba: %s came from an imported clip, NOT from bobba_anims.gd"
 				% ", ".join(supplied))
+	for name in lib.get_animation_list():
+		_hold_axe(lib.get_animation(name), skeleton)
+		if name == &"AxeAttack":
+			_pose_chop(lib.get_animation(name))
+
+
+static func _hold_axe(clip: Animation, skeleton: Skeleton3D) -> void:
+	var path := String(clip.track_get_path(0)).get_slice(":", 0)
+	for i in skeleton.get_bone_count():
+		var bone := skeleton.get_bone_name(i)
+		var curl := _finger_curl(bone)
+		if curl == Vector3.ZERO:
+			continue
+		var bone_path := NodePath(path + ":" + bone)
+		var track := clip.find_track(bone_path, Animation.TYPE_ROTATION_3D)
+		if track >= 0:
+			clip.remove_track(track)
+		track = clip.add_track(Animation.TYPE_ROTATION_3D)
+		clip.track_set_path(track, bone_path)
+		var rest := skeleton.get_bone_rest(i).basis
+		var q := (rest * Basis.from_euler(curl * PI / 180)).get_rotation_quaternion()
+		clip.rotation_track_insert_key(track, 0, q)
+		clip.rotation_track_insert_key(track, clip.length, q)
+		var pos_track := clip.find_track(bone_path, Animation.TYPE_POSITION_3D)
+		if pos_track >= 0:
+			for key in clip.track_get_key_count(pos_track):
+				clip.track_set_key_value(pos_track, key, skeleton.get_bone_rest(i).origin)
+
+
+#Distribute the grip correction between elbow and wrist. The weapon stays
+#rigid in the palm throughout the windup, impact and recovery.
+static func _pose_chop(clip: Animation) -> void:
+	var path := String(clip.track_get_path(0)).get_slice(":", 0)
+	var wrist := clip.find_track(NodePath(path + ":mixamorig_RightHand"), Animation.TYPE_ROTATION_3D)
+	var source := clip.duplicate() as Animation
+	for bone in ["mixamorig_RightForeArm", "mixamorig_RightHand"]:
+		var track := clip.find_track(NodePath(path + ":" + bone), Animation.TYPE_ROTATION_3D)
+		for key in clip.track_get_key_count(track):
+			var t := clip.track_get_key_time(track, key)
+			var blend := smoothstep(0, 0.32, t) * (1 - smoothstep(1.1, 1.9, t))
+			var angle := 60.0 if bone.ends_with("ForeArm") else 30.0
+			var q: Quaternion = clip.track_get_key_value(track, key)
+			var offset := Quaternion(Vector3.BACK, deg_to_rad(angle * blend))
+			if bone.ends_with("ForeArm"):
+				var hand := source.rotation_track_interpolate(wrist, t)
+				offset = hand * offset * hand.inverse()
+			clip.track_set_key_value(track, key, q * offset)
+
+
+static func _finger_curl(bone: String) -> Vector3:
+	if not bone.begins_with("mixamorig_RightHand"):
+		return Vector3.ZERO
+	var joint := int(bone.right(1))
+	if joint < 1 or joint > 3:
+		return Vector3.ZERO
+	if "Thumb" in bone:
+		return [Vector3(-24, -28, 34), Vector3(-35, 0, 0), Vector3(-45, 0, 0)][joint - 1]
+	return Vector3([-65.0, -85.0, -65.0][joint - 1], 0, 0)
 
 
 ## Where the animation lab saves. A clip saved there OVERRIDES the keys
@@ -136,7 +194,7 @@ static func _specs() -> Array:
 	# haft rather than swing free — shoulder back, elbow bent, wrist steady.
 	var carry := {
 		"RightShoulder": Vector3(0, 8, 0),
-		"RightArm": Vector3(-12, 6, -28),
+		"RightArm": Vector3(-12, 6, 10),
 		"RightForeArm": Vector3(0, 26, 0),
 		"RightHand": Vector3(0, 0, 12),
 		"Spine1": Vector3(0, -6, 0),

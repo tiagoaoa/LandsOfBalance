@@ -49,6 +49,9 @@ const ESTUS_SAFE_DIST := 9.0    # a hit mid-drink wastes the charge
 ## (~0.7 s at the tightest): one roll and the next two blows arrived while the
 ## AI was still on cooldown, unable to answer either.
 const DEFENSE_COOLDOWN := 0.5
+## An eta that sits inside a class's own parry window — handed to
+## special_defence when the boss has already judged the instant is right.
+const PARRY_TIMING_ETA := 0.2
 
 var body: Player = null
 var brain: SquadBrain = null
@@ -64,6 +67,16 @@ var _explore_left := 0.0
 ## The world's own gravity, read once. Part of the base API: a class that
 ## throws something (the archer) solves its arc with this.
 var world_gravity := 9.8
+
+## BOSS ARENAS (tests/boss_arena): the colossus and the platform, found once
+## and re-checked every second. Class-neutral like everything here: what is
+## coming, how long until it lands, where the edge is. What to DO about the
+## fight is each role's business (paladin_role / archer_role "b_" tactics).
+var boss: ColossusBoss = null
+var arena: Node = null
+var _boss_scan := 0.0
+var _strike_kind := ""
+var _strike_from := Vector3.ZERO
 
 
 func setup(p_body: Player, p_brain: SquadBrain) -> void:
@@ -83,6 +96,7 @@ func update(delta: float) -> void:
 	# down on its own. A tactic that forgets to lower it cannot strand the
 	# shield up, walking slowly and burning stamina for a swing that never came.
 	guard(false)
+	_refresh_boss(delta)
 	_update_retreat_state()
 	_decide_left -= delta
 	if _decide_left <= 0.0:
@@ -184,18 +198,41 @@ func retreating() -> bool:
 ## the start of whichever damage window the clip he is actually playing
 ## declares. That is what lets the AI parry on time instead of flipping a coin
 ## and hoping.
+## How long before a boss blow lands a body standing in the dark notices it.
+const DARK_SEE_ETA := 0.45
+
+
+## Standing outside every lit brazier's glow on the fire-lit boss platform.
+func in_dark() -> bool:
+	return boss_fight() and arena != null and arena.has_method("light_at") \
+			and float(arena.light_at(pos())) < 0.12
+
+
 func soonest_strike() -> Dictionary:
 	var best := INF
 	var who: Node3D = null
 	for c in brain.contacts:
 		if not c.alive() or c.hunting != body:
 			continue
-		if c.pos.distance_to(pos()) > 5.5:
+		var reach := 9.0 if c.node is Bobba and c.node._gap_close else 5.5
+		if c.pos.distance_to(pos()) > reach:
 			continue
 		var eta := strike_eta(c.node)
 		if eta < best:
 			best = eta
 			who = c.node
+	_strike_kind = ""
+	if boss_fight():
+		var s: Dictionary = boss.strike_eta_for(body)
+		# In the dark the windup goes unseen: only the last instant of the
+		# blow registers. Light is what the archer's arrows buy back.
+		if in_dark() and float(s.eta) > DARK_SEE_ETA:
+			s = {"eta": INF, "kind": "", "from": s.from}
+		if float(s.eta) < best:
+			best = s.eta
+			who = boss
+			_strike_kind = s.kind
+			_strike_from = s.from
 	return {"eta": best, "enemy": who}
 
 
@@ -240,6 +277,8 @@ func defend() -> bool:
 	if eta == INF:
 		guard(false)
 		return false
+	if _strike_kind != "":
+		return _defend_boss(eta)
 	guard(eta < 0.8)
 	if _defense_cd > 0.0:
 		return false
@@ -265,6 +304,206 @@ func defend() -> bool:
 		body._try_dodge()
 		return true
 	return false
+
+
+## The colossus's blows, each with the answer any body has. A class can
+## pre-empt any of them through special_defence (the paladin parries the
+## slam) or sweep_answer (the paladin takes a sweep on his shield for both).
+func _defend_boss(eta: float) -> bool:
+	var kind := _strike_kind
+	var high := on_high_ground()
+	if boss.act_serial != _react_serial:
+		_react_serial = boss.act_serial
+		_react_late = randfn(0.0, 0.09 * (1.2 - skill))
+		_react_blank = randf() < 0.35 * (1.0 - skill)
+	if _react_blank:
+		guard(eta < 0.5)
+		return false
+	eta += _react_late
+	match kind:
+		"roar":
+			# Brace: a crouch takes the shockwave without being thrown.
+			body._ai_crouch = eta < 0.6
+			guard(eta < 0.6)
+			return false
+		"gaze":
+			guard(eta < 1.0)
+			return false
+		"shake":
+			# Riding it: crouch and cling, or be flung off.
+			body._ai_crouch = eta < 0.65
+			return false
+		"sweep_high":
+			# Chest height: a hop or a perch does not escape it — duck.
+			body._ai_crouch = eta < 0.7
+			return false
+		"sweep":
+			if high:
+				return false
+			if sweep_answer(eta):
+				return false
+	guard(eta < 0.8 and kind != "grab")
+	if eta < 0.8 and kind != "grab":
+		aim_at(_strike_from)   # a shield only blocks what it faces
+	if _defense_cd > 0.0:
+		return false
+	# Up on a perch there is nowhere to roll but down — or over the rim. Stand
+	# it: a grab up here is the partner's to answer.
+	if high and kind != "slam":
+		return false
+	if high and kind == "slam" and not special_defence(PARRY_TIMING_ETA):
+		return false
+	# THE COLOSSUS LANDS IN AN INSTANT. Bobba's eta points at the START of a
+	# damage window that then stays open; a slam, a sweep or a grab connects
+	# on one frame. So the answers are timed to that frame: a parry is live
+	# 0.05-0.22 s after the press, roll i-frames 0.09-0.34 s, and a jump
+	# carries the feet over a sweep 0.27-0.95 s after takeoff.
+	if kind == "slam":
+		if eta >= 0.07 and eta <= 0.19 and special_defence(PARRY_TIMING_ETA):
+			_defense_cd = DEFENSE_COOLDOWN
+			return true
+		if eta > 0.19 and eta < 0.6 and hold_for_special(PARRY_TIMING_ETA + 0.15):
+			return false
+	if kind == "sweep" and eta >= 0.16 and eta <= 0.36 and body.is_on_floor() \
+			and (stamina() < 0.35 or randf() < 0.5):
+		body._ai_jump = true
+		_defense_cd = DEFENSE_COOLDOWN
+		return true
+	if eta >= 0.1 and eta <= 0.3 and stamina() > 0.25 and body.has_method("_try_dodge"):
+		var away := pos() - _strike_from
+		away.y = 0.0
+		if kind == "sweep" or away.length_squared() < 0.04:
+			away = toward_center()
+		away = safe_roll_dir(away.normalized())
+		move_world(away, true)
+		_defense_cd = DEFENSE_COOLDOWN
+		body._try_dodge()
+		return true
+	return false
+
+
+## A class's own answer to a sweep that is `eta` out (true = handled, the base
+## stays out of it). The paladin raises his shield for the archer behind him.
+func sweep_answer(_eta: float) -> bool:
+	return false
+
+
+func _refresh_boss(delta: float) -> void:
+	_boss_scan -= delta
+	if _boss_scan > 0.0:
+		return
+	_boss_scan = 1.0
+	var tree := body.get_tree()
+	boss = tree.get_first_node_in_group("colossus") as ColossusBoss
+	arena = tree.get_first_node_in_group("boss_arena")
+
+
+## LOB_BOSS_AI=naive: the same bodies with the co-op plays switched off — no
+## rescues, no shield cover, an archer who never climbs. The control group
+## that says whether the fight actually asks for co-operation.
+static var naive: bool = OS.get_environment("LOB_BOSS_AI") == "naive"
+
+## How good a pair of hands the bot has, 0..1 (LOB_BOT_SKILL, default 0.7).
+## Frame-perfect bots parried every slam and made the fight look easy; a
+## human reads late, sometimes not at all. Each of the colossus's swings
+## gets one reaction error and one chance of being missed outright.
+static var skill: float = clampf(float(OS.get_environment("LOB_BOT_SKILL")) \
+		if OS.get_environment("LOB_BOT_SKILL") != "" else 0.7, 0.0, 1.0)
+var _react_serial := -1
+var _react_late := 0.0
+var _react_blank := false
+
+
+## The other half of the party, in a boss arena.
+func partner() -> Player:
+	if arena == null:
+		return null
+	for p in arena.party():
+		if p != body:
+			return p
+	return null
+
+
+func boss_fight() -> bool:
+	return boss != null and is_instance_valid(boss) and not boss.is_dead() and arena != null
+
+
+func toward_center() -> Vector3:
+	if arena == null:
+		return Vector3.ZERO
+	var d: Vector3 = arena.center - pos()
+	d.y = 0.0
+	return d.normalized() if d.length_squared() > 0.01 else Vector3.FORWARD
+
+
+## 0 in the middle of the platform, 1 at its rim.
+func edge_risk() -> float:
+	if arena == null:
+		return 0.0
+	var off: Vector3 = pos() - arena.center
+	off.y = 0.0
+	return clampf((off.length() - (arena.radius - 2.5)) / 2.5, 0.0, 1.0)
+
+
+## A roll carries ~4.5 m: choose it by where it ENDS. Of the headings that
+## land well inside the rim, the one closest to what we wanted.
+func safe_roll_dir(want: Vector3) -> Vector3:
+	if arena == null:
+		return want
+	var best := toward_center()
+	var best_dot := -INF
+	for k in 16:
+		var d := Vector3(cos(TAU * k / 16.0), 0.0, sin(TAU * k / 16.0))
+		var land: Vector3 = pos() + d * 4.8 - arena.center
+		land.y = 0.0
+		if land.length() > float(arena.radius) - 1.0:
+			continue
+		var score := d.dot(want)
+		if score > best_dot:
+			best_dot = score
+			best = d
+	return best
+
+
+func spells() -> BossSpells:
+	return body.get_node_or_null("BossSpells") as BossSpells
+
+
+func on_high_ground() -> bool:
+	return arena != null and pos().y - float(arena.floor_y) > 1.2
+
+
+## Never step where the ground falls away: a probe ahead must find footing
+## no more than a short drop below. Ramps (ground ahead HIGHER) pass. Only in
+## a boss arena — the open world has its own route checks.
+func _ledge_safe(world_dir: Vector3) -> Vector3:
+	if arena == null or world_dir.length_squared() < 0.01:
+		return world_dir
+	var dir := Vector3(world_dir.x, 0.0, world_dir.z).normalized()
+	# THE RIM FENCE. The probe below judges the step we ask for, not where a
+	# collision slide takes us — sliding round a perch column carried the
+	# archer straight over the rim. Inside the last 0.7 m nothing goes outward.
+	var off: Vector3 = pos() - arena.center
+	off.y = 0.0
+	var out := off.normalized() if off.length_squared() > 0.01 else Vector3.ZERO
+	# A body at a run needs ~v²/2a to stop (ACCEL 12 m/s²): the fence starts
+	# that far in, so momentum cannot carry anyone over after the turn.
+	var v_out := maxf(0.0, Vector3(body.velocity.x, 0, body.velocity.z).dot(out))
+	var margin := 0.7 + v_out * v_out / 24.0
+	if not on_high_ground() and off.length() > float(arena.radius) - margin:
+		if dir.dot(out) > -0.2:
+			dir = (dir - out * (dir.dot(out) + 0.6)).normalized()
+	var space := body.get_world_3d().direct_space_state
+	for ang in [0.0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]:
+		var d: Vector3 = dir.rotated(Vector3.UP, ang)
+		var probe := pos() + d * 1.0
+		var q := PhysicsRayQueryParameters3D.create(probe + Vector3(0, 1.2, 0),
+				probe + Vector3(0, -2.6, 0), 1)
+		q.exclude = [body.get_rid()]
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty() and float(hit.position.y) > pos().y - 2.2:
+			return d
+	return Vector3.ZERO
 
 
 ## Hold or drop the shield. Guarding drains stamina regeneration, so it goes
@@ -294,10 +533,50 @@ func aim_at(world_pos: Vector3, pitch: float = 0.0) -> void:
 
 
 ## World direction → the camera-relative input vector player.gd expects.
+## A waypoint around whatever solid thing stands between here and `goal` on
+## the arena floor (a perch, a broken pillar, a fallen capital), on the side
+## nearer the straight line; `goal` itself when the way is clear.
+func detour(goal: Vector3) -> Vector3:
+	if arena == null or not ("obstacles" in arena):
+		return goal
+	var here := Vector2(pos().x, pos().z)
+	var g := Vector2(goal.x, goal.z)
+	var seg := g - here
+	var best_t := INF
+	var way := goal
+	for o in arena.obstacles:
+		var c: Vector2 = o.at
+		var r: float = float(o.r) + 0.7
+		if g.distance_to(c) < r:
+			continue
+		if here.distance_to(c) < r:
+			# Pressed against it already: slide along its edge, on the side
+			# that turns toward the goal.
+			var into := c - here
+			if into.dot(seg) > 0.0:
+				var tan := Vector2(-into.y, into.x).normalized()
+				if tan.dot(seg) < 0.0:
+					tan = -tan
+				var w2 := here + tan * 2.0 - into.normalized() * 0.4
+				return Vector3(w2.x, pos().y, w2.y)
+			continue
+		var t := clampf((c - here).dot(seg) / maxf(seg.length_squared(), 0.001), 0.0, 1.0)
+		var closest := here + seg * t
+		if closest.distance_to(c) < r and t < best_t:
+			best_t = t
+			var side := closest - c
+			if side.length_squared() < 1e-4:
+				side = Vector2(-seg.y, seg.x)
+			var w := c + side.normalized() * (r + 0.8)
+			way = Vector3(w.x, pos().y, w.y)
+	return way
+
+
 func move_world(world_dir: Vector3, run: bool) -> void:
 	var pivot: Node3D = body.get_node_or_null("CameraPivot") as Node3D
 	if pivot == null:
 		return
+	world_dir = _ledge_safe(world_dir)
 	var yaw: float = pivot.rotation.y
 	var fwd := Vector3.FORWARD.rotated(Vector3.UP, yaw)
 	var rt := Vector3.RIGHT.rotated(Vector3.UP, yaw)

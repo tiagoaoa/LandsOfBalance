@@ -1,0 +1,22 @@
+{
+  "shape_model": "tencent/Hunyuan3D-2mv",
+  "shape_revision": "3a761b539b29fe4ff64714813aa9560fd66f5de0",
+  "paint_model": "tencent/Hunyuan3D-2",
+  "paint_revision": "9cd649ba6913f7a852e3286bad86bfa9a2d83dcf",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "seeds": [
+    20261024,
+    11
+  ],
+  "steps": 50,
+  "resolution": 512,
+  "elapsed_seconds": 1102.8127671109978,
+  "sha256": {
+    "shape_11.glb": "0c4dbe44af30aa6d97124c6bc4b7dfadb88da886c7ef174291ec437c270b4e96",
+    "shape_11_raw.glb": "f71f4274cfddb7c1bce06c8e8be05e5a57f29eff10146eae7b96fcbf33e45923",
+    "shape_20261024.glb": "2075e883efda9b99b8959af344f45d5b41bf1452720b0cd1d2bd6a63e5059316",
+    "shape_20261024_raw.glb": "2b7ef5f800c4ee3f2f87c217ba96ff1cb64fecd48611d944a57b67ac8f21129d",
+    "textured_11.glb": "2bfc239b89e3f2fedec3f5dd957dba75751f11a7f2f93968b3acb4a70244dcc9",
+    "textured_20261024.glb": "5418c038c8084695c9a768e69f1384d117e1678de67732a9035bc92ac36eca98"
+  }
+}

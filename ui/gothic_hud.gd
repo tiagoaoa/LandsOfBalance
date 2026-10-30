@@ -48,6 +48,7 @@ func _ready() -> void:
 	_build_bottom_left_slots()
 	_build_bottom_right_buff()
 	_build_bottom_right_estus()
+	add_child(preload("res://ui/hunt_objective.gd").new())
 
 
 func _process(_delta: float) -> void:

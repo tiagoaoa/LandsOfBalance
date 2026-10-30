@@ -103,22 +103,23 @@ LandsOfBalance/
 | Action | Keyboard / mouse | Controller |
 |---|---|---|
 | Move | WASD | Left stick |
-| Sprint | Hold Shift | Hold L3 |
+| Sprint | Hold Shift | Click L3 (toggle) |
 | Jump | Space | A |
 | Dodge / neutral backstep | X (or Ctrl+Space) | B |
-| Paladin light attack / combo | LMB or F | LT |
+| Paladin light attack / combo | LMB or F | RT |
 | Paladin heavy attack | V | RB |
-| Guard | Hold RMB | Hold RT |
-| Parry | G | LB |
+| Paladin shield | Hold RMB | Hold LT |
+| Parry | G | Timed RT |
+| Crouch / crawl | Hold Ctrl | Hold LB |
 | Lock on / unlock | T | R3 |
 | Switch locked target | | Flick right stick left/right |
 | Archer aim, draw, release shot | Hold then release RMB | Hold then release LT |
-| Archer quick shot | LMB or F | RB |
+| Archer quick shot | LMB or F | RT or RB |
 | Heal | H | D-pad Down |
 | Cast spell | C | X |
 | Revive ally | Hold E | Hold Y |
 
-Sword windups and contact commit the player. Press again to chain one attack, or dodge/guard during recovery. Heavy blows break posture; attack an enemy marked OPEN for a critical. A dodge can cancel a bow draw or a heal, but a cancelled heal still spends its flask. Full stick movement does not consume sprint stamina.
+Sword windups and contact commit the player. Press again to chain one attack, or dodge/guard during recovery. Heavy blows break posture; attack an enemy marked OPEN for a critical. A dodge can cancel a bow draw or a heal, but a cancelled heal still spends its flask. Full stick movement does not consume sprint stamina. Click L3 while moving to sprint; centering the stick or defending ends it. A fresh paladin RT attack can deflect a frontal hit 50–220 ms after the press. Holding or buffering RT does not renew that window.
 
 Run `bash tools/run_combat_arena.sh` for the practice duel, or add `--archer` to practice bow combat. Combat changes and checks are recorded in [docs/combat_feel.md](docs/combat_feel.md).
 

@@ -1,108 +1,30 @@
 class_name ArcherRole
 extends AIRole
 
-## THE AI ARCHER — the party's LANTERN.
-##
-## In a rainy black field where an AI can read a silhouette at eight metres and
-## a fire-lit body at ninety (Perception), the archer is not "the ranged DPS".
-## He is the reason the paladin can find anything at all. Every arrow he looses
-## is a decision about WHERE THE PARTY CAN SEE, and damage is the side effect.
-##
-## What makes him a teammate rather than a turret:
-##
-## 1. HE SHOOTS WHERE THE PARTY IS BLIND, not where he personally is annoyed.
-##    The brain keeps a ranked queue of illumination requests — anything known
-##    and unlit near an ally, topped by whatever is currently hitting one — and
-##    he serves it. A punch out of the dark posts a bearing; his arrow turns
-##    that bearing into a target the whole party can fight.
-##
-## 1b. AND WHEN NOTHING IS KNOWN AT ALL, HE GOES LOOKING. This is the half that
-##    makes him the party's eyes rather than its floodlight operator: with no
-##    contact anywhere, he COMBS the dark — fire ahead of the party's advance,
-##    fanned across their heading, and around the search circle of whatever
-##    they last lost. Anything standing within 18 m of a fire is visible to the
-##    whole party from ninety metres away (Perception), so each arrow is a
-##    question asked of a patch of field, and the comb makes sure the questions
-##    do not all get asked about the same patch. Waiting for an enemy to
-##    announce itself before lighting anything is how two bots spend a night
-##    walking around an empty map with a boss healing somewhere in the dark.
-##
-## 2. HE AIMS THE FIRE, NOT THE ARROW. Fire does two opposite things to the
-##    enemies in this game: it REVEALS them (18 m of reveal radius) and it
-##    SCARES them (Bobba panics inside 2.5 m and aborts his swing, skeletons
-##    steer 7 m clear and burn). So when an ally is in trouble the fire goes ON
-##    the enemy — burn it, blind-side it, drive it off him — and when the
-##    paladin is winning it goes BESIDE the enemy instead, close enough to
-##    light it, far enough not to chase it out of the paladin's reach.
-##
-## 3. HE PLANTS HIS FEET, AND HE SOLVES THE ARC. A loose taken while moving
-##    leaves at half force (Arrow.shot_power) — a quarter of the range — so the
-##    illumination lands short and the paladin stays blind. He stops, lets his
-##    stance settle, and fires on a real ballistic solution
-##    ([[arrow_dir_to]], below).
-##
-## 3b. HE TAKES THE HIGH GROUND TO SEARCH FROM. A fire arrow is a thrown
-##    object: from a rise, the same loose travels further, because the ground
-##    it is falling toward is lower than the bow (the arc solver already knows
-##    this — `arrow_dir_to` takes the height difference). So when the party is
-##    blind he walks to a local high point and combs the dark from up there,
-##    which lights more field per arrow and keeps him out of arm's reach while
-##    he does it. He moves along the ridge every so often rather than perching
-##    forever, because the point is to see NEW ground.
-##
-## 4. HE STANDS OUTSIDE HIS OWN LIGHT. Anything lit is visible across the field
-##    to every AI in the game, himself included. So he holds station in the
-##    dark behind the paladin — the enemy between them, the paladin between him
-##    and the enemy — and steps into the light only to save someone.
-##
-## 5. HE HOLDS HIS SHOT WHEN THE PALADIN HAS IT PINNED. There is no plain
-##    arrow in this game: every landed shot lights a thirty-second fire at the
-##    point of impact, and fire MOVES enemies — Bobba aborts his swing and
-##    bolts inside 2.5 m, skeletons steer 7 m clear. That is a rescue when the
-##    paladin is losing and sabotage when he is winning, because a boss shoved
-##    out of reach heals 3% of his health a second while the party chases him.
-##    So the archer shoots what his ally is NOT holding, keeps one fire on the
-##    fight for light, and otherwise waits — which is also why a co-op field
-##    does not end up carrying twenty shadow-casting fire lights.
-##
-## 6. THE FIRE CIRCLE IS A RESCUE, NOT A ROTATION. His spell buffs a knight
-##    within ~3.75 m and lays a burning ring for 4 s. Both halves say the same
-##    thing: use it when the paladin is being swarmed. It buys him a damage
-##    buff and clears the bodies off him at the same time — and it costs the
-##    archer his darkness for those seconds, which is why it is not spammed.
-
-const KITE_DIST := 16.0        # preferred distance from a live threat
-const SLOT_BEHIND := 7.0       # station-keeping distance behind the anchor
-const TETHER := 30.0           # loose leash to the rest of the party
+#The paladin leads. Stay close enough to light his approach and interrupt
+#the boss, then use his attention to line up the next shot.
+const KITE_DIST := 12.0
+const SLOT_BEHIND := 7.0
+const TETHER := 22.0
 const SPELL_COOLDOWN := 22.0
-const SWARM_PRESSURE := 2      # enemies on the paladin that count as "swarmed"
-const PLANT_TIMEOUT := 0.7     # give up waiting for a perfect stance
-const PINNED_RANGE := 6.0      # the ally is in contact with it — do not scatter it
-const FIRE_BUDGET := 8         # burning at once before only urgent shots are taken
-const LIT_ENOUGH := 14.0       # ground with a fire this close needs no more
-const SWEEP_NEAR := 20.0       # closest a search arrow is thrown
-const SWEEP_FAR := 34.0        # ...and furthest, ahead of the party's advance
-const SWEEP_FAN := deg_to_rad(42.0)   # half-angle of the comb across the heading
-const GOLDEN := 2.39996        # radians per step: fills a disc without repeating
-const ARROW_SPEED := 50.0      # = Arrow.ARROW_SPEED, for the firing solution
-const VANTAGE_MIN_R := 14.0    # how far he will walk for a better view
-const VANTAGE_MAX_R := 26.0
-const VANTAGE_SAMPLES := 10    # candidate points probed per look-around
-const VANTAGE_MIN_GAIN := 2.5  # metres of height that make the walk worth it
-const VANTAGE_HOLD := 14.0     # ...then move along the ridge for new ground
-const VANTAGE_REACH_BONUS := 2.0  # extra throw distance per metre of height
+const FIRE_BUDGET := 5
+const LIT_ENOUGH := 12.0
+const ARROW_SPEED := 50.0
 
 var _spell_cd := 8.0
-var _arrow_cd := 2.0
+var _arrow_cd := 0.5
 var _shot_point := Vector3.ZERO
 var _shot_pending := false
+var _shot_contact: SquadBrain.Contact = null
+var _shot_cadence := 2.5
 var _plant_time := 0.0
 var _last_shot_kind := ""
 var _pull_time := 0.0
-var _comb_step := 0            # which tooth of the comb the next arrow is
-var _vantage := Vector3.ZERO   # the rise he is shooting the search from
-var _vantage_gain := 0.0       # how much higher it is than where he found it
-var _vantage_left := 0.0
+var _comb_step := 0
+var _nav_left := 0.0
+var _steer := Vector3.ZERO
+var _flank := 1.0
+var shots_fired := 0
 
 
 func _init() -> void:
@@ -110,527 +32,260 @@ func _init() -> void:
 
 
 func choose_tactic() -> String:
+	if boss_fight():
+		return _boss_choose()
 	var mate := brain.neediest_ally(body)
 	var threat := brain.threat_on(body)
-	var threat_dist: float = threat.pos.distance_to(pos()) if threat != null else INF
-
-	if mate != null and mate.is_dead:
+	var dist: float = pos().distance_to(threat.pos) if threat else INF
+	if mate and mate.is_dead:
 		return "revive"
-
-	var scores := {"scout": 6.0}
-
-	if _retreating or threat_dist < KITE_DIST * 0.75:
-		scores["fallback"] = 55.0 + (25.0 if threat_dist < 8.0 else 0.0)
-
-	# The queue of dark places the party needs lit. This is the archer's
-	# reason to exist, so it outbids ordinary shooting whenever it is not empty.
-	var req := _top_request()
-	if not req.is_empty():
-		scores["illuminate"] = 45.0 + float(req["priority"]) * 12.0
-
-	var shootable := _suppress_target(mate)
-	if shootable != null:
-		scores["suppress"] = 38.0 + shootable.threat * 4.0
-
-	# The rescue ring: the paladin is swarmed or bleeding, and we can reach him.
-	if _spell_cd <= 0.0 and mate != null and not mate.is_dead and mate.is_paladin \
-			and body.has_method("_do_spell_cast"):
-		var d: float = pos().distance_to(mate.pos)
-		var swarmed: bool = mate.pressure >= SWARM_PRESSURE or mate.hp_frac < 0.65
-		if swarmed and d < 22.0 and mate.threat_dist < 8.0:
-			scores["buff_run"] = 60.0 + float(mate.pressure) * 8.0 \
-					+ (1.0 - mate.hp_frac) * 30.0 - d
-
-	# Cover an ally who is running: fire dropped between him and his pursuer is
-	# a wall neither Bobba nor a skeleton will cross.
-	if mate != null and not mate.is_dead and mate.hp_frac < 0.4 and mate.pressure > 0:
-		scores["cover"] = 44.0
-
-	if mate != null and not mate.is_dead:
-		var d: float = pos().distance_to(mate.anchor)
-		if d > TETHER:
-			scores["scout"] = 20.0 + (d - TETHER) * 0.5
-		else:
-			scores["kite"] = 20.0
-
-	# NOTHING IS KNOWN. Standing in the dark beside the paladin waiting for
-	# something to hit one of them is not a plan — it is the absence of one.
-	# Light the field and go and find it. This has to clear station-keeping
-	# plus its commitment bonus (20 + 8), or the archer never starts looking.
-	if brain.blind() and not _retreating:
-		var sweep := 30.0
-		var lead := brain.best_lead()
-		if lead != null:
-			# A trail we can still follow beats combing open ground, and the
-			# colder it gets the more urgent it is to look before it is gone.
-			sweep += 8.0 if lead.boss else 4.0
-		scores["sweep"] = sweep
-
-	# A buff run is a COMMITTED manoeuvre, not a preference. Half-way in is the
-	# worst place on the field to change your mind: inside the enemy's reach,
-	# out of the dark, with nothing cast. Once it starts it finishes, unless
-	# the reason for it (a living knight, a ready spell, our own legs) is gone.
-	if tactic == "buff_run" and _spell_cd <= 0.0 and not _retreating \
-			and mate != null and not mate.is_dead and hp_frac() > 0.3:
-		scores["buff_run"] = maxf(float(scores.get("buff_run", 0.0)), 88.0)
-	if scores.has(tactic):
-		scores[tactic] += 8.0
-	var best := "scout"
-	var best_score := -INF
-	for key in scores:
-		if float(scores[key]) > best_score:
-			best_score = float(scores[key])
-			best = key
-	return best
+	if dist < 7.0 or (retreating() and body.estus_charges > 0):
+		return "fallback"
+	if mate and pos().distance_to(mate.pos) > TETHER:
+		return "regroup"
+	if mate and _spell_cd <= 0 and mate.is_paladin and mate.pressure >= 2 \
+			and mate.hp_frac < 0.65 and pos().distance_to(mate.pos) < 12.0:
+		return "buff_run"
+	if not _top_request().is_empty():
+		return "illuminate"
+	if _suppress_target(mate) != null:
+		return "suppress"
+	return "sweep" if brain.blind() else "kite"
 
 
 func run_tactic(delta: float) -> void:
 	_spell_cd -= delta
 	_arrow_cd -= delta
+	_nav_left -= delta
+	if tactic.begins_with("b_"):
+		_boss_run(delta)
+		return
 	var mate := brain.neediest_ally(body)
-
-	if tactic != "revive":
-		body._ai_revive_intent = false
-		body._ai_crouch = false
-
-	# Something about to land on us beats any shot we were about to take — and
-	# it SPOILS that shot: an archer who rolls does not also loose cleanly.
+	body._ai_revive_intent = false
+	body._ai_crouch = false
 	if defend():
-		_shot_pending = false
+		_cancel_shot()
 		return
-	# Otherwise a shot already ordered finishes first: the whole point of
-	# planting is that nothing jogs the bow between the decision and the loose.
-	if _serve_shot(delta):
+	if tactic in ["fallback", "regroup"] \
+			or (tactic == "revive" and _last_shot_kind != "revive-light"):
+		_cancel_shot()
+	elif _serve_shot(delta):
 		return
-
 	match tactic:
-		"revive":
-			_revive(mate, delta)
-		"fallback":
-			_fall_back(mate)
-		"illuminate":
-			_illuminate(mate, delta)
-		"suppress":
-			_suppress(mate, delta)
-		"buff_run":
-			_buff_run(mate, delta)
-		"cover":
-			_cover(mate, delta)
-		"kite":
-			_hold_station(mate)
-		"sweep":
-			_sweep(mate, delta)
-		_:
-			_scout(mate, delta)
+		"revive": _revive(mate, delta)
+		"fallback": _fall_back(mate)
+		"regroup": go_to(mate.pos, SLOT_BEHIND, 12.0)
+		"buff_run": _buff_run(mate, delta)
+		"illuminate": _illuminate(mate)
+		"suppress": _suppress(mate)
+		"sweep": _sweep(mate, delta)
+		_: _hold_station(mate)
 
 
-# ------------------------------------------------------------------ shooting --
+func _cancel_shot() -> void:
+	_shot_pending = false
+	_shot_contact = null
+	if body.is_drawing_bow or body.is_holding_bow:
+		body._cancel_bow_draw()
 
-## Order a shot. It is not loosed this frame: the archer stops, lets the
-## stance settle (a moving loose is half force) and fires from _serve_shot.
-func _order_shot(point: Vector3, cadence: float, kind: String) -> void:
-	if _arrow_cd > 0.0 or _shot_pending:
+
+func _order_shot(point: Vector3, cadence: float, kind: String,
+		contact: SquadBrain.Contact = null) -> void:
+	if _arrow_cd > 0.0 or _shot_pending or body.is_attacking or body.is_casting:
+		return
+	if not _clear_arc(point):
+		_flank = -_flank
+		_arrow_cd = 0.7
 		return
 	_shot_point = point
+	_shot_contact = contact
 	_shot_pending = true
+	_shot_cadence = cadence
 	_plant_time = 0.0
-	_arrow_cd = cadence
 	_last_shot_kind = kind
 
 
-## Returns true while the archer is committed to a shot.
 func _serve_shot(delta: float) -> bool:
 	if not _shot_pending:
 		return false
+	if body._is_stunned or body.is_rolling or body.is_casting or body.is_drinking:
+		_cancel_shot()
+		return false
 	stop()
+	_plant_time += delta
+	if _shot_contact != null:
+		if not _shot_contact.alive() or not _shot_contact.seen_now:
+			_cancel_shot()
+			return false
+		_shot_point = _lead_target(_shot_contact)
 	var dir := arrow_dir_to(_shot_point)
 	aim_at(_shot_point, asin(clampf(dir.y, -1.0, 1.0)))
-	_plant_time += delta
-	var settled: bool = Vector2(body.velocity.x, body.velocity.z).length() < 1.0
-	if settled or _plant_time > PLANT_TIMEOUT:
-		_shot_pending = false
-		if body.has_method("_shoot_arrow"):
-			body._shoot_arrow(dir)
-			print("CompanionAI[archer]: %s shot at %s (%.0fm)" % [
-					_last_shot_kind, str(_shot_point.snapped(Vector3.ONE)),
-					pos().distance_to(_shot_point)])
+	var settled := Vector2(body.velocity.x, body.velocity.z).length() < 0.5
+	if settled and body.is_on_floor() and not body.is_attacking:
+		body._start_bow_draw(false, true)
+		if body.is_holding_bow and _clear_arc(_shot_point):
+			#Keep the bow ready briefly for the next tell instead of spending
+			#every arrow during recovery, when it cannot break the windup.
+			if _shot_contact and _shot_contact.node is Bobba:
+				var boss := _shot_contact.node as Bobba
+				if boss._fire_break_cd <= 0.0 and not boss.fire_interrupt_ready() and _plant_time < 1.4:
+					return true
+			body._release_bow(dir)
+			_shot_pending = false
+			_shot_contact = null
+			_arrow_cd = _shot_cadence
+			shots_fired += 1
+			print("CompanionAI[archer]: %s shot at %s" % [
+					_last_shot_kind, str(_shot_point.snapped(Vector3.ONE))])
+	if _plant_time > 2.5:
+		_cancel_shot()
+		_arrow_cd = 0.5
 	return true
 
 
-## Would this arrow HELP? The fire it lights is the question, not the 35 damage.
-##
-## It helps when the party cannot see the thing, when the thing is chasing
-## someone, or when nobody is holding it in place. It hurts when the paladin
-## already has it lit and pinned in melee: dropping fire at its feet ends his
-## fight, and the boss walks away and heals.
-func _shot_would_help(c: SquadBrain.Contact, mate: SquadBrain.Ally) -> bool:
-	if c == null or not c.alive():
-		return false
-	if not c.lit:
-		return true          # it is dark: light beats everything
-	if mate != null and not mate.is_dead and mate.is_paladin \
-			and mate.pos.distance_to(c.pos) < PINNED_RANGE:
-		return false         # he has it — do not shove it off him
-	if c.hunting != null:
-		return true          # it is hurting one of us: burn it and drive it off
-	# Lit, unengaged, and the field is already alight — an extra fire buys the
-	# party nothing it does not already have. Save the arrow.
-	return brain.fires.size() < FIRE_BUDGET
+func _lead_target(c: SquadBrain.Contact) -> Vector3:
+	var flight := pos().distance_to(c.pos) / ARROW_SPEED
+	return c.pos + Vector3.UP * 1.4 + c.vel.limit_length(8.0) * flight
 
 
-## The best thing to put an arrow into right now, or null if the right move is
-## to hold. Deliberately not always the focus: the focus is often exactly the
-## enemy the paladin is holding.
 func _suppress_target(mate: SquadBrain.Ally) -> SquadBrain.Contact:
 	var best: SquadBrain.Contact = null
+	var score := -INF
 	for c in brain.contacts:
 		if not c.alive() or not c.seen_now or c.confidence(brain.now) < 0.6:
 			continue
-		if c.pos.distance_to(pos()) > 60.0:
+		if c.pos.distance_to(pos()) > 42.0:
 			continue
-		if not _shot_would_help(c, mate):
-			continue
-		if best == null or c.threat > best.threat:
+		var value: float = c.threat
+		if mate and c.hunting == mate.node:
+			value += 12.0
+		if c.node is Bobba and c.node.fire_interrupt_ready():
+			value += 20.0
+		if value > score:
+			score = value
 			best = c
 	return best
 
 
 func _top_request() -> Dictionary:
-	for r in brain.light_requests:
-		var p: Vector3 = r["pos"]
-		# Do not spend an arrow on ground that is already burning, and do not
-		# throw one past the horizon.
-		if brain.fire_dist(p) < Perception.FIRE_REVEAL_RADIUS:
+	for req in brain.light_requests:
+		if pos().distance_to(req.pos) > 45.0:
 			continue
-		if pos().distance_to(p) > arrow_max_range() * 0.9:
+		if brain.fire_dist(req.pos) < LIT_ENOUGH:
 			continue
-		# A field can only carry so much fire before the light stops meaning
-		# anything (and starts costing frames). Past the budget, only the
-		# requests that are actually about someone getting hurt get served.
-		if brain.fires.size() >= FIRE_BUDGET and float(r["priority"]) < 2.5:
+		if brain.ground_fires.size() >= FIRE_BUDGET and req.priority < 2.5:
 			continue
-		# Never ring a fallen ally with fire: enemies avoid it, and one that
-		# cannot walk away from the body cannot be pulled off it either.
-		var down := _downed_ally()
-		if down != null and down.pos.distance_to(p) < 14.0 \
-				and brain.fires_near(down.pos, 14.0) > 0:
-			continue
-		return r
+		return req
 	return {}
 
 
-# ------------------------------------------------------------------ tactics --
-
-## Put fire where the party cannot see. The choice of AIM POINT is the tactic:
-## on the enemy when an ally needs it driven off, beside it when the paladin
-## wants it to stay and fight in the light.
-func _illuminate(mate: SquadBrain.Ally, delta: float) -> void:
+func _illuminate(mate: SquadBrain.Ally) -> void:
+	_hold_station(mate)
 	var req := _top_request()
 	if req.is_empty():
-		_hold_station(mate)
 		return
-	var c: SquadBrain.Contact = req["contact"]
-	var enemy_pos: Vector3 = req["pos"]
-	# ON or BESIDE — the whole judgement. Fire at an enemy's feet drives it
-	# off; that is a RESCUE when someone is losing and sabotage when the
-	# paladin is mid-combo on it. So "in danger" means losing, not fighting:
-	# it is coming for the archer himself, or it is on an ally who is hurt,
-	# outnumbered, or already down.
-	var in_danger: bool = c.hunting == body
-	if mate != null and not mate.is_dead and c.hunting == mate.node \
-			and (mate.hp_frac < 0.45 or mate.pressure >= 2 or not mate.is_paladin):
-		in_danger = true
-	if mate != null and mate.is_dead and c.hunting == mate.node:
-		in_danger = true
-	var aim_point := enemy_pos
-	if not in_danger:
-		# Light it without chasing it out of the fight: 8 m to the far side
-		# leaves the enemy well inside the 18 m reveal but outside the radius
-		# it will flee from.
-		var away := Vector3.FORWARD
-		if mate != null:
-			away = enemy_pos - mate.pos
-		else:
-			away = enemy_pos - pos()
-		away.y = 0.0
-		if away.length_squared() > 0.01:
-			aim_point = enemy_pos + away.normalized() * 8.0
+	var point: Vector3 = req.pos
+	#Light beside the melee so tall flames do not mask the axe's windup.
+	var side := (point - (mate.pos if mate else pos())).cross(Vector3.UP)
+	if side.length_squared() > 0.01:
+		point += side.normalized() * 5.0
+	var ground := _ground_at(point.x, point.z)
+	if ground > -9000:
+		point.y = ground + 0.05
+	_order_shot(point, 2.0, "light the fight")
+
+
+func _suppress(mate: SquadBrain.Ally) -> void:
 	_hold_station(mate)
-	# A ground fire burns for thirty seconds. Relighting the same fight every
-	# two seconds does not make it brighter — it makes a bonfire field and a
-	# boss that never stands still.
-	var cadence: float = randf_range(2.2, 3.2) if float(req["priority"]) >= 2.5 \
-			else randf_range(5.0, 7.5)
-	_order_shot(aim_point + Vector3(0, 0.2, 0), cadence,
-			"illuminate-on" if in_danger else "illuminate-beside")
-
-
-## Damage on a target the party can already see. Led by the arrow's flight
-## time, because a walking Bobba covers three metres while it is in the air.
-func _suppress(mate: SquadBrain.Ally, _delta: float) -> void:
-	var c := _suppress_target(mate)
-	if c == null or not c.alive():
-		_hold_station(mate)
+	var contact := _suppress_target(mate)
+	if contact == null:
 		return
-	var target: Vector3 = c.node.global_position + Vector3(0, 1.0, 0)
-	var flight: float = pos().distance_to(target) / ARROW_SPEED
-	if "velocity" in c.node:
-		var v: Vector3 = c.node.velocity
-		v.y = 0.0
-		target += v * flight
-	_hold_station(mate)
-	_order_shot(target, randf_range(1.8, 2.6), "suppress")
+	var cadence := 2.4
+	var kind := "cover the paladin"
+	if contact.node is Bobba and contact.node.fire_interrupt_ready():
+		kind = "break the windup"
+		cadence = 1.8
+	_order_shot(_lead_target(contact), cadence, kind, contact)
 
 
-## Run in, lay the ring, hold it while it burns. Costs the archer his darkness
-## for four seconds — which is the price of pulling three skeletons off the
-## paladin at once.
-func _buff_run(mate: SquadBrain.Ally, delta: float) -> void:
+func _buff_run(mate: SquadBrain.Ally, _delta: float) -> void:
 	if mate == null or mate.is_dead:
-		_scout(mate, delta)
 		return
 	if body.is_casting:
 		stop()
-		aim_at(mate.pos)
 		return
 	if go_to(mate.pos, 3.0, 10.0):
-		aim_at(mate.pos)
 		body._do_spell_cast()
-		if body.is_casting:
-			_spell_cd = SPELL_COOLDOWN
-			print("CompanionAI[archer]: fire circle on the paladin — buff + burn ring")
-		else:
-			_spell_cd = 3.0   # refused (mid-draw, cooldown) — try again shortly
+		_spell_cd = SPELL_COOLDOWN if body.is_casting else 3.0
 
 
-## A burning wall between a fleeing ally and whatever is chasing him.
-func _cover(mate: SquadBrain.Ally, delta: float) -> void:
-	if mate == null or mate.is_dead:
-		_scout(mate, delta)
-		return
-	var chaser := brain.threat_on(mate.node)
-	if chaser == null:
-		_hold_station(mate)
-		return
-	var to_chaser: Vector3 = chaser.pos - mate.pos
-	to_chaser.y = 0.0
-	if to_chaser.length() < 1.0:
-		_hold_station(mate)
-		return
-	var wall: Vector3 = mate.pos + to_chaser.normalized() * clampf(to_chaser.length() * 0.5, 3.0, 7.0)
-	_hold_station(mate)
-	_order_shot(wall, randf_range(2.5, 3.5), "cover-wall")
-
-
-## THE SEARCH LIGHT. No contact anywhere, so the archer stops waiting and goes
-## looking: he keeps station with the paladin and combs the dark ahead of them
-## with fire. Each arrow asks "is it here?" of one patch of field — anything
-## within 18 m of the fire it lights is visible to the whole party from ninety
-## metres — and the comb makes sure two arrows never ask about the same patch.
 func _sweep(mate: SquadBrain.Ally, delta: float) -> void:
-	# Move like the lantern-bearer he is: to the highest thing near the party,
-	# and out of his own light once he is on it.
-	_update_vantage(delta, mate)
-	var perched: bool = _vantage != Vector3.ZERO and pos().distance_to(_vantage) < 3.0
-	if mate != null and not mate.is_dead and pos().distance_to(mate.anchor) > TETHER * 1.6:
-		# The hill is not worth losing the party over.
-		_vantage = Vector3.ZERO
-		go_to(mate.anchor, TETHER * 0.6, 14.0)
-	elif _vantage != Vector3.ZERO and not perched:
-		go_to(_vantage, 2.5, 10.0)
-	elif mate != null and not mate.is_dead:
+	if mate:
 		_hold_station(mate)
 	else:
 		explore(delta)
-	if _arrow_cd > 0.0 or brain.fires.size() >= FIRE_BUDGET:
+	if _arrow_cd > 0 or brain.ground_fires.size() >= FIRE_BUDGET:
 		return
-	var point := _search_point(mate, _vantage_gain if perched else 0.0)
-	if point == Vector3.ZERO:
-		# Everything in reach is already burning: nothing here, walk on.
-		_arrow_cd = 1.5
-		return
-	# Fast cadence — a dark field is a problem the party cannot solve any other
-	# way, and every fire burns for thirty seconds regardless.
-	_order_shot(point + Vector3(0, 0.2, 0), randf_range(2.0, 3.0),
-			"search" if brain.best_lead() == null else "search-trail")
+	var point := _search_point(mate)
+	if point != Vector3.ZERO:
+		_order_shot(point, 4.0, "light your path")
+	else:
+		_arrow_cd = 1.0
 
 
-## Look around for higher ground, every VANTAGE_HOLD seconds: ten candidate
-## points on a ring, ground-probed, best rise wins. Ten raycasts every fourteen
-## seconds is nothing next to what it buys — from a rise the same loose lands
-## further out, so each arrow asks its question of more field.
-func _update_vantage(delta: float, mate: SquadBrain.Ally) -> void:
-	_vantage_left -= delta
-	if _vantage != Vector3.ZERO and _vantage_left > 0.0:
-		return
-	_vantage_left = VANTAGE_HOLD
-	_vantage = Vector3.ZERO
-	_vantage_gain = 0.0
-	var here: float = _ground_at(pos().x, pos().z)
-	if here < -9000.0:
-		return
-	var radius: float = randf_range(VANTAGE_MIN_R, VANTAGE_MAX_R)
-	var spin: float = randf() * TAU
-	for i in VANTAGE_SAMPLES:
-		var ang: float = spin + TAU * float(i) / float(VANTAGE_SAMPLES)
-		var x: float = pos().x + cos(ang) * radius
-		var z: float = pos().z + sin(ang) * radius
-		var y: float = _ground_at(x, z)
-		if y < -9000.0:
-			continue
-		var gain: float = y - here
-		if gain < VANTAGE_MIN_GAIN or gain <= _vantage_gain:
-			continue
-		var spot := Vector3(x, y + 0.4, z)
-		# A vantage inside his own firelight is a lit archer on a hill.
-		if brain.lit_amount(spot) > 0.0:
-			continue
-		if mate != null and not mate.is_dead and spot.distance_to(mate.anchor) > TETHER * 1.5:
-			continue
-		_vantage = spot
-		_vantage_gain = gain
-	if _vantage != Vector3.ZERO:
-		print("CompanionAI[archer]: taking the high ground at %s (+%.0fm, %.0fm away)" % [
-				str(_vantage.snapped(Vector3.ONE)), _vantage_gain, pos().distance_to(_vantage)])
+func _scout(mate: SquadBrain.Ally, delta: float) -> void:
+	_sweep(mate, delta)
 
 
-## Terrain height under a world x/z, or -9999 where there is no ground.
-func _ground_at(x: float, z: float) -> float:
-	var world := body.get_world_3d()
-	if world == null:
-		return -9999.0
-	var space: PhysicsDirectSpaceState3D = world.direct_space_state
-	if space == null:
-		return -9999.0
-	var query := PhysicsRayQueryParameters3D.create(
-			Vector3(x, pos().y + 50.0, z), Vector3(x, pos().y - 40.0, z), 1)
-	var hit: Dictionary = space.intersect_ray(query)
-	return float(hit["position"].y) if hit.has("position") else -9999.0
-
-
-## The next tooth of the comb, or ZERO when the ground in reach is already lit.
-##
-## Two patterns, because there are two kinds of "we cannot see anything":
-##
-##   TRAIL — we lost something specific. Its search circle is a disc centred on
-##     where it probably walked to, widening as the trail cools, and the arrows
-##     spiral out through it on the golden angle so the disc fills evenly
-##     instead of the same arc being relit forever.
-##
-##   OPEN  — we never had anything. Then the useful ground is what the party is
-##     WALKING INTO: a fan across their heading, thrown far enough ahead that
-##     the light arrives before they do.
-func _search_point(mate: SquadBrain.Ally, height_gain: float = 0.0) -> Vector3:
+func _search_point(mate: SquadBrain.Ally) -> Vector3:
+	var anchor := mate.pos if mate else pos()
+	var heading := _advance_heading(mate)
 	var lead := brain.best_lead()
-	for attempt in 6:
+	for attempt in 5:
 		var step := _comb_step
 		_comb_step += 1
-		var candidate: Vector3
-		if lead != null:
-			var centre: Vector3 = lead.predict(brain.now)
-			if step % 5 == 0:
-				candidate = centre     # the middle of the circle, first of every five
-			else:
-				var r: float = lead.radius(brain.now) * (0.45 + 0.5 * float(step % 3) / 2.0)
-				var ang: float = GOLDEN * float(step)
-				candidate = centre + Vector3(cos(ang), 0.0, sin(ang)) * r
-			if lead.dir.length_squared() > 0.01 and step % 5 == 1:
-				# Bias one tooth in five down the direction he was running.
-				candidate = centre + lead.dir * lead.radius(brain.now) * 0.8
-		else:
-			var heading := _advance_heading(mate)
-			var fan: float = SWEEP_FAN * sin(float(step) * 1.7)
-			# Height is reach: the arrow is falling toward ground below the
-			# bow, so from a rise the same loose covers more field.
-			var dist: float = randf_range(SWEEP_NEAR,
-					SWEEP_FAR + height_gain * VANTAGE_REACH_BONUS)
-			var from: Vector3 = mate.pos if mate != null and not mate.is_dead else pos()
-			candidate = from + heading.rotated(Vector3.UP, fan) * dist
-		if pos().distance_to(candidate) > arrow_max_range() * 0.9:
+		var angle := [-0.32, 0.0, 0.32][step % 3] as float
+		var point := anchor + heading.rotated(Vector3.UP, angle) * (16.0 + (step % 2) * 8.0)
+		if lead and lead.pos.distance_to(anchor) < 30.0 and step % 3 == 0:
+			point = lead.pos
+		if brain.fire_dist(point) < LIT_ENOUGH:
 			continue
-		if brain.fire_dist(candidate) < LIT_ENOUGH:
-			continue          # that patch has already been asked
-		return candidate
+		var ground := _ground_at(point.x, point.z)
+		if ground > -9000 and absf(ground - anchor.y) < 5.0:
+			point.y = ground + 0.05
+			return point
 	return Vector3.ZERO
 
 
-## Which way the party is going: the paladin leads and the archer walks behind
-## him, so the line between them IS the advance.
 func _advance_heading(mate: SquadBrain.Ally) -> Vector3:
-	if mate != null and not mate.is_dead:
-		var h: Vector3 = mate.pos - pos()
-		h.y = 0.0
-		if h.length() > 3.0:
-			return h.normalized()
-		if "velocity" in mate.node:
-			var v: Vector3 = mate.node.velocity
-			v.y = 0.0
-			if v.length() > 1.0:
-				return v.normalized()
-	return explore_heading()
+	if mate == null or mate.is_dead:
+		return explore_heading()
+	var v: Vector3 = mate.node.velocity if "velocity" in mate.node else Vector3.ZERO
+	v.y = 0.0
+	if v.length() > 0.6:
+		return v.normalized()
+	var pivot := mate.node.get_node_or_null("CameraPivot") as Node3D
+	if pivot:
+		var forward := -pivot.global_basis.z
+		forward.y = 0.0
+		return forward.normalized()
+	return Vector3.FORWARD
 
 
-## Beyond the tether with nothing known: close the gap, lighting as he comes.
-func _scout(mate: SquadBrain.Ally, delta: float) -> void:
-	if mate != null and not mate.is_dead and pos().distance_to(mate.anchor) > TETHER:
-		go_to(mate.anchor, TETHER * 0.6, 14.0)
-	else:
-		explore(delta)
-	if _arrow_cd > 0.0 or brain.fires.size() >= FIRE_BUDGET:
-		return
-	var point := _search_point(mate)
-	if point == Vector3.ZERO:
-		_arrow_cd = 1.5
-		return
-	_order_shot(point, randf_range(4.0, 6.0), "scout-beacon")
-
-
-## Station-keeping: in the dark, behind the anchor, out of melee. This is the
-## archer's default posture and it runs underneath most of his other tactics.
 func _hold_station(mate: SquadBrain.Ally) -> void:
 	var focus := brain.focus
-	var hunted: bool = brain.threat_on(body) != null
-	var spot: Vector3 = pos()
-	if mate != null and not mate.is_dead and focus != null:
-		var from_enemy: Vector3 = mate.pos - focus.pos
-		from_enemy.y = 0.0
-		if from_enemy.length_squared() > 0.01:
-			spot = mate.pos + from_enemy.normalized() * SLOT_BEHIND
-		else:
-			spot = mate.pos
-	elif focus != null:
-		var back: Vector3 = pos() - focus.pos
-		back.y = 0.0
-		if back.length_squared() > 0.01:
-			spot = focus.pos + back.normalized() * KITE_DIST
-	elif mate != null and not mate.is_dead:
-		spot = mate.anchor
-	if focus != null:
-		# Never let the station drift inside knife range of the threat.
-		var d: float = spot.distance_to(focus.pos)
-		if d < KITE_DIST:
-			var out: Vector3 = spot - focus.pos
-			out.y = 0.0
-			if out.length_squared() > 0.01:
-				spot = focus.pos + out.normalized() * KITE_DIST
-	# Stand outside our own light unless we are the one being chased, in which
-	# case the fire is a wall and we want it at our back.
-	if not hunted and brain.lit_amount(spot) > 0.0:
-		var fire := _nearest_fire_pos(spot)
-		var away: Vector3 = spot - fire
-		away.y = 0.0
-		if away.length_squared() > 0.01:
-			spot = fire + away.normalized() * (Perception.FIRE_REVEAL_RADIUS + 2.0)
-	var to_spot: Vector3 = spot - pos()
-	to_spot.y = 0.0
-	if focus != null:
+	var heading := _advance_heading(mate)
+	var anchor := mate.pos if mate else pos()
+	if focus:
+		heading = (focus.pos - anchor).normalized()
+		heading.y = 0.0
+	var side := heading.cross(Vector3.UP) * _flank
+	var spot := anchor - heading * SLOT_BEHIND + side * 4.0
+	if focus:
 		aim_at(focus.pos)
-	elif mate != null:
-		aim_at(mate.anchor)
-	if to_spot.length() > 2.5:
-		move_world(to_spot.normalized(), to_spot.length() > 9.0)
 	else:
-		stop()
+		aim_at(anchor + heading * 20.0)
+	go_to(spot, 2.0, 9.0, false)
 
 
 func _fall_back(mate: SquadBrain.Ally) -> void:
@@ -638,44 +293,96 @@ func _fall_back(mate: SquadBrain.Ally) -> void:
 	if threat == null:
 		threat = brain.focus
 	if threat == null:
-		_hold_station(mate)
-		return
-	var toward: Vector3 = mate.anchor if mate != null else pos()
-	var threat_dist: float = threat.pos.distance_to(pos())
-	if threat_dist > ESTUS_SAFE_DIST:
 		stop()
-		aim_at(threat.pos)
-		drink_if_safe(threat_dist)
-		# Falling back is not the same as stopping work — keep the light on him.
-		var aim: Vector3 = threat.pos
-		var kind := "fallback-light"
-		if threat.lit or brain.fire_dist(threat.pos) <= Perception.FIRE_REVEAL_RADIUS:
-			kind = "fallback-shot"
-			if threat.seen_now:
-				aim = threat.node.global_position + Vector3(0, 1.0, 0)
-		_order_shot(aim, randf_range(2.2, 3.0), kind)
+		drink_if_safe(INF)
 		return
-	var dir := escape_dir(threat.pos, toward, true)
-	if dir.length_squared() > 0.01:
-		aim_at(pos() + dir * 10.0)
-		move_world(dir, true)
+	var dist := pos().distance_to(threat.pos)
+	if dist > ESTUS_SAFE_DIST:
+		stop()
+		drink_if_safe(dist)
+		return
+	var anchor := mate.pos if mate else pos()
+	#Pass behind the knight instead of leading the boss away across the map.
+	var away := (anchor - threat.pos).normalized()
+	var spot := anchor + away * 6.0 + away.cross(Vector3.UP) * 4.0
+	go_to(spot, 1.5, 2.0)
 
 
-## Raising a fallen ally as the archer is a problem of GEOMETRY, not courage:
-## he cannot trade with whatever put the ally down, and the channel takes five
-## uninterrupted seconds within 2.6 m of the body.
-##
-## And it is emphatically NOT a shooting problem. Walking arrows onto a boss
-## standing over a corpse lights a fire at his feet every time one connects,
-## and a ring of fires around the body is a CAGE — his own avoidance keeps him
-## pinned exactly where the archer needs him not to be, forever. (That is not
-## hypothetical: it is what the first version of this did, for fifty seconds.)
-##
-## So the lure is the archer HIMSELF. He lights the spot once if it is dark,
-## then walks around to the far side of the camper and stands just inside the
-## range where he can be smelled or seen. The camper comes for him — away from
-## the body, because the archer put himself on the far side — and the archer
-## backs off, keeping the leash taut, until there is room to run in and kneel.
+func _excluded() -> Array[RID]:
+	var ids: Array[RID] = [body.get_rid()]
+	for ally in brain.allies:
+		if ally.node is CollisionObject3D and ally.node != body:
+			ids.append(ally.node.get_rid())
+	return ids
+
+
+func _ground_at(x: float, z: float) -> float:
+	var ray := PhysicsRayQueryParameters3D.create(
+			Vector3(x, pos().y + 4.0, z), Vector3(x, pos().y - 6.0, z), 1, _excluded())
+	var hit := body.get_world_3d().direct_space_state.intersect_ray(ray)
+	return hit.position.y if not hit.is_empty() else -9999.0
+
+
+func _clear_arc(point: Vector3) -> bool:
+	var start := pos() + Vector3.UP * 1.5
+	var vel := arrow_dir_to(point) * ARROW_SPEED
+	var flat := Vector2(vel.x, vel.z).length()
+	var flight := Vector2(point.x - start.x, point.z - start.z).length() / maxf(flat, 0.1)
+	var previous := start
+	for i in range(1, 9):
+		var t := flight * i / 8.0
+		var next := start + vel * t - Vector3.UP * world_gravity * t * t * 0.5
+		var ray := PhysicsRayQueryParameters3D.create(previous, next, 1, _excluded())
+		var hit := body.get_world_3d().direct_space_state.intersect_ray(ray)
+		if not hit.is_empty():
+			return hit.position.distance_to(point) < 1.5 or _part_holds(hit.collider, point)
+		previous = next
+	return true
+
+
+## The arc ends on the very part being aimed at: a giant's claw or skull is
+## metres across, so its surface lies well beyond 1.5 m of the centre aimed
+## at, and every rescue shot at a braced claw used to read as "blocked".
+func _part_holds(collider: Object, point: Vector3) -> bool:
+	if not collider is ColossusPart:
+		return false
+	var part := collider as ColossusPart
+	for c in part.get_children():
+		if c is CollisionShape3D:
+			var cs := c as CollisionShape3D
+			var box := cs.shape.get_debug_mesh().get_aabb().grow(0.5)
+			return box.has_point(cs.global_transform.affine_inverse() * point)
+	return false
+
+
+func move_world(direction: Vector3, run: bool) -> void:
+	if arena != null:
+		# The boss platform has ramps this probe reads as walls; the base
+		# ledge guard is the one that knows the arena.
+		super.move_world(direction, run)
+		return
+	if _nav_left <= 0.0 or direction.normalized().dot(_steer) < 0.5:
+		_nav_left = 0.15
+		_steer = _safe_heading(direction)
+	super.move_world(_steer, run)
+
+
+func _safe_heading(direction: Vector3) -> Vector3:
+	if direction.length_squared() < 0.01:
+		return Vector3.ZERO
+	for angle in [0.0, 0.5, -0.5, 1.0, -1.0, 1.45, -1.45]:
+		var dir := direction.normalized().rotated(Vector3.UP, angle)
+		var probe := pos() + dir * 2.0
+		var ray := PhysicsRayQueryParameters3D.create(pos() + Vector3.UP,
+				probe + Vector3.UP, 1, _excluded())
+		if not body.get_world_3d().direct_space_state.intersect_ray(ray).is_empty():
+			continue
+		var y := _ground_at(probe.x, probe.z)
+		if y > pos().y - 1.8 and y < pos().y + 0.9:
+			return dir
+	return Vector3.ZERO
+
+
 func _revive(mate: SquadBrain.Ally, delta: float) -> void:
 	if mate == null:
 		_scout(mate, delta)
@@ -725,31 +432,6 @@ func _downed_ally() -> SquadBrain.Ally:
 	return null
 
 
-func _nearest_fire_pos(from: Vector3) -> Vector3:
-	var best := from
-	var best_d := INF
-	for f in brain.ground_fires:
-		var d: float = from.distance_to(f)
-		if d < best_d:
-			best_d = d
-			best = f
-	return best
-
-
-# ------------------------------------------------------------------ archery --
-#
-# The bow is the archer's, and so is the arithmetic behind it. Nothing else in
-# the co-op AI throws anything, so nothing else needs to solve an arc.
-
-## The firing solution for a fire arrow: the launch direction that actually
-## LANDS on `target`, solved from the arrow's own speed and the world's gravity
-## instead of a fixed upward fudge.
-##
-## This is not polish. The archer's entire contribution is putting fire on a
-## chosen patch of ground; an arrow that falls short lights nothing, and the
-## paladin stays blind. The flat root is taken (the lower of the two arcs) so
-## the shot arrives fast and the light appears while the intelligence behind it
-## is still true.
 func arrow_dir_to(target: Vector3) -> Vector3:
 	var origin: Vector3 = pos() + Vector3(0, 1.5, 0)
 	var to_target: Vector3 = target - origin
@@ -771,3 +453,280 @@ func arrow_dir_to(target: Vector3) -> Vector3:
 ## Maximum ground a planted shot can cover, from the same physics.
 func arrow_max_range() -> float:
 	return ARROW_SPEED * ARROW_SPEED / world_gravity
+
+
+# ============================================================ the colossus ==
+# The archer's half of the boss fight. His arrows barely scratch the stone,
+# Keep the braziers lit, shoot the braced hand to release a grabbed
+# partner; exploit the lowered head after the paladin breaks poise.
+
+const CORE_CADENCE := 0.35
+const CHIP_CADENCE := 1.1
+
+func _boss_choose() -> String:
+	var mate := partner()
+	# Before anything returns: the spell's best moments (core open, a grab)
+	# are exactly the moments the shot decisions below grab first.
+	_maybe_spell(mate)
+	if mate != null and mate.is_dead:
+		return "revive"
+	var victim := boss.grab_victim()
+	if victim == body or boss.is_climbing(body):
+		return "b_held"
+	if boss.on_pad(body):
+		return "b_ride"
+	if not naive and boss.punch_open() and not on_high_ground():
+		var f := boss.climbable_fist(body)
+		if f != Vector3.INF or pos().distance_to(boss.fist_pos(boss._hand_i)) < 5.5:
+			return "b_climb"
+	if naive:
+		return "b_body"
+	if victim != null:
+		return "b_rescue"
+	# The braziers are the party's light: in the dark the knight reads the
+	# boss's blows late. A dead one gets an arrow as soon as nothing is
+	# coming at the archer.
+	if _dark_brazier() != null and float(boss.strike_eta_for(body).eta) > 1.2:
+		return "b_kindle"
+	if boss.core_open():
+		return "b_core"
+	if boss.eye_charging():
+		return "b_eye"
+	if not boss.marks().is_empty():
+		return "b_mark"
+	var sw := boss.sweep_incoming()
+	if float(sw.eta) < 1.5 and not on_high_ground() and mate != null and not mate.is_dead \
+			and mate.is_paladin() and mate.global_position.distance_to(pos()) < 5.0:
+		return "b_shelter"
+	if hp_frac() < 0.35 and body.estus_charges > 0 and not on_high_ground():
+		return "b_drink"
+	if not _on_perch():
+		return "b_perch"
+	return "b_snipe"
+
+
+func _boss_run(delta: float) -> void:
+	body._ai_revive_intent = false
+	body._ai_crouch = false
+	if defend():
+		_cancel_shot()
+		return
+	match tactic:
+		"b_climb":
+			_cancel_shot()
+			if boss.climbable_fist(body) != Vector3.INF:
+				stop()
+				body._ai_climb = true
+			else:
+				go_to(boss.fist_pos(boss._hand_i), 0.8, 0.0)
+		"b_ride":
+			stop()
+			if body._ai_crouch:
+				_cancel_shot()
+			else:
+				_boss_shot(boss.head_pos(), CORE_CADENCE, "b_head")
+		"b_held":
+			_cancel_shot()
+			stop()
+			return
+		"b_rescue":
+			_boss_shot(boss.brace_hand_pos(), CORE_CADENCE, tactic)
+		"b_kindle":
+			var dark := _dark_brazier()
+			if dark == null:
+				_snipe(delta)
+			else:
+				_boss_shot(dark.aim_point(), CORE_CADENCE, tactic)
+		"b_core":
+			_boss_shot(boss.core_pos(), CORE_CADENCE, tactic)
+		"b_eye":
+			_boss_shot(boss.eye_pos(), CORE_CADENCE, "b_eye")
+		"b_mark":
+			var ms := boss.marks()
+			if ms.is_empty():
+				_snipe(delta)
+			else:
+				_boss_shot(ms[0], 0.5, "b_mark")
+		"b_body":
+			_boss_shot(boss.core_pos() + Vector3(0, -2.0, 0), CHIP_CADENCE, "b_body")
+		"b_shelter":
+			_cancel_shot()
+			_shelter()
+		"b_drink":
+			_cancel_shot()
+			# Out of its reach first: a flask lifted under its claws was a
+			# free grab, and a grab on a drinking archer usually ended in the
+			# abyss. Drink where it cannot reach, or while its grab is spent.
+			var exposed: bool = boss._in_reach(pos()) and float(boss.get("_grab_cd")) < 3.0
+			if exposed and not body.is_drinking:
+				var c: Vector3 = arena.center
+				var away := Vector3(c.x - boss.global_position.x, 0, c.z - boss.global_position.z).normalized()
+				go_to(detour(c + away * float(arena.radius) * 0.6), 1.0, 2.0)
+			else:
+				stop()
+				if not body.is_drinking:
+					body._try_estus()
+		"b_perch":
+			_cancel_shot()
+			_climb_perch()
+		_:
+			_snipe(delta)
+
+
+## The dead brazier worth lighting first: the one nearest the knight (his
+## fight needs the light most), within a comfortable bow shot of the archer.
+func _dark_brazier() -> ArenaBrazier:
+	if arena == null or not ("braziers" in arena):
+		return null
+	var mate := partner()
+	var near: Vector3 = mate.global_position if mate != null and not mate.is_dead else pos()
+	var best: ArenaBrazier = null
+	var best_d := INF
+	for b: ArenaBrazier in arena.braziers:
+		if b.lit or b.global_position.distance_to(pos()) > 34.0:
+			continue
+		var d := b.global_position.distance_to(near)
+		if d < best_d:
+			best_d = d
+			best = b
+	return best
+
+
+func _boss_shot(point: Vector3, cadence: float, kind: String) -> void:
+	if _shot_pending:
+		if kind in ["b_kindle", "b_rescue"] and kind != _last_shot_kind:
+			_cancel_shot()
+			_arrow_cd = 0.0
+		else:
+			_shot_point = point
+	if _serve_shot(body.get_physics_process_delta_time()):
+		return
+	stop()
+	aim_at(point)
+	_order_shot(point, cadence, kind)
+
+
+## On the perch with nothing open: help crack a pinned fist (an arrow does a
+## third of a blade's poise), otherwise stand ready, bow toward the socket.
+func _snipe(_delta: float) -> void:
+	var fists := boss.pinned_fists()
+	if not fists.is_empty():
+		_boss_shot(fists[0], CHIP_CADENCE, "b_fist")
+		return
+	if boss.reptile:
+		_boss_shot(boss.head_pos(), CHIP_CADENCE, "b_head")
+		return
+	if _serve_shot(body.get_physics_process_delta_time()):
+		return
+	stop()
+	aim_at(boss.core_pos())
+
+
+## Caught on the floor by a sweep: get downstream of the paladin's shield.
+func _shelter() -> void:
+	var mate := partner()
+	var sw := boss.sweep_incoming()
+	if mate == null or float(sw.eta) == INF:
+		stop()
+		return
+	var phi := boss.boss_angle_of(mate.global_position)
+	var r := Vector2(mate.global_position.x - boss.global_position.x,
+			mate.global_position.z - boss.global_position.z).length()
+	var spot := boss.arc_point(phi + float(sw.dir) * 0.9 / maxf(r, 1.0), r, pos().y)
+	if pos().distance_to(spot) > 0.4:
+		go_to(spot, 0.3, 0.0, false)
+	else:
+		stop()
+	body._ai_crouch = float(sw.eta) < 0.5
+
+
+func _on_perch() -> bool:
+	if not on_high_ground():
+		return false
+	for p in arena.perches:
+		var top: Vector3 = p.top
+		# Within reach of the top, at its height — the ramp's last step counts.
+		if Vector2(top.x - pos().x, top.z - pos().z).length() < float(p.radius) + 0.8 \
+				and pos().y > top.y - 0.6:
+			return true
+	return false
+
+
+## The perch to take: the nearer one, unless a slam is coming down on it —
+## and on the big field, a tower level with the heart-gem beats a low perch.
+func _pick_perch() -> Dictionary:
+	var best := {}
+	var best_d := INF
+	for p in arena.perches:
+		var top: Vector3 = p.top
+		var d := pos().distance_to(top)
+		if float(p.get("height", 3.6)) < 4.0 and arena.perches.size() > 2:
+			d += 12.0
+		# The gem faces where the giant faces: a perch off to its side sees
+		# the socket's rim, not the gem. It wades, so this changes all fight.
+		var to_p := Vector3(top.x - boss.global_position.x, 0, top.z - boss.global_position.z).normalized()
+		var fwd := Vector3(boss.global_basis.z.x, 0, boss.global_basis.z.z).normalized()
+		d += rad_to_deg(acos(clampf(to_p.dot(fwd), -1.0, 1.0))) * 0.35
+		if boss.act == ColossusBoss.Act.SLAM and top.distance_to(boss._target) < 3.0:
+			d += 50.0
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+
+## Walking across the platform, pass the perch columns on their INNER side:
+## a capsule that grazes one slides round the outside, toward the rim.
+func _around_columns(goal: Vector3) -> Vector3:
+	var here := Vector2(pos().x, pos().z)
+	var g := Vector2(goal.x, goal.z)
+	for p in arena.perches:
+		var top: Vector3 = p.top
+		var c := Vector2(top.x, top.z)
+		var seg := g - here
+		var t := clampf((c - here).dot(seg) / maxf(seg.length_squared(), 0.001), 0.0, 1.0)
+		if (here + seg * t).distance_to(c) < 2.3 and here.distance_to(c) > 2.0:
+			var center := Vector2(arena.center.x, arena.center.z)
+			var w := c + (center - c).normalized() * 2.9
+			return Vector3(w.x, pos().y, w.y)
+	return goal
+
+
+func _climb_perch() -> void:
+	var p := _pick_perch()
+	if p.is_empty():
+		stop()
+		return
+	var top: Vector3 = p.top
+	var base: Vector3 = p.ramp_base
+	var ramp_top: Vector3 = p.ramp_top
+	var height := pos().y - float(arena.floor_y)
+	var h: float = float(p.get("height", 3.6))
+	if height < 0.3 and Vector2(base.x - pos().x, base.z - pos().z).length() > 0.7:
+		go_to(_around_columns(base), 0.5, 4.0)
+	elif Vector2(ramp_top.x - pos().x, ramp_top.z - pos().z).length() > 0.6 and height < h - 0.3:
+		go_to(ramp_top, 0.4, 0.0)
+	else:
+		go_to(top, 0.4, 0.0)
+
+
+
+## The archer's candidate spell, spent when it pays: marks from a perch,
+## fire when the core is about to be shot, hounds when someone is in trouble.
+func _maybe_spell(mate: Player) -> void:
+	var sp := spells()
+	if sp == null or not sp.ready_now() or naive:
+		return
+	match sp.kind:
+		"mark":
+			if _on_perch() and boss.act != ColossusBoss.Act.STAGGER:
+				body._ai_spell2 = true
+		"incendiary":
+			if boss.core_open() or boss.grab_victim() != null:
+				body._ai_spell2 = true
+		"decoy":
+			var trouble := hp_frac() < 0.5 or (mate != null and (mate.is_dead
+					or mate.current_health / mate.max_health < 0.4))
+			var aimed: float = float(boss.strike_eta_for(body).eta)
+			if trouble or aimed < 1.2:
+				body._ai_spell2 = true

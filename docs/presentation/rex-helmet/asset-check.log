@@ -1,0 +1,13 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+NetworkManager: Ready, player name: Player_6781
+NetworkManager: Logging to /tmp/lob-rex-test/godot/app_userdata/Lands of Balance/multiplayer_Player_6781.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+[RexAsset] Rex_Blackened_Iron bound to skull: true
+[RexAsset] enamel vertex colors: true
+[RexAsset] Rex_Old_Rust bound to skull: true
+[RexAsset] Rex_Worn_Iron bound to skull: true
+[RexAsset] bones=21 success=true
+NetworkManager: Singleplayer mode - skipping server connection

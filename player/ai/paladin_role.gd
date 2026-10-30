@@ -125,6 +125,8 @@ func roll_dir(away: Vector3) -> Vector3:
 
 
 func choose_tactic() -> String:
+	if boss_fight():
+		return _boss_choose()
 	var mate := brain.neediest_ally(body)
 	var threat := brain.threat_on(body)
 	var threat_dist: float = threat.pos.distance_to(pos()) if threat != null else INF
@@ -289,6 +291,9 @@ func run_tactic(delta: float) -> void:
 		body._ai_revive_intent = false
 		body._ai_crouch = false
 
+	if tactic.begins_with("b_"):
+		_boss_run(delta)
+		return
 	match tactic:
 		"revive":
 			_revive(mate, delta)
@@ -661,3 +666,324 @@ func _nearest_fire_pos() -> Vector3:
 			best_d = d
 			best = f
 	return best
+
+
+# ============================================================ the colossus ==
+# The paladin's half of the boss fight: he is the only one whose blade
+# cracks a pinned fist, so he makes the stagger happen; he is the shield
+# that can take a sweep for two; and when the archer is seized, the braced
+# fist is his to break.
+
+func _boss_choose() -> String:
+	var mate := partner()
+	if mate != null and mate.is_dead:
+		return "revive"
+	var victim := boss.grab_victim()
+	if victim == body:
+		return "b_held"
+	if victim != null and not naive:
+		return "b_rescue"
+	if boss.is_climbing(body):
+		return "b_held"
+	if boss.on_pad(body):
+		return "b_ride"
+	if boss.head_open() and boss.head_melee_pos(pos()).y - pos().y < 2.3:
+		return "b_head"
+	if boss.punch_open() and _best_fist() != Vector3.INF:
+		return "b_climb" if _wants_climb() else "b_hand"
+	var sp := spells()
+	if sp and sp.kind == "leap" and not naive and _best_fist() != Vector3.INF \
+			and (body.jump_mult > 1.5 or sp.ready_now()):
+		return "b_plunge"
+	var sw := boss.sweep_incoming()
+	if not naive and float(sw.eta) < 1.6 and mate != null and not mate.is_dead \
+			and mate.global_position.y - float(arena.floor_y) < 1.0 \
+			and mate.global_position.distance_to(pos()) < 7.0:
+		return "b_cover"
+	if hp_frac() < 0.35 and body.estus_charges > 0 and _nearest_fist_dist() > 5.0:
+		return "b_drink"
+	if _best_fist() != Vector3.INF:
+		return "b_climb" if _wants_climb() else "b_hand"
+	if _spell_cd <= 0.0 and _nearest_fist_dist() > 8.5 and boss.act == ColossusBoss.Act.IDLE \
+			and (hp_frac() < 0.55 or (mate != null and mate.current_health / mate.max_health < 0.55)):
+		return "b_rite"
+	return "b_anchor"
+
+
+func _boss_run(delta: float) -> void:
+	match tactic:
+		"b_held":
+			stop()
+			if boss.is_climbing(body):
+				defend()
+		"b_rescue":
+			# Up on its shoulder when the archer is seized: get down to the
+			# braced fist — that is the only place the grip breaks from.
+			if boss.on_pad(body):
+				boss.dismount(body, boss.brace_hand_pos())
+			_strike_at(boss.brace_hand_pos(), delta)
+		"b_head":
+			_strike_at(boss.head_melee_pos(pos()), delta)
+		"b_hand":
+			var f := _best_fist()
+			if f == Vector3.INF:
+				_anchor(delta)
+			else:
+				_strike_at(f, delta)
+		"b_cover":
+			_cover(delta)
+		"b_climb":
+			_climb(delta)
+		"b_plunge":
+			_plunge_run(delta)
+		"b_ride":
+			_ride(delta)
+		"b_drink":
+			_drink(delta)
+		"b_rite":
+			var mate := brain.neediest_ally(body)
+			_rite(mate, delta)
+		_:
+			_anchor(delta)
+
+
+## Walk into reach of a weak point and work it with the chain — holding the
+## swing whenever a blow is due, exactly like a fight with anything else.
+var _strike_stall := 0.0
+
+
+func _strike_at(point: Vector3, delta: float) -> void:
+	if point == Vector3.INF:
+		_anchor(delta)
+		return
+	if boss_fight():
+		point = boss.claw_melee_pos(point, pos())
+	if defend():
+		return
+	# A sword chain LUNGES: every step carries him a little along his facing.
+	# Facing the abyss at the rim, that is how a knight walks himself off the
+	# platform. So he works a weak point from its INNER side: stand between it
+	# and the centre, face outward only from well inside the rim.
+	var c: Vector3 = arena.center
+	var inner := point + Vector3(c.x - point.x, 0, c.z - point.z).normalized() * 1.8
+	var off := pos() - c
+	off.y = 0.0
+	var facing_out := (point - pos()).normalized().dot(off.normalized()) > 0.3
+	if facing_out and off.length() > float(arena.radius) - 2.4 \
+			and pos().distance_to(inner) > 0.6:
+		go_to(inner, 0.5, 4.0, false)
+		aim_at(point)
+		_combo_left = 0
+		return
+	var to := point - pos()
+	to.y = 0.0
+	var d := to.length()
+	aim_at(point)
+	# Pressed against the giant's hide short of the mark: it is solid now, so
+	# a claw can be a sword's length off and no closer. Swing from there.
+	var pressed := d < 3.0 and Vector2(body.velocity.x, body.velocity.z).length() < 0.6 \
+			and _strike_stall > 0.4
+	_strike_stall = _strike_stall + delta if d < 3.0 else 0.0
+	# A blade is ~1.5 m from the grip: against the giant's measured hide he
+	# must close to arm's length or every swing whiffs short of the claw.
+	var reach := 1.3 if boss_fight() else 2.1
+	if d > reach and not pressed:
+		# Around the pillars and perches, not into them: a column between
+		# him and a braced claw used to pin him in place for the whole grab.
+		var way := detour(point) - pos()
+		way.y = 0.0
+		move_world(way.normalized() if way.length() > 0.1 else to.normalized(), d > 4.0)
+		_combo_left = 0
+		return
+	stop()
+	var incoming: float = float(soonest_strike()["eta"])
+	if incoming < PARRY_HOLD_ETA:
+		guard(true)
+		_combo_left = 0
+		return
+	if _combo_left > 0:
+		if _click_gap <= 0.0:
+			body._do_attack()
+			_combo_left -= 1
+			_click_gap = 0.32
+	elif _attack_timer <= 0.0 and stamina() > 0.2:
+		# A pinned fist is a short window: no breather between chains.
+		_combo_left = 3
+		_click_gap = 0.0
+		_attack_timer = randf_range(0.5, 0.9)
+
+
+## The pinned fist worth running to: one he can reach before it lifts.
+func _best_fist() -> Vector3:
+	var best := Vector3.INF
+	var best_d := INF
+	for f in boss.pinned_fists():
+		var d := Vector2(f.x - pos().x, f.z - pos().z).length()
+		if d < best_d and d < 9.0 + (arena.radius - 6.0 if arena else 0.0):
+			best_d = d
+			best = f
+	return best
+
+
+func _nearest_fist_dist() -> float:
+	var best := INF
+	for i in 2:
+		best = minf(best, pos().distance_to(boss.fist_pos(i)))
+	return best
+
+
+## Stand upstream of the archer with the shield up: the sweep reaches him
+## first and nobody goes over the edge.
+func _cover(delta: float) -> void:
+	var mate := partner()
+	var sw := boss.sweep_incoming()
+	if mate == null or float(sw.eta) == INF:
+		_anchor(delta)
+		return
+	var spot := _cover_spot(mate, float(sw.dir))
+	var eta := float(sw.eta)
+	if pos().distance_to(spot) > 0.5 and eta > 0.35:
+		go_to(spot, 0.4, 0.0, false)
+	else:
+		stop()
+	aim_at(boss.fist_pos(boss._hand_i))
+	guard(eta < 0.9)
+
+
+func _cover_spot(mate: Player, dir: float) -> Vector3:
+	var phi := boss.boss_angle_of(mate.global_position)
+	var r := Vector2(mate.global_position.x - boss.global_position.x,
+			mate.global_position.z - boss.global_position.z).length()
+	var step := 1.1 / maxf(r, 1.0)
+	var spot := boss.arc_point(phi - dir * step, r, mate.global_position.y)
+	return spot
+
+
+func sweep_answer(eta: float) -> bool:
+	if tactic != "b_cover":
+		return false
+	guard(eta < 0.9)
+	return true
+
+
+## Holding the anvil: the slice of platform the fists come down on, a step
+## to the side of the archer so a slam meant for one does not hit both.
+func _anchor(_delta: float) -> void:
+	if defend():
+		return
+	var c: Vector3 = arena.center
+	var toward := boss.global_position - c
+	toward.y = 0.0
+	toward = toward.normalized()
+	var side := toward.cross(Vector3.UP)
+	var mate := partner()
+	var flip := 1.0
+	if mate != null and (mate.global_position - c).dot(side) > 0.0:
+		flip = -1.0
+	# Close enough to the fists to be where they land, far enough from the rim
+	# that a sweep's shove cannot finish the job.
+	var spot := c + toward * maxf(1.8, float(arena.radius) * 0.60) + side * flip * 1.2
+	go_to(spot, 0.8, 5.0, false)
+	aim_at(boss.global_position + Vector3(0, 6, 0))
+
+
+
+# ---------------------------------------------------------------- climbing --
+# The other way to fight it: up the pinned arm onto its shoulder, and the
+# sword on its head. LOB_BOSS_CLIMB: 0 never, 1 (default) about half the
+# chances, 2 every chance — so the sims can weigh the two strategies.
+
+static var climb_pref: int = int(OS.get_environment("LOB_BOSS_CLIMB")) \
+		if OS.get_environment("LOB_BOSS_CLIMB") != "" else 1
+var _climb_serial := -1
+var _climb_yes := false
+
+
+## Decided once per pinned fist, so the plan does not flicker.
+func _wants_climb() -> bool:
+	if naive or climb_pref == 0:
+		return false
+	if boss.act_serial != _climb_serial:
+		_climb_serial = boss.act_serial
+		_climb_yes = climb_pref >= 2 or randf() < 0.5
+	return _climb_yes
+
+
+func _climb(delta: float) -> void:
+	var f := _best_fist()
+	if f == Vector3.INF:
+		_anchor(delta)
+		return
+	if defend():
+		return
+	var to := Vector3(f.x - pos().x, 0, f.z - pos().z)
+	aim_at(f)
+	if boss.climbable_fist(body) != Vector3.INF:
+		stop()
+		body._ai_climb = true
+	else:
+		move_world(to.normalized(), to.length() > 4.0)
+
+
+## On its shoulder: get to the edge nearest the head and swing at it;
+## the shake is answered in defend() (crouch and cling).
+func _ride(_delta: float) -> void:
+	if defend():
+		return
+	# A fist pinned below: leap down onto it, blade first.
+	if not boss.punch_open() and not boss.pinned_fists().is_empty() and randf() < 0.02:
+		if boss.plunge_from_shoulder(body):
+			return
+	# Feet planted where the climb left him, against the neck: no footwork
+	# up here, the ledge is all edge.
+	var head := boss.head_pos()
+	aim_at(head + Vector3(0, -0.8, 0))
+	stop()
+	if body._ai_crouch:
+		_combo_left = 0
+		return
+	if _combo_left > 0:
+		if _click_gap <= 0.0:
+			body._do_attack()
+			_combo_left -= 1
+			_click_gap = 0.32
+	elif _attack_timer <= 0.0 and stamina() > 0.2:
+		_combo_left = 3
+		_click_gap = 0.0
+		_attack_timer = randf_range(0.5, 0.9)
+
+
+
+## Skyward Leap: up into the air beside a pinned fist and down on it, blade
+## first — the plunging strike, from flat ground.
+func _plunge_run(delta: float) -> void:
+	var sp := spells()
+	if body.jump_mult < 1.5 and sp and sp.ready_now():
+		body._ai_spell2 = true
+		return
+	var f := _best_fist()
+	if f == Vector3.INF:
+		_anchor(delta)
+		return
+	if not body.is_on_floor():
+		# Straight up, straight down: no drift — a 2.3x jump carried by a
+		# run sails right over the rim.
+		stop()
+		body._ai_plunge = true
+		aim_at(f)
+		return
+	if defend():
+		return
+	# Work it from the inner side, like any pinned fist.
+	var c: Vector3 = arena.center
+	var spot := f + Vector3(c.x - f.x, 0, c.z - f.z).normalized() * 1.5
+	aim_at(f)
+	var to := Vector3(spot.x - pos().x, 0, spot.z - pos().z)
+	if to.length() > 0.6:
+		move_world(to.normalized(), to.length() > 3.0)
+	elif Vector2(body.velocity.x, body.velocity.z).length() > 0.6:
+		stop()   # settle first: the jump inherits whatever speed is left
+	else:
+		stop()
+		body._ai_jump = true
+		body._ai_plunge = true

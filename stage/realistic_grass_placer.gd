@@ -26,9 +26,9 @@ const FAR_SHARE: float = 0.5
 ## Half-extents of the dense grass region — centred on origin.
 @export var field_half_x: float = 260.0
 @export var field_half_z: float = 260.0
-#Short, narrow blades leave the feet and attack stance visible.
-@export var base_blade_size: Vector3 = Vector3(0.35, 0.4, 0.35)
-@export var height_variance: float = 0.4
+#Shoulder-high cover hides movement until fire catches the bodies above it.
+@export var base_blade_size: Vector3 = Vector3(0.32, 1.65, 0.32)
+@export var height_variance: float = 0.22
 ## Where blade roots plant vertically. Paladin's feet settle around Y≈0.55
 ## after gravity on the default MainGround CSGBox; keep roots just below so
 ## blades don't clip up through his boots.

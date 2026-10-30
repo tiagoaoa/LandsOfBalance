@@ -44,13 +44,13 @@ const DAY_SETTINGS := {
 const NIGHT_SETTINGS := {
 	"background_energy": 0.08,  # moonlit rain clouds — barely there
 	"ambient_color": Color(0.50, 0.57, 0.70),
-	#Keep attack silhouettes readable outside the archer's firelight.
-	"ambient_energy": 0.55,
-	"ambient_sky_contribution": 0.15,
+	#Close silhouettes survive; scouting beyond them needs a fire arrow.
+	"ambient_energy": 0.24,
+	"ambient_sky_contribution": 0.06,
 	"fog_enabled": true,
-	"fog_density": 0.0028,  # humid rainy air — thicker than dry-night haze
+	"fog_density": 0.005,
 	"fog_color": Color(0.07, 0.10, 0.16),  # deep blue-black wet air
-	"fog_light_energy": 0.22,
+	"fog_light_energy": 0.12,
 	"volumetric_fog_enabled": true,  # moon shafts through the rain haze
 	"ssao_enabled": true,
 	"sdfgi_enabled": false,
@@ -182,7 +182,7 @@ func _apply_lighting() -> void:
 	if settings.adjustment_enabled:
 		if time_of_day == TimeOfDay.NIGHT:
 			env.adjustment_brightness = 1.0
-			env.adjustment_contrast = 1.04
+			env.adjustment_contrast = 1.0
 			env.adjustment_saturation = 0.6  # rain washes the colour out
 		else:
 			env.adjustment_brightness = 1.0
@@ -238,8 +238,7 @@ func _apply_lighting() -> void:
 			if _moon.has_method("set_light_color"):
 				_moon.set_light_color(Color(0.62, 0.70, 0.92))
 			if _moon.has_method("set_light_energy"):
-				#The moon supplies direction; ambient fill preserves dark poses.
-				_moon.set_light_energy(2.0)
+				_moon.set_light_energy(0.65)
 
 	# Wet/dry surface response must run after every _ready (the grass placer
 	# writes its own material defaults synchronously at scene start).

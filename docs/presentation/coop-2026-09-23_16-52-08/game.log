@@ -1,0 +1,755 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+Vulkan 1.4.354 - Forward+ - Using Device #0: AMD - AMD Radeon 840M Graphics (RADV KRACKAN1)
+
+NetworkManager: Ready, player name: Player_9122
+NetworkManager: Logging to /home/talves/.local/share/godot/app_userdata/Lands of Balance/multiplayer_Player_9122.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Co-op mode enabled (AI companion)
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+NetworkManager: Singleplayer mode - skipping server connection
+LightingManager: applying NIGHT (sun energy -> 0.0)
+River: 1145.0m across the map, 1.4m deep
+VillageLoader: taming imported light 'Light' (energy 1000 -> 4)
+Village of Eights loaded with collision from: res://assets/village_of_eights.fbx
+Dragon: Found mouth bone 'NPC Head_046' at index 47
+Dragon: Jaw bone 'NPC Jaw_048' at index 48
+Dragon: Mouth fire effect created
+DragonWingFlap: Added 'WingFlap' (52 tracks), 'WingGlide' (52 tracks), 'WingHover' (52 tracks)
+Dragon animations: ["Dragon_Ancient_AttackLeft", "Dragon_Ancient_AttackLeft_Damage", "Dragon_Ancient_AttackLeft_Enter", "Dragon_Ancient_AttackRight", "Dragon_Ancient_AttackRight_Damage", "Dragon_Ancient_AttackRight_Enter", "Dragon_Ancient_Attack_Breath", "Dragon_Ancient_Attack_PowerAttack", "Dragon_Ancient_Attack_QuickStrikes", "Dragon_Ancient_Casting", "Dragon_Ancient_Casting_Enter", "Dragon_Ancient_Casting_Exit", "Dragon_Ancient_Death_Ground", "Dragon_Ancient_Dialogue_AggressiveToRelaxed", "Dragon_Ancient_Dialogue_Angry", "Dragon_Ancient_Dialogue_Entry_Neutral", "Dragon_Ancient_Dialogue_Happy", "Dragon_Ancient_Dialogue_Neutral_Idle_Exit", "Dragon_Ancient_Dialogue_Out", "Dragon_Ancient_Dialogue_Relaxed_Idle", "Dragon_Ancient_Dialogue_Sad", "Dragon_Ancient_Dialogue_Surprised", "Dragon_Ancient_Dialogue_Suspicious", "Dragon_Ancient_Entry_Combat", "Dragon_Ancient_Idle", "Dragon_Ancient_Idle_FlyTransition", "Dragon_Ancient_Patrol_Idle", "Dragon_Ancient_Patrol_Idle_Random01", "Dragon_Ancient_Patrol_Idle_Random02", "Dragon_Ancient_RecoilLeft", "Dragon_Ancient_RecoilRight", "Dragon_Ancient_Recoil_Idle", "Dragon_Ancient_StaggerBack", "Dragon_Ancient_StaggerLeft", "Dragon_Ancient_StaggerRight", "WingFlap", "WingGlide", "WingHover"]
+Dragon: Using procedural WingFlap animation for flying
+Dragon: Using procedural WingGlide animation for soaring
+Detected - Fly: WingFlap, Idle: Dragon_Ancient_Patrol_Idle, Attack: Dragon_Ancient_Attack_PowerAttack
+Dragon AnimationPlayer found with 38 animations
+RealisticGrassPlacer: 3 exclusion zones registered
+RealisticGrassPlacer: Uniform blade field 1548614 blades (target 1620529, rejected 71915 by exclusion, area 520m × 520m @ 6.0 blades/m²)
+Object_28 loaded with texture: res://assets/medieval_fortress_kit_36.png
+Player: _ready() starting (ai_companion=false, ai_driven=false)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4072)
+         [3] _ready (res://player/player.gd:666)
+Player: _setup_multiplayer called
+Player: Found NetworkManager, connecting...
+Player: Multiplayer signals connected
+Player: Spawned at point 1 (-57.5, 2.0, -84.6) - immune for 2.0s
+Bobba: Found model: Model
+Bobba: Force-applying material to model
+Bobba: Checking node Model [Node3D]
+Bobba: Checking node Armature [Node3D]
+Bobba: Checking node Skeleton3D [Skeleton3D]
+Bobba: Checking node CharacterBody [MeshInstance3D]
+Bobba: CharacterBody keeps its authored material
+Bobba: Checking node AnimationPlayer [AnimationPlayer]
+Bobba: hit-flash driving 1 material(s)
+Bobba: Found AnimationPlayer: AnimationPlayer
+Bobba: AnimationPlayer root node: ..
+Bobba: Loaded animation bobba/Idle
+Bobba: Loaded animation bobba/Walk
+Bobba: Loaded animation bobba/Run
+Bobba: Loaded animation bobba/Attack
+Bobba: Loaded animation bobba/Punch
+Bobba: Loaded animation bobba/Roar
+Bobba: Loaded animation bobba/Dying
+Bobba: Loaded animation bobba/JumpAttack
+Bobba: Loaded animation bobba/AxeAttack
+Bobba: composed clips: HitReact, HitReactLight, AxeIdle, AxeWalk, AxeRun
+Bobba: AxeAttack came from an imported clip, NOT from bobba_anims.gd
+Bobba: Available animations after load: ["bobba/Attack", "bobba/AxeAttack", "bobba/AxeIdle", "bobba/AxeRun", "bobba/AxeWalk", "bobba/Dying", "bobba/HitReact", "bobba/HitReactLight", "bobba/Idle", "bobba/JumpAttack", "bobba/Punch", "bobba/Roar", "bobba/Run", "bobba/Walk"]
+Bobba: Skeleton has 64 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_Spine
+  Bone 2: mixamorig_Spine1
+  Bone 3: mixamorig_Spine2
+  Bone 4: mixamorig_Neck
+  Bone 5: mixamorig_Head
+  Bone 6: mixamorig_HeadTop_End
+  Bone 7: mixamorig_RightRope1
+  Bone 8: mixamorig_RightRope2
+  Bone 9: mixamorig_RightRope3
+  Bone 10: mixamorig_RightRope4
+  Bone 11: mixamorig_LeftShoulder
+  Bone 12: mixamorig_LeftArm
+  Bone 13: mixamorig_LeftForeArm
+  Bone 14: mixamorig_LeftHand
+  Bone 15: mixamorig_LeftHandThumb1
+  Bone 16: mixamorig_LeftHandThumb2
+  Bone 17: mixamorig_LeftHandThumb3
+  Bone 18: mixamorig_LeftHandThumb4
+  Bone 19: mixamorig_LeftHandIndex1
+  Bone 20: mixamorig_LeftHandIndex2
+  Bone 21: mixamorig_LeftHandIndex3
+  Bone 22: mixamorig_LeftHandIndex4
+  Bone 23: mixamorig_LeftHandMiddle1
+  Bone 24: mixamorig_LeftHandMiddle2
+  Bone 25: mixamorig_LeftHandMiddle3
+  Bone 26: mixamorig_LeftHandMiddle4
+  Bone 27: mixamorig_LeftHandRing1
+  Bone 28: mixamorig_LeftHandRing2
+  Bone 29: mixamorig_LeftHandRing3
+  Bone 30: mixamorig_LeftHandRing4
+  Bone 31: mixamorig_RightShoulder
+  Bone 32: mixamorig_RightArm
+  Bone 33: mixamorig_RightForeArm
+  Bone 34: mixamorig_RightHand
+  Bone 35: mixamorig_RightHandThumb1
+  Bone 36: mixamorig_RightHandThumb2
+  Bone 37: mixamorig_RightHandThumb3
+  Bone 38: mixamorig_RightHandThumb4
+  Bone 39: mixamorig_RightHandIndex1
+  Bone 40: mixamorig_RightHandIndex2
+  Bone 41: mixamorig_RightHandIndex3
+  Bone 42: mixamorig_RightHandIndex4
+  Bone 43: mixamorig_RightHandMiddle1
+  Bone 44: mixamorig_RightHandMiddle2
+  Bone 45: mixamorig_RightHandMiddle3
+  Bone 46: mixamorig_RightHandMiddle4
+  Bone 47: mixamorig_RightHandRing1
+  Bone 48: mixamorig_RightHandRing2
+  Bone 49: mixamorig_RightHandRing3
+  Bone 50: mixamorig_RightHandRing4
+  Bone 51: mixamorig_LeftUpLeg
+  Bone 52: mixamorig_LeftLeg
+  Bone 53: mixamorig_LeftFoot
+  Bone 54: mixamorig_LeftToeBase
+  Bone 55: mixamorig_LeftToe_End
+  Bone 56: mixamorig_RightUpLeg
+  Bone 57: mixamorig_RightLeg
+  Bone 58: mixamorig_RightFoot
+  Bone 59: mixamorig_RightToeBase
+  Bone 60: mixamorig_RightToe_End
+  Bone 61: mixamorig_RightChain1
+  Bone 62: mixamorig_RightChain2
+  Bone 63: mixamorig_RightChain3
+Bobba: Attached left hand hitbox to bone: mixamorig_LeftHand
+Bobba: axe attached to bone mixamorig_RightHand
+Bobba: Attached right hand hitbox to bone: mixamorig_RightHand
+NetworkManager: Registered entity type=0 id=1
+TouchUI: _ready() - is_mobile=false, is_touch=false
+TouchUI: Hiding - not a touch device
+JoinScreen: _ready()
+JoinScreen: Character already selected from menu, using class 0
+JoinScreen: Found NetworkManager
+NetworkDebug: _ready()
+Player: Selected character class from GameSettings: 0
+Switched to PALADIN class (HP: 150)
+Player: Connected to Bobba death signal
+NetworkManager: Game scene marked as ready - processing 0 pending remote players
+Player: Notified NetworkManager that game scene is ready
+Player: _ready() starting (ai_companion=true, ai_driven=true)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4072)
+         [3] _ready (res://player/player.gd:666)
+         [4] _spawn_companion_if_coop (res://player/player.gd:971)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Co-op companion spawned (Archer)
+Player: Notified NetworkManager that game scene is ready
+Bobba: telegraph driving 1 material(s)
+CompanionAI: archer behaviour online
+Dragon pose correction: natural_body=(0.999791, -0.01446, -0.014468) → desired=(1.0, 0.0, 0.0)
+NetworkManager: Registered entity type=1 id=2
+Dragon ready! Animations found: ["Dragon_Ancient_AttackLeft", "Dragon_Ancient_AttackLeft_Damage", "Dragon_Ancient_AttackLeft_Enter", "Dragon_Ancient_AttackRight", "Dragon_Ancient_AttackRight_Damage", "Dragon_Ancient_AttackRight_Enter", "Dragon_Ancient_Attack_Breath", "Dragon_Ancient_Attack_PowerAttack", "Dragon_Ancient_Attack_QuickStrikes", "Dragon_Ancient_Casting", "Dragon_Ancient_Casting_Enter", "Dragon_Ancient_Casting_Exit", "Dragon_Ancient_Death_Ground", "Dragon_Ancient_Dialogue_AggressiveToRelaxed", "Dragon_Ancient_Dialogue_Angry", "Dragon_Ancient_Dialogue_Entry_Neutral", "Dragon_Ancient_Dialogue_Happy", "Dragon_Ancient_Dialogue_Neutral_Idle_Exit", "Dragon_Ancient_Dialogue_Out", "Dragon_Ancient_Dialogue_Relaxed_Idle", "Dragon_Ancient_Dialogue_Sad", "Dragon_Ancient_Dialogue_Surprised", "Dragon_Ancient_Dialogue_Suspicious", "Dragon_Ancient_Entry_Combat", "Dragon_Ancient_Idle", "Dragon_Ancient_Idle_FlyTransition", "Dragon_Ancient_Patrol_Idle", "Dragon_Ancient_Patrol_Idle_Random01", "Dragon_Ancient_Patrol_Idle_Random02", "Dragon_Ancient_RecoilLeft", "Dragon_Ancient_RecoilRight", "Dragon_Ancient_Recoil_Idle", "Dragon_Ancient_StaggerBack", "Dragon_Ancient_StaggerLeft", "Dragon_Ancient_StaggerRight", "WingFlap", "WingGlide", "WingHover"]
+CompanionAI[archer]: idle → sweep
+SkeletonCrew: 5 rising at (-24.0, 0.0, 21.0) (29m from Bobba's spawn)
+JoinScreen: Starting singleplayer mode
+CompanionAI[archer]: search shot at (-41.0, 1.0, -116.0) (69m)
+CompanionAI[archer]: taking the high ground at (-81.0, 35.0, -79.0) (+33m, 42m away)
+Arrow ground fire created at: (-40.66502, 0.652257, -115.9387)
+Bobba: FIRE registered at position (-40.66502, 0.652257, -115.9387)! Total fires tracked: 1
+CompanionAI[archer]: search shot at (-56.0, 1.0, -129.0) (64m)
+Arrow ground fire created at: (-56.31716, 0.643876, -128.6957)
+Bobba: FIRE registered at position (-56.31716, 0.643876, -128.6957)! Total fires tracked: 2
+CompanionAI[archer]: search shot at (-31.0, 1.0, -126.0) (70m)
+Dragon: hover-breath sequence starting
+Arrow ground fire created at: (-30.70026, 0.654632, -125.781)
+Bobba: FIRE registered at position (-30.70026, 0.654632, -125.781)! Total fires tracked: 3
+Applied aura to 5 meshes
+CompanionAI[archer]: search shot at (-19.0, 1.0, -115.0) (57m)
+Arrow ground fire created at: (-19.46069, 0.632855, -115.3196)
+SquadBrain: a roar out of the dark — searching 25m of ground around (16.0, 1.0, -1.0)
+Bobba: ROAR at (9.0, 1.0, 4.0)
+Bobba: FIRE registered at position (-19.46069, 0.632855, -115.3196)! Total fires tracked: 4
+CompanionAI[archer]: search-trail shot at (24.0, 1.0, -38.0) (88m)
+Arrow ground fire created at: (25.07775, 0.101526, -37.1754)
+CompanionAI[archer]: search-trail shot at (16.0, 1.0, -1.0) (96m)
+Bobba: FIRE registered at position (25.07775, 0.101526, -37.1754)! Total fires tracked: 5
+Arrow ground fire created at: (15.98274, 0.705432, -1.60487)
+CompanionAI[archer]: sweep → kite
+CompanionAI[archer]: search shot at (8.0, 1.0, -57.0) (34m)
+Bobba: New target acquired at 86.0m - Companion (seen)
+Bobba: lost track of target (>50m and out of sight)
+Bobba: New target acquired at 76.4m - Player (seen)
+Bobba: lost track of target (>50m and out of sight)
+Bobba: FIRE registered at position (15.98274, 0.705432, -1.60487)! Total fires tracked: 6
+Arrow ground fire created at: (8.380702, 0.602028, -56.3943)
+Bobba: FIRE registered at position (8.380702, 0.602028, -56.3943)! Total fires tracked: 7
+Dragon: hover-breath sequence starting
+Bobba: New target acquired at 71.7m - Player (seen)
+CompanionAI[archer]: kite → suppress
+CompanionAI[archer]: suppress shot at (18.0, 2.0, -25.0) (54m)
+Bobba: Switching target to attacker
+Bobba: take_damage(35.0) - HP: 1500.0 -> 1465.0
+Bobba: took an arrow (1465/1500) — still coming
+Arrow set Bobba alight for 30s
+Bobba: lost track of target (>50m and out of sight)
+Bobba: New target acquired at 29.3m - Player (seen)
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: suppress shot at (18.0, 0.0, -35.0) (34m)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow ground fire created at: (18.78772, -0.959814, -31.41852)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: FIRE registered at position (18.78772, -0.959814, -31.41852)! Total fires tracked: 8
+CompanionAI[archer]: suppress shot at (16.0, 1.0, -40.0) (23m)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow ground fire created at: (15.25565, 0.540586, -37.95677)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: FIRE registered at position (15.25565, 0.540586, -37.95677)! Total fires tracked: 9
+CompanionAI[archer]: suppress shot at (21.0, 1.0, -46.0) (15m)
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: suppress → kite
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Bobba: AXE SWING — overhead, frontal | playing=bobba/AxeAttack len=2.27 speed=1.00
+Arrow ground fire created at: (18.13006, 0.55088, -43.55564)
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.39038185309295 (mode: armed)
+Player: Attack window ENDED at progress 0.58899606386851
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Bobba: Attack window ACTIVE at progress 0.35186912011447
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ENDED at progress 0.41006073816959
+Player: Attack window ACTIVE at progress 0.35139549130653 (mode: armed)
+Knight sword attack: 100.0 HP (buff +0%)
+Bobba: Switching target to attacker
+Bobba: take_damage(100.0) - HP: 1339.0 -> 1239.0
+Player: HIT LANDED on enemy: Bobba
+Bobba: FIRE registered at position (18.13006, 0.55088, -43.55564)! Total fires tracked: 10
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack window ENDED at progress 0.5301198135003
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.36838225625759 (mode: armed)
+Knight sword attack: 135.0 HP (buff +0%)
+Bobba: Switching target to attacker
+Bobba: take_damage(135.0) - HP: 1221.0 -> 1086.0
+Player: HIT LANDED on enemy: Bobba
+Dragon: hover-breath sequence starting
+Player: Attack window ENDED at progress 0.58018371121391
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack ended
+Bobba: Animation finished: bobba/AxeAttack
+Bobba: Attack chain finished at step 0, cooldown and state=CHASING
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.38503038263703 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Bobba: Switching target to attacker
+Bobba: STAGGERED
+Bobba: take_damage(90.0) - HP: 1050.0 -> 960.0
+Player: HIT LANDED on enemy: Bobba
+Player: Attack window ENDED at progress 0.58352890714094
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack ended
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ACTIVE at progress 0.32598199028498
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ENDED at progress 0.52417360937841
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: kite → suppress
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: suppress shot at (22.0, 0.0, -44.0) (8m)
+Bobba: Switching target to attacker
+Bobba: take_damage(35.5) - HP: 816.0 -> 780.5
+Bobba: took an arrow (780/1500) — still coming
+Arrow set Bobba alight for 30s
+Bobba: Animation finished: bobba/Attack
+Bobba: Attack chain finished at step 0, cooldown and state=CHASING
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Bobba: AXE SWING — overhead, frontal | playing=bobba/AxeAttack len=2.27 speed=1.00
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ACTIVE at progress 0.35149117893535
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ENDED at progress 0.41127838523695
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: switching to closer target Player (7.2m)
+Bobba: Animation finished: bobba/AxeAttack
+Bobba: Attack chain finished at step 0, cooldown and state=CHASING
+CompanionAI[archer]: suppress shot at (22.0, 0.0, -44.0) (11m)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow ground fire created at: (23.49876, -0.977948, -41.33924)
+Dragon completed lap 1
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: FIRE registered at position (23.49876, -0.977948, -41.33924)! Total fires tracked: 11
+Player: Attack window ACTIVE at progress 0.38872057862422 (mode: armed)
+Player: Attack window ENDED at progress 0.57812939747052
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack window ACTIVE at progress 0.36097026596717 (mode: armed)
+CompanionAI[archer]: suppress → kite
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack window ENDED at progress 0.53829053412362
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.43871124365121 (mode: armed)
+Player: Attack window ENDED at progress 0.58430871132456
+CompanionAI[archer]: kite → suppress
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: suppress shot at (23.0, 1.0, -52.0) (22m)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow ground fire created at: (32.9828, -0.739074, -56.923)
+Player: Attack window ACTIVE at progress 0.40133528419468 (mode: armed)
+Player: Attack window ENDED at progress 0.49521224265789
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack ended
+Bobba: FIRE registered at position (32.9828, -0.739074, -56.923)! Total fires tracked: 12
+CompanionAI[archer]: suppress → kite
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack window ACTIVE at progress 0.38603234339657 (mode: armed)
+Player: Attack window ENDED at progress 0.49077890943417
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ACTIVE at progress 0.30063186604047
+Player: Attack ended
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ENDED at progress 0.52684335929884
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Animation finished: bobba/Attack
+Bobba: Combo chain → step 1
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.39583136276213 (mode: armed)
+Knight sword attack: 90.0 HP (buff +0%)
+Bobba: Switching target to attacker
+Bobba: take_damage(90.0) - HP: 258.5 -> 168.5
+Player: HIT LANDED on enemy: Bobba
+Player: Attack window ENDED at progress 0.49285685055927
+Bobba: Attack window ACTIVE at progress 0.24580575224806
+Bobba: Hit player: Player
+Player: Attack ended
+Player: take_damage(28.0) - HP: 150.0 -> 122.0
+Player hit! Damage: 28.0 (blocked: false, blockable: false) HP: 122.0/150.0
+Bobba: HIT LANDED on player (combo step 1, 28 dmg)
+Dragon: hover-breath sequence starting
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ENDED at progress 0.48403392890279
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Animation finished: bobba/Punch
+Bobba: Combo chain → step 2
+Bobba: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Arrow fire DoT tick: Bobba took 18.0 HP
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Attack window ACTIVE at progress 0.35068702250755
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: kite → suppress
+Bobba: Attack window ENDED at progress 0.5964793166372
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: suppress shot at (23.0, 1.0, -51.0) (11m)
+CompanionAI[archer]: suppress → kite
+Arrow ground fire created at: (16.40614, 0.882374, -49.21111)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: Animation finished: bobba/JumpAttack
+Bobba: Attack chain finished at step 2, cooldown and state=CHASING
+Arrow fire DoT tick: Bobba took 18.0 HP
+Bobba: FIRE registered at position (16.40614, 0.882374, -49.21111)! Total fires tracked: 13
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Bobba died!
+Bobba defeated!
+Game restarting: Bobba defeated!
+Player: Showing game result caption: WON!
+Arrow fire DoT tick: Bobba took 18.0 HP
+CompanionAI[archer]: kite → sweep
+Player: Attack window ACTIVE at progress 0.38643430417094 (mode: armed)
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack window ENDED at progress 0.58328920126451
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack window ACTIVE at progress 0.36170630199443 (mode: armed)
+Knight sword CRIT (BACKSTAB!): 200.0 HP (x2.0)
+Player: Attack window ENDED at progress 0.53280900265743
+Arrow fire DoT tick: Bobba took 18.0 HP
+Player: Attack ended

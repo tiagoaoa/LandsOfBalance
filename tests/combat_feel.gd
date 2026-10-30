@@ -85,6 +85,8 @@ func _reset() -> void:
 	player.is_blocking = false
 	player._is_stunned = false
 	player._guard_recoil = false
+	player._counter_time = -1
+	player._pad_sprint = false
 	player._attack_cooldown = 0
 	player._attack_input_buffer = 0
 	player._dodge_input_buffer = 0
@@ -175,9 +177,24 @@ func _input_checks() -> void:
 	await _frames(70)
 	_check(not player.is_running and player._stamina.current_stamina == 100,
 			"full analog stick moves without automatic sprint drain")
+	var sprint := InputEventJoypadButton.new()
+	sprint.button_index = JOY_BUTTON_LEFT_STICK
+	sprint.pressed = true
+	Input.parse_input_event(sprint)
+	Input.flush_buffered_events()
+	sprint.pressed = false
+	Input.parse_input_event(sprint)
+	Input.flush_buffered_events()
+	await _frames(45)
+	_check(player.is_running and player._stamina.current_stamina < 100,
+			"L3 click latches sprint and spends stamina after button release")
+	_check(Vector2(player.velocity.x, player.velocity.z).length() > 6.5,
+			"paladin sprint reaches its 7 m/s movement speed (%.2f)" % Vector2(player.velocity.x, player.velocity.z).length())
 	stick.axis_value = 0
 	Input.parse_input_event(stick)
 	Input.flush_buffered_events()
+	await _frames(4)
+	_check(not player.is_running and not player._pad_sprint, "centering stick ends sprint")
 	player.ai_driven = true
 	_reset()
 	player.ai_driven = false
@@ -357,7 +374,7 @@ func _bobba_checks() -> void:
 	_check(bobba.velocity.x == 0, "Bobba lunge keeps committed heading")
 	bobba._on_animation_finished(bobba.AXE_ATTACK.anim)
 	bobba._handle_chasing(0.1, 2)
-	_check(Vector2(bobba.velocity.x, bobba.velocity.z).length() == 0 and bobba.attack_cooldown >= 1.1,
+	_check(Vector2(bobba.velocity.x, bobba.velocity.z).length() == 0 and bobba.attack_cooldown >= 0.65,
 			"spent axe gives a stationary counterattack opening")
 	bobba.is_blocking = true
 	bobba._start_combo_attack(0)
@@ -371,6 +388,12 @@ func _bobba_checks() -> void:
 			"posture break interrupts attack and opens a critical")
 	bobba.state = bobba.State.CHASING
 	bobba._riposte_ready = false
+	bobba._start_combo_attack(0)
+	player._get_heavy_attack().apply_to(bobba, player)
+	_check(bobba.state == bobba.State.ATTACKING,
+			"recent posture break cannot immediately be chained into another stagger")
+	bobba.state = bobba.State.CHASING
+	bobba._poise._unstoppable_timer = 0
 	bobba._poise.current_poise = 100
 	bobba.is_blocking = true
 	player.position = Vector3(0, 0, 0)

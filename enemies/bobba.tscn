@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://bobba_enemy_scene"]
 
 [ext_resource type="Script" path="res://enemies/bobba.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://assets/bobba/bobba_v2.glb" id="2_model"]
+[ext_resource type="PackedScene" path="res://assets/bobba/bobba_grip.glb" id="2_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_bobba"]
 radius = 0.75
@@ -25,7 +25,8 @@ root_node = NodePath("..")
 [node name="NameLabel" type="Label3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.2, 0)
 billboard = 1
-no_depth_test = true
+no_depth_test = false
+visible = false
 modulate = Color(1, 0.3, 0.3, 1)
 text = "Bobba"
 font_size = 24

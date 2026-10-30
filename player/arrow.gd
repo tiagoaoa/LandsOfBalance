@@ -75,6 +75,11 @@ func _ready() -> void:
 	# Set collision layer (projectile) and mask (detect world/enemies/remote players)
 	collision_layer = 4  # Layer 3 (projectiles)
 	collision_mask = 1 | 2 | 8  # Detect layer 1 (world), layer 2 (enemies), layer 4 (remote players)
+	collision_mask |= 32  # layer 6: fire bowls an arrow can light (ArenaBrazier)
+	#Ignoring the callback alone still lets rigid-body contact stop an arrow.
+	for ally in Perception.all_characters(get_tree()):
+		if ally is PhysicsBody3D and Factions.is_ally(shooter, ally):
+			add_collision_exception_with(ally)
 
 
 func _physics_process(delta: float) -> void:
@@ -275,6 +280,12 @@ func _on_body_entered(body: Node) -> void:
 		return
 
 	_has_hit = true
+	# A burning arrow dropped into a dead brazier lights it: the shaft burns
+	# up in the bowl rather than starting a second fire on the stone.
+	if body.has_method("kindle"):
+		body.kindle()
+		queue_free()
+		return
 	var surface := "flesh" if body.has_method("take_hit") \
 			or body.has_method("take_damage_flat") else Sfx.surface(body)
 	if surface not in ["flesh", "wood"]:
@@ -358,6 +369,14 @@ func _on_body_entered(body: Node) -> void:
 func _create_body_fire(body: Node) -> void:
 	if body == null or not is_instance_valid(body) or not (body is Node3D):
 		return
+	#Stone does not burn: the colossus's parts opt out (no aura, no light).
+	if body.has_meta(&"no_body_fire"):
+		return
+	#One burn per body. Repeated arrows must not stack thirty-second auras
+	#until fire alone kills the boss while the paladin watches.
+	for child in body.get_children():
+		if child.is_in_group("body_fire") and not child.is_queued_for_deletion():
+			return
 	var fire_node: Node3D = FireFX.create_ground_fire(
 			body, global_position, "ArrowBodyFire", GROUND_FIRE_LIFETIME, true, false)
 	fire_node.add_to_group("body_fire")
@@ -403,7 +422,8 @@ func _attach_fire_aura(fire_node: Node3D) -> void:
 		var aura: DamageAuraAreaClass = DamageAuraAreaClass.new()
 		aura.name = "GroundFireAura"
 		aura.radius = GROUND_FIRE_RADIUS
-		aura.damage_per_sec = GROUND_FIRE_DAMAGE_PER_SEC
+		aura.damage_per_sec = 6.0 if fire_node.is_in_group("body_fire") \
+				else GROUND_FIRE_DAMAGE_PER_SEC
 		aura.tick_interval = 1.0
 		aura.lifetime = GROUND_FIRE_LIFETIME
 		# Excludes the shooter AND everyone on his side — this is the fire the
@@ -412,7 +432,7 @@ func _attach_fire_aura(fire_node: Node3D) -> void:
 		aura.ticked.connect(func(damaged: Array) -> void:
 			for b in damaged:
 				print("Arrow fire DoT tick: %s took %.1f HP" % [
-					b.name, GROUND_FIRE_DAMAGE_PER_SEC
+					b.name, aura.damage_per_sec
 				]))
 		#Impacts arrive inside the physics contact callback.
 		fire_node.add_child.call_deferred(aura)

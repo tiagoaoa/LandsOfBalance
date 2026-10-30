@@ -5,6 +5,13 @@ var attacker: Node3D
 var failures := 0
 
 
+class ParryTarget extends Node3D:
+	var parries := 0
+
+	func on_parried(_player: Node3D) -> void:
+		parries += 1
+
+
 class FallenAlly extends Node3D:
 	var is_dead := true
 
@@ -31,7 +38,7 @@ func _ready() -> void:
 	player.set_process(false)
 	player._spawn_immunity_timer = 0.0
 	player._character_model.rotation.y = PI
-	attacker = Node3D.new()
+	attacker = ParryTarget.new()
 	add_child(attacker)
 	attacker.position = Vector3(0, 0, -2)
 	_check(player.is_on_floor(), "player grounded")
@@ -39,11 +46,13 @@ func _ready() -> void:
 	_guard_checks()
 	_attack_checks()
 	_trigger_checks()
+	_counter_checks()
 	_roll_checks()
 	_stamina_checks()
 	_archer_stamina_checks()
 	_paladin_stamina_checks()
 	_revive_controls_checks()
+	_crawl_controls_checks()
 	await _movement_checks()
 	await _lock_checks()
 	await _remote_checks()
@@ -68,6 +77,7 @@ func _check(ok: bool, label: String) -> void:
 
 
 func _reset() -> void:
+	player._counter_time = -1
 	player.is_attacking = false
 	player.is_rolling = false
 	player.is_parrying = false
@@ -105,9 +115,9 @@ func _guard_checks() -> void:
 			"guard break leaves a punish window")
 
 
-func _trigger(value: float) -> void:
+func _trigger(value: float, axis: int = JOY_AXIS_TRIGGER_RIGHT) -> void:
 	var event := InputEventJoypadMotion.new()
-	event.axis = JOY_AXIS_TRIGGER_LEFT
+	event.axis = axis
 	event.axis_value = value
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
@@ -117,19 +127,61 @@ func _trigger_checks() -> void:
 	_reset()
 	player.ai_driven = false
 	_trigger(.15)
-	_check(not player.is_attacking, "LT drift does not attack")
+	_check(not player.is_attacking, "RT drift does not attack")
 	_trigger(.8)
-	_check(player.is_attacking and player._combo_step == 0, "LT starts paladin sword attack")
-	_check(is_equal_approx(player._stamina.current_stamina, 75), "LT keeps paladin stamina cost")
+	_check(player.is_attacking and player._combo_step == 0, "RT starts paladin sword attack")
+	_check(is_equal_approx(player._stamina.current_stamina, 75), "RT keeps paladin stamina cost")
 	_trigger(.95)
 	_trigger(.49)
 	_trigger(.8)
-	_check(player._combo_clicks_buffered == 0, "holding LT and threshold jitter do not queue swings")
+	_check(player._combo_clicks_buffered == 0, "holding RT and threshold jitter do not queue swings")
 	_trigger(.1)
-	_check(player._combo_clicks_buffered == 0, "LT release does not attack")
+	_check(player._combo_clicks_buffered == 0, "RT release does not attack")
 	_trigger(.9)
-	_check(player._combo_clicks_buffered == 1, "another LT press queues one combo follow-up")
+	_check(player._combo_clicks_buffered == 1, "another RT press queues one combo follow-up")
 	_trigger(0)
+	player.ai_driven = true
+	_reset()
+
+
+func _counter_checks() -> void:
+	player.ai_driven = false
+	_reset()
+	_trigger(.8, JOY_AXIS_TRIGGER_LEFT)
+	player._update_block_state()
+	_check(player.is_blocking and not player.is_attacking, "LT raises shield without attacking")
+	_trigger(0, JOY_AXIS_TRIGGER_LEFT)
+	player._update_block_state()
+	_check(not player.is_blocking, "LT release lowers shield")
+	for time in [0.0, 0.10, 0.28]:
+		_reset()
+		player.is_blocking = false
+		attacker.position.z = -2
+		_trigger(0)
+		_trigger(.8)
+		player._counter_time = time
+		var parries: int = attacker.parries
+		var landed: bool = player.take_hit(20, Vector3.ZERO, false, attacker, true)
+		if time == 0.10:
+			_check(not landed and attacker.parries == parries + 1 and player.is_parrying,
+					"timed RT deflects frontal contact into a parry")
+			_check(player.current_health == player.max_health and not player.is_attacking,
+					"counter stops the sword and negates incoming damage")
+		else:
+			_check(landed and attacker.parries == parries,
+					"mistimed RT takes damage at %.2fs" % time)
+	_reset()
+	_trigger(0)
+	_trigger(.8)
+	player._counter_time = .12
+	_trigger(.95)
+	_trigger(.1)
+	_trigger(.8)
+	_check(is_equal_approx(player._counter_time, .12), "queued or held RT cannot extend the parry window")
+	attacker.position.z = 2
+	_check(player.take_hit(20, Vector3.ZERO, false, attacker, true), "RT counter cannot parry a rear strike")
+	_trigger(0)
+	attacker.position.z = -2
 	player.ai_driven = true
 	_reset()
 
@@ -283,6 +335,26 @@ func _pad_y(pressed: bool) -> void:
 	Input.flush_buffered_events()
 
 
+func _crawl_controls_checks() -> void:
+	_reset()
+	player.ai_driven = false
+	player._crouch_locked_out = false
+	var event := InputEventJoypadButton.new()
+	event.button_index = JOY_BUTTON_LEFT_SHOULDER
+	event.pressed = true
+	Input.parse_input_event(event)
+	Input.flush_buffered_events()
+	player._physics_process(1.0 / 60.0)
+	_check(player.is_crouching and not player.is_parrying and not player.is_attacking,
+			"holding LB crawls without starting an attack or parry")
+	event.pressed = false
+	Input.parse_input_event(event)
+	Input.flush_buffered_events()
+	player._physics_process(1.0 / 60.0)
+	_check(not player.is_crouching, "releasing LB leaves the crawl stance")
+	player.ai_driven = true
+
+
 func _movement_checks() -> void:
 	_reset()
 	player.is_blocking = false
@@ -381,7 +453,7 @@ func _lighting_checks() -> void:
 	_check(is_equal_approx(world.environment.ambient_light_energy, daylight),
 			"lighting transition starts at current brightness")
 	await get_tree().create_timer(0.1).timeout
-	_check(is_equal_approx(world.environment.ambient_light_energy, 0.55),
+	_check(is_equal_approx(world.environment.ambient_light_energy, LightingManager.NIGHT_SETTINGS.ambient_energy),
 			"lighting transition reaches night preset")
 	light.set_time(0, true)
 	stage.queue_free()

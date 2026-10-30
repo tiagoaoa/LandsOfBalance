@@ -1,0 +1,472 @@
+Godot Engine v4.5.1.stable.official.f62fdbde1 - https://godotengine.org
+
+NetworkManager: Ready, player name: Player_1401
+NetworkManager: Logging to /tmp/lob-souls-contact/godot/app_userdata/Lands of Balance/multiplayer_Player_1401.log
+GameSettings: Singleplayer mode enabled (offline)
+GameSettings: Character class forced to Paladin
+GameSettings: Singleplayer mode (offline, no server connection)
+[MCP Runtime] Disabled by environment or command line
+Player: _ready() starting (ai_companion=false, ai_driven=false)
+Loaded character: UnarmedCharacter from res://assets/characters/paladin_unarmed_v3.glb
+Unarmed AnimationPlayer found: false
+Creating AnimationPlayer for unarmed character
+Loading animations for unarmed - skeleton path: Armature/Skeleton3D
+  Loaded: unarmed/Idle
+  Loaded: unarmed/Walk
+  Loaded: unarmed/Run
+  Loaded: unarmed/StrafeLeft
+  Loaded: unarmed/StrafeRight
+  Loaded: unarmed/Jump
+  Loaded: unarmed/TurnLeft
+  Loaded: unarmed/TurnRight
+  Loaded: unarmed/Attack
+  Loaded: unarmed/Block
+  Loaded: unarmed/ActionToIdle
+  Loaded: unarmed/IdleToFight
+  Loaded: unarmed/ReactHit
+  Loaded: unarmed/Death
+  Loaded: unarmed/Estus
+  Loaded: unarmed/WalkBack
+  Loaded: unarmed/RunBack
+  Loaded: unarmed/Roll
+  Loaded: unarmed/Crouch
+  Loaded: unarmed/CrouchWalkF
+  Loaded: unarmed/CrouchWalkB
+  Loaded: unarmed/CrouchWalkL
+  Loaded: unarmed/CrouchWalkR
+  Composed directional hit reacts for unarmed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto unarmed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for unarmed (apex 0.47s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Loaded character: ArmedCharacter from res://assets/characters/paladin_armed_v3.glb
+Loading animations for armed - skeleton path: Armature/Skeleton3D
+  Loaded: armed/Idle
+  Loaded: armed/Walk
+  Loaded: armed/Run
+  Loaded: armed/Jump
+  Loaded: armed/Attack1
+  Loaded: armed/Attack2
+  Loaded: armed/HeavyAttack
+  Loaded: armed/SwordSlash
+  Loaded: armed/Block
+  Loaded: armed/Sheath
+  Loaded: armed/SpellCast
+  Loaded: armed/Estus
+  Loaded: armed/StrafeLeft
+  Loaded: armed/StrafeRight
+  Loaded: armed/DodgeF
+  Loaded: armed/DodgeB
+  Loaded: armed/DodgeL
+  Loaded: armed/DodgeR
+  Loaded: armed/Roll
+  Loaded: armed/ReactHit
+  Loaded: armed/Death
+  Loaded: armed/WalkBack
+  Loaded: armed/RunBack
+  Loaded: armed/TurnLeft
+  Loaded: armed/TurnRight
+  Loaded: armed/Crouch
+  Loaded: armed/CrouchWalkF
+  Loaded: armed/CrouchWalkB
+  Loaded: armed/CrouchWalkL
+  Loaded: armed/CrouchWalkR
+  Composed directional hit reacts for armed: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto armed retreats: WalkBack, RunBack
+  Composed guard-up locomotion for armed (apex 0.60s): BlockHold, BlockWalk, BlockRun, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack
+Player: Armed skeleton has 69 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightUpLeg
+  Bone 7: mixamorig_RightLeg
+  Bone 8: mixamorig_RightFoot
+  Bone 9: mixamorig_RightToeBase
+  Bone 10: mixamorig_RightToe_End
+  Bone 11: mixamorig_Spine
+  Bone 12: mixamorig_Spine1
+  Bone 13: mixamorig_Spine2
+  Bone 14: mixamorig_LeftShoulder
+  Bone 15: mixamorig_LeftArm
+  Bone 16: mixamorig_LeftForeArm
+  Bone 17: mixamorig_LeftHand
+  Bone 18: mixamorig_LeftHandIndex1
+  Bone 19: mixamorig_LeftHandIndex2
+  Bone 20: mixamorig_LeftHandIndex3
+  Bone 21: mixamorig_LeftHandIndex4
+  Bone 22: mixamorig_LeftHandMiddle1
+  Bone 23: mixamorig_LeftHandMiddle2
+  Bone 24: mixamorig_LeftHandMiddle3
+  Bone 25: mixamorig_LeftHandMiddle4
+  Bone 26: mixamorig_LeftHandPinky1
+  Bone 27: mixamorig_LeftHandPinky2
+  Bone 28: mixamorig_LeftHandPinky3
+  Bone 29: mixamorig_LeftHandPinky4
+  Bone 30: mixamorig_LeftHandRing1
+  Bone 31: mixamorig_LeftHandRing2
+  Bone 32: mixamorig_LeftHandRing3
+  Bone 33: mixamorig_LeftHandRing4
+  Bone 34: mixamorig_LeftHandThumb1
+  Bone 35: mixamorig_LeftHandThumb2
+  Bone 36: mixamorig_LeftHandThumb3
+  Bone 37: mixamorig_LeftHandThumb4
+  Bone 38: mixamorig_Shield_joint
+  Bone 39: mixamorig_Neck
+  Bone 40: mixamorig_Head
+  Bone 41: mixamorig_HeadTop_End
+  Bone 42: mixamorig_LeftEye
+  Bone 43: mixamorig_RightEye
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandPinky1
+  Bone 57: mixamorig_RightHandPinky2
+  Bone 58: mixamorig_RightHandPinky3
+  Bone 59: mixamorig_RightHandPinky4
+  Bone 60: mixamorig_RightHandRing1
+  Bone 61: mixamorig_RightHandRing2
+  Bone 62: mixamorig_RightHandRing3
+  Bone 63: mixamorig_RightHandRing4
+  Bone 64: mixamorig_RightHandThumb1
+  Bone 65: mixamorig_RightHandThumb2
+  Bone 66: mixamorig_RightHandThumb3
+  Bone 67: mixamorig_RightHandThumb4
+  Bone 68: mixamorig_Sword_joint
+Player: Found right hand bone at index 47: mixamorig_RightHand
+Player: Attached sword hitbox to bone: mixamorig_RightHand
+Loaded character: ArcherCharacter from res://assets/characters/archer_v3.glb
+Creating AnimationPlayer for archer character
+Loading animations for archer - skeleton path: Armature/Skeleton3D
+  Loaded: archer/Idle
+  Loaded: archer/Walk
+  Loaded: archer/Run
+  Loaded: archer/Jump
+  Loaded: archer/Attack
+  Loaded: archer/Block
+  Loaded: archer/Sprint
+  Loaded: archer/SpellCast
+  Loaded: archer/ReactHit
+  Loaded: archer/DodgeF
+  Loaded: archer/DodgeB
+  Loaded: archer/DodgeL
+  Loaded: archer/DodgeR
+  Loaded: archer/Crouch
+  Loaded: archer/CrouchWalkF
+  Loaded: archer/CrouchWalkB
+  Loaded: archer/CrouchWalkL
+  Loaded: archer/CrouchWalkR
+  Loaded: archer/StrafeLeft
+  Loaded: archer/StrafeRight
+  Loaded: archer/RunStrafeLeft
+  Loaded: archer/RunStrafeRight
+  Loaded: archer/WalkBack
+  Loaded: archer/RunBack
+  Loaded: archer/AimWalk
+  Loaded: archer/AimWalkBack
+  Loaded: archer/AimStrafeLeft
+  Loaded: archer/AimStrafeRight
+  Loaded: archer/Death
+  Loaded: archer/Sheath
+  Loaded: archer/TurnLeft
+  Loaded: archer/TurnRight
+  Loaded: archer/Estus
+  Composed directional hit reacts for archer: ReactHitF, ReactHitB, ReactHitL, ReactHitR
+  Grafted idle upper body onto archer retreats: WalkBack, RunBack
+  Composed guard-up locomotion for archer (apex 0.53s): BlockHold, BlockWalk, BlockRun, BlockSprint, BlockStrafeLeft, BlockStrafeRight, BlockWalkBack, BlockRunBack, BlockRunStrafeLeft, BlockRunStrafeRight
+Player: Added unarmed hitbox to character model
+Characters loaded - Unarmed: true, Armed: true, Archer: true
+WARNING: Nodes with non-equal opposite anchors will have their size overridden after _ready(). 
+If you want to set size, change the anchors or consider using set_deferred().
+     at: _set_size (scene/gui/control.cpp:1476)
+     GDScript backtrace (most recent call first):
+         [0] _on_viewport_resized (res://ui/crosshair.gd:41)
+         [1] _ready (res://ui/crosshair.gd:33)
+         [2] _setup_bow_progress_bar (res://player/player.gd:4113)
+         [3] _ready (res://player/player.gd:677)
+         [4] _ready (res://tests/souls_combat.gd:30)
+Player: Multiplayer disabled - running in singleplayer mode
+Player: Spawned at point 2 (-36.8, 2.0, -98.8) - immune for 2.0s
+NetworkManager: Singleplayer mode - skipping server connection
+Player: Selected character class from GameSettings: 0
+Switched to PALADIN class (HP: 150)
+Player: Could not find Bobba to connect death signal
+NetworkManager: Game scene marked as ready - processing 0 pending remote players
+Player: Notified NetworkManager that game scene is ready
+[SoulsCombat] PASS player grounded
+[SoulsCombat] PASS paladin selected
+Player: Attack ended
+Player: take_damage(3.0) - HP: 150.0 -> 147.0
+Player hit! Damage: 3.0 (blocked: true, blockable: true) HP: 147.0/150.0
+[SoulsCombat] PASS front guard applies weapon chip
+[SoulsCombat] PASS guard impact spends stamina
+Player: Attack ended
+Player: take_damage(20.0) - HP: 147.0 -> 127.0
+Player hit! Damage: 20.0 (blocked: false, blockable: true) HP: 127.0/150.0
+[SoulsCombat] PASS rear hit bypasses guard
+Player: Attack ended
+Player: Attack ended
+Player: take_damage(20.0) - HP: 150.0 -> 130.0
+Player hit! Damage: 20.0 (blocked: false, blockable: true) HP: 130.0/150.0
+[SoulsCombat] PASS guard break drains remainder and drops shield
+[SoulsCombat] PASS guard break leaves a punish window
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+[SoulsCombat] PASS opener starts
+[SoulsCombat] PASS windup cannot damage
+[SoulsCombat] PASS roll cannot cancel windup
+Player: Attack window ACTIVE at progress 0.4 (mode: armed)
+[SoulsCombat] PASS blade contact is active
+Player: Attack window ENDED at progress 0.65
+[SoulsCombat] PASS follow-through cannot damage
+[SoulsCombat] PASS mashing buffers only one step
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+[SoulsCombat] PASS one buffered follow-up starts in recovery
+[SoulsCombat] PASS expired input does not chain
+[SoulsCombat] PASS unaffordable roll cannot cancel a swing
+Player: Attack ended
+Player: swing cancelled into a roll
+[SoulsCombat] PASS paid recovery roll cancels swing
+Player: Attack ended
+[SoulsCombat] PASS RT drift does not attack
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+[SoulsCombat] PASS RT starts paladin sword attack
+[SoulsCombat] PASS RT keeps paladin stamina cost
+[SoulsCombat] PASS holding RT and threshold jitter do not queue swings
+[SoulsCombat] PASS RT release does not attack
+[SoulsCombat] PASS another RT press queues one combo follow-up
+Player: Attack ended
+Player: Attack ended
+[SoulsCombat] PASS LT raises shield without attacking
+[SoulsCombat] PASS LT release lowers shield
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack ended
+Player: take_damage(20.0) - HP: 150.0 -> 130.0
+Player hit! Damage: 20.0 (blocked: false, blockable: true) HP: 130.0/150.0
+[SoulsCombat] PASS mistimed RT takes damage at 0.00s
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack ended
+Player: swing cancelled into a parry
+Player: PARRY! deflected 20.0 damage from @Node3D@117 (t=0.22)
+[SoulsCombat] PASS timed RT deflects frontal contact into a parry
+[SoulsCombat] PASS counter stops the sword and negates incoming damage
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+Player: Attack ended
+Player: take_damage(20.0) - HP: 150.0 -> 130.0
+Player hit! Damage: 20.0 (blocked: false, blockable: true) HP: 130.0/150.0
+[SoulsCombat] PASS mistimed RT takes damage at 0.28s
+Player: Attack ended
+Player: enable_attack_hitbox() - resetting _has_hit_this_attack to false
+[SoulsCombat] PASS queued or held RT cannot extend the parry window
+Player: Attack ended
+Player: take_damage(20.0) - HP: 150.0 -> 130.0
+Player hit! Damage: 20.0 (blocked: false, blockable: true) HP: 130.0/150.0
+[SoulsCombat] PASS RT counter cannot parry a rear strike
+Player: Attack ended
+Player: Attack ended
+Player: Hit dodged - roll i-frames (t=0.15)
+[SoulsCombat] PASS roll iframe negates hit
+Player: Attack ended
+Player: take_damage(20.0) - HP: 150.0 -> 130.0
+Player hit! Damage: 20.0 (blocked: false, blockable: false) HP: 130.0/150.0
+[SoulsCombat] PASS roll recovery is vulnerable
+[SoulsCombat] PASS committed action pauses recovery
+[SoulsCombat] PASS stamina recovers after commitment
+Switched to ARCHER class (HP: 100)
+Player: Attack ended
+[SoulsCombat] PASS archer dodge costs 8.8 stamina
+Player: Attack ended
+[SoulsCombat] PASS archer dodge affordability uses the reduced cost
+Player: Attack ended
+[SoulsCombat] PASS archer sprint costs 5.2 stamina per second
+Player: Attack ended
+Player: take_damage(3.0) - HP: 100.0 -> 97.0
+Player hit! Damage: 3.0 (blocked: true, blockable: true) HP: 97.0/100.0
+[SoulsCombat] PASS archer blocked hits drain 60 percent less stamina
+[SoulsCombat] PASS archer recovery rate is unchanged
+Switched to PALADIN class (HP: 150)
+Player: Attack ended
+[SoulsCombat] PASS switching back restores the paladin's 22 stamina dodge
+Player: Attack ended
+[SoulsCombat] PASS paladin parry still costs 12 stamina
+Player: Attack ended
+[SoulsCombat] PASS paladin sprint still costs 13 stamina per second
+[SoulsCombat] PASS gamepad Y revives without resetting position
+Player(Player): reviving ally…
+[SoulsCombat] PASS holding Y starts the revive channel
+Player(Player): revive interrupted (released or out of range) — progress lost
+[SoulsCombat] PASS releasing Y interrupts the revive
+Player(Player): reviving ally…
+Player(Player): ally revived!
+[SoulsCombat] PASS holding Y for the full channel revives the ally
+Player: Attack ended
+[SoulsCombat] PASS holding LB crawls without starting an attack or parry
+WARNING: An input event object is being parsed more than once in the same frame, which is unsafe.
+If you are generating events in a script, you have to instantiate a new event instead of sending the same one more than once, unless the original one was sent on an earlier frame.
+You can call duplicate() on the event to get a new instance with identical values.
+     at: parse_input_event (core/input/input.cpp:1221)
+     GDScript backtrace (most recent call first):
+         [0] _crawl_controls_checks (res://tests/souls_combat.gd:351)
+         [1] _ready (res://tests/souls_combat.gd:55)
+[SoulsCombat] PASS releasing LB leaves the crawl stance
+Player: Attack ended
+[SoulsCombat] PASS guard slows actual movement
+[SoulsCombat] PASS crouch slows actual movement
+[SoulsCombat] PASS sprinting drains stamina
+[SoulsCombat] PASS lock-on acquires skeleton group
+[SoulsCombat] PASS wall breaks obscured lock
+[SoulsCombat] PASS cannot acquire through wall
+RemotePlayer [73]: Loading Paladin character
+RemotePlayer [73]: Preloaded scene = <PackedScene#-9223371876598805646>
+RemotePlayer [73]: Character model instantiated and added
+RemotePlayer [73]: Found skeleton = Skeleton3D:<Skeleton3D#165591124648>
+RemotePlayer [73]: Hips position Y = 0.955795
+RemotePlayer [73]: Final scale = (1.0, 1.0, 1.0)
+RemotePlayer [73]: Starting deferred animation load
+RemotePlayer: Loading paladin animations - skeleton path: Armature/Skeleton3D
+RemotePlayer: Loaded animation: paladin/SwordSlash
+RemotePlayer: Loaded animation: paladin/Attack1
+RemotePlayer: Loaded animation: paladin/Attack2
+RemotePlayer: Loaded animation: paladin/HeavyAttack
+RemotePlayer: Loaded animation: paladin/Idle
+RemotePlayer: Loaded animation: paladin/Walk
+RemotePlayer: Loaded animation: paladin/Run
+RemotePlayer: Loaded animation: paladin/Jump
+RemotePlayer: Loaded animation: paladin/Attack
+RemotePlayer: Loaded animation: paladin/Block
+RemotePlayer: Loaded animation: paladin/SpellCast
+  Composed guard-up locomotion for paladin (apex 0.60s): BlockHold, BlockWalk, BlockRun
+RemotePlayer: Animation library has: ["paladin/Attack", "paladin/Attack1", "paladin/Attack2", "paladin/Block", "paladin/BlockHold", "paladin/BlockRun", "paladin/BlockWalk", "paladin/HeavyAttack", "paladin/Idle", "paladin/Jump", "paladin/Run", "paladin/SpellCast", "paladin/SwordSlash", "paladin/Walk"]
+RemotePlayer [73]: Animation load complete
+RemotePlayer [73]: Playing paladin/Idle
+RemotePlayer: Setup complete for player 73 (class=0) at position (0.0, 0.0, 0.0)
+RemotePlayer [73]: Forced visible=true on RemotePlayer and Model
+RemotePlayer [73]: Mesh 'Armor and mantle' layers=1 visible=true gi_mode=1
+RemotePlayer [73]: Mesh 'CharacterBody' layers=1 visible=true gi_mode=1
+RemotePlayer [73]: Mesh 'Paladin_J_Nordstrom' layers=1 visible=true gi_mode=1
+RemotePlayer [73]: Mesh 'Paladin_J_Nordstrom_Helmet' layers=1 visible=true gi_mode=1
+RemotePlayer [73]: Mesh 'WovenCape' layers=1 visible=true gi_mode=1
+RemotePlayer [73]: Model visible=true, mesh_count=5, model_pos=(0.0, 0.0, 0.0)
+RemotePlayer: Applying tint to character model: Model:<Node3D#165557570381>
+[SoulsCombat] PASS remote player loads finisher
+[SoulsCombat] PASS remote finisher matches local duration
+Bobba: Found model: Model
+Bobba: Force-applying material to model
+Bobba: Checking node Model [Node3D]
+Bobba: Checking node Armature [Node3D]
+Bobba: Checking node Skeleton3D [Skeleton3D]
+Bobba: Checking node CharacterBody [MeshInstance3D]
+Bobba: CharacterBody keeps its authored material
+Bobba: Checking node AnimationPlayer [AnimationPlayer]
+Bobba: hit-flash driving 1 material(s)
+Bobba: Found AnimationPlayer: AnimationPlayer
+Bobba: AnimationPlayer root node: ..
+Bobba: Loaded animation bobba/Idle
+Bobba: Loaded animation bobba/Walk
+Bobba: Loaded animation bobba/Run
+Bobba: Loaded animation bobba/Attack
+Bobba: Loaded animation bobba/Punch
+Bobba: Loaded animation bobba/Roar
+Bobba: Loaded animation bobba/Dying
+Bobba: Loaded animation bobba/JumpAttack
+Bobba: Loaded animation bobba/AxeAttack
+Bobba: composed clips: HitReact, HitReactLight, AxeIdle, AxeWalk, AxeRun
+Bobba: AxeAttack came from an imported clip, NOT from bobba_anims.gd
+Bobba: Available animations after load: ["bobba/Attack", "bobba/AxeAttack", "bobba/AxeIdle", "bobba/AxeRun", "bobba/AxeWalk", "bobba/Dying", "bobba/HitReact", "bobba/HitReactLight", "bobba/Idle", "bobba/JumpAttack", "bobba/Punch", "bobba/Roar", "bobba/Run", "bobba/Walk"]
+Bobba: Skeleton has 64 bones:
+  Bone 0: mixamorig_Hips
+  Bone 1: mixamorig_LeftUpLeg
+  Bone 2: mixamorig_LeftLeg
+  Bone 3: mixamorig_LeftFoot
+  Bone 4: mixamorig_LeftToeBase
+  Bone 5: mixamorig_LeftToe_End
+  Bone 6: mixamorig_RightChain1
+  Bone 7: mixamorig_RightChain2
+  Bone 8: mixamorig_RightChain3
+  Bone 9: mixamorig_RightUpLeg
+  Bone 10: mixamorig_RightLeg
+  Bone 11: mixamorig_RightFoot
+  Bone 12: mixamorig_RightToeBase
+  Bone 13: mixamorig_RightToe_End
+  Bone 14: mixamorig_Spine
+  Bone 15: mixamorig_Spine1
+  Bone 16: mixamorig_Spine2
+  Bone 17: mixamorig_LeftShoulder
+  Bone 18: mixamorig_LeftArm
+  Bone 19: mixamorig_LeftForeArm
+  Bone 20: mixamorig_LeftHand
+  Bone 21: mixamorig_LeftHandIndex1
+  Bone 22: mixamorig_LeftHandIndex2
+  Bone 23: mixamorig_LeftHandIndex3
+  Bone 24: mixamorig_LeftHandIndex4
+  Bone 25: mixamorig_LeftHandMiddle1
+  Bone 26: mixamorig_LeftHandMiddle2
+  Bone 27: mixamorig_LeftHandMiddle3
+  Bone 28: mixamorig_LeftHandMiddle4
+  Bone 29: mixamorig_LeftHandRing1
+  Bone 30: mixamorig_LeftHandRing2
+  Bone 31: mixamorig_LeftHandRing3
+  Bone 32: mixamorig_LeftHandRing4
+  Bone 33: mixamorig_LeftHandThumb1
+  Bone 34: mixamorig_LeftHandThumb2
+  Bone 35: mixamorig_LeftHandThumb3
+  Bone 36: mixamorig_LeftHandThumb4
+  Bone 37: mixamorig_Neck
+  Bone 38: mixamorig_Head
+  Bone 39: mixamorig_HeadTop_End
+  Bone 40: mixamorig_RightRope1
+  Bone 41: mixamorig_RightRope2
+  Bone 42: mixamorig_RightRope3
+  Bone 43: mixamorig_RightRope4
+  Bone 44: mixamorig_RightShoulder
+  Bone 45: mixamorig_RightArm
+  Bone 46: mixamorig_RightForeArm
+  Bone 47: mixamorig_RightHand
+  Bone 48: mixamorig_RightHandIndex1
+  Bone 49: mixamorig_RightHandIndex2
+  Bone 50: mixamorig_RightHandIndex3
+  Bone 51: mixamorig_RightHandIndex4
+  Bone 52: mixamorig_RightHandMiddle1
+  Bone 53: mixamorig_RightHandMiddle2
+  Bone 54: mixamorig_RightHandMiddle3
+  Bone 55: mixamorig_RightHandMiddle4
+  Bone 56: mixamorig_RightHandRing1
+  Bone 57: mixamorig_RightHandRing2
+  Bone 58: mixamorig_RightHandRing3
+  Bone 59: mixamorig_RightHandRing4
+  Bone 60: mixamorig_RightHandThumb1
+  Bone 61: mixamorig_RightHandThumb2
+  Bone 62: mixamorig_RightHandThumb3
+  Bone 63: mixamorig_RightHandThumb4
+Bobba: Attached left hand hitbox to bone: mixamorig_LeftHand
+Bobba: axe attached to bone mixamorig_RightHand
+Bobba: Attached right hand hitbox to bone: mixamorig_RightHand
+NetworkManager: Registered entity type=0 id=1
+Bobba: Switching target to attacker
+Bobba: take_damage(90.0) - HP: 1500.0 -> 1410.0
+[SoulsCombat] PASS finisher applies authored poise damage
+Bobba: Switching target to attacker
+Bobba: STAGGERED
+Bobba: UNSTOPPABLE
+Bobba: take_damage(90.0) - HP: 1410.0 -> 1320.0
+[SoulsCombat] PASS repeated heavy blows stagger enemy
+LightingManager: applying DAY (sun energy -> 1.9)
+LightingManager: applying NIGHT (sun energy -> 0.0)
+[SoulsCombat] PASS lighting transition starts at current brightness
+[SoulsCombat] PASS lighting transition reaches night preset
+LightingManager: applying DAY (sun energy -> 1.9)
+[SoulsCombat] failures=0
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2514)
